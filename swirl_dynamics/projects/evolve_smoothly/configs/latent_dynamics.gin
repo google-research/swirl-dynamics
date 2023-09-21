@@ -1,0 +1,133 @@
+from __gin__ import dynamic_registration
+
+from flax import linen as nn
+import jax
+import optax
+import orbax
+from swirl_dynamics.data import tfgrain_transforms as transforms
+from swirl_dynamics.projects.evolve_smoothly import ansatzes
+from swirl_dynamics.projects.evolve_smoothly import data_pipelines
+from swirl_dynamics.projects.evolve_smoothly import encode_decode
+from swirl_dynamics.projects.evolve_smoothly import latent_dynamics
+from swirl_dynamics.lib.networks import encoders
+from swirl_dynamics.lib.networks import hyper_unet
+from swirl_dynamics.lib.solvers import ode
+from swirl_dynamics.templates import callbacks
+from swirl_dynamics.templates import train
+from swirl_dynamics.templates import train_states
+
+
+# Must be overriden
+WORKDIR = %gin.REQUIRED
+ENCODER_CKPT = "..."
+
+# ********************
+# Train Function
+# ********************
+train.run:
+  train_dataloader = @train/data_pipelines.create_latent_dynamics_pipeline()
+  trainer = @latent_dynamics.LatentDynamics()
+  workdir = %WORKDIR
+  total_train_steps = 1000000
+  metric_aggregation_steps = 50
+  eval_dataloader = @eval/data_pipelines.create_latent_dynamics_pipeline()
+  eval_every_steps = 2500
+  num_batches_per_eval = 10
+  callbacks = [@callbacks.TrainStateCheckpoint()]
+
+callbacks.TrainStateCheckpoint:
+  base_dir = %WORKDIR
+  options = @orbax.checkpoint.CheckpointManagerOptions()
+
+orbax.checkpoint.CheckpointManagerOptions:
+  save_interval_steps = 20000
+  max_to_keep = 3
+
+# ********************
+# Data
+# ********************
+HDF5_DATASET_PATH = "/swirl_dynamics/hdf5/pde/1d/ks_trajectories.hdf5"
+TIME_DOWNSAMPLE = 1
+RESCALE_TRANSFORM = @transforms.LinearRescale()
+
+train/data_pipelines.create_latent_dynamics_pipeline:
+  hdf5_file_path = %HDF5_DATASET_PATH
+  snapshot_field = "train/u"
+  tspan_field = "train/t"
+  grid_field = "train/x"
+  num_time_steps = 2
+  time_downsample_factor = %TIME_DOWNSAMPLE
+  transformations = [%RESCALE_TRANSFORM]
+  seed = 42
+  batch_size = 32
+
+eval/data_pipelines.create_latent_dynamics_pipeline:
+  hdf5_file_path = %HDF5_DATASET_PATH
+  snapshot_field = "eval/u"
+  tspan_field = "train/t"
+  grid_field = "eval/x"
+  num_time_steps = 5
+  time_downsample_factor = %TIME_DOWNSAMPLE
+  transformations = [%RESCALE_TRANSFORM]
+  seed = 56
+  batch_size = 32
+
+transforms.LinearRescale:
+  feature_name = "x"
+  input_range = (0, 64)
+  output_range = (-1, 1)
+
+# ********************
+# Trainer and Model
+# ********************
+latent_dynamics.LatentDynamicsTrainer:
+  rng = @trainer/jax.random.PRNGKey()
+  optimizer = @optax.adam()
+  model = @latent_dynamics.LatentDynamics()
+
+trainer/jax.random.PRNGKey:
+  seed = 42
+
+optax.adam:
+  learning_rate = 1e-4
+
+latent_dynamics.LatentDynamics:
+  encoder = @encode_decode.EncodeDecodeTrainer.build_inference_fn()
+  ansatz = %ANSATZ
+  latent_dynamics_model = @latent_dynamics.create_hyperunet_dynamics_model()
+  integrator = @ode.RungeKutta4()
+  reconstruction_weight = 0.0
+  latent_weight = 1.0
+  consistency_weight = 1.0
+
+encode_decode.EncodeDecodeTrainer.build_inference_fn:
+  state = @train_states.BasicTrainState.restore_from_orbax_ckpt()
+  encoder = @encode_decode.create_resnet_encoder()
+
+train_states.BasicTrainState.restore_from_orbax_ckpt:
+  ckpt_dir = %ENCODER_CKPT
+
+ANSATZ = @ansatzes.NonLinearFourier()
+ansatzes.NonLinearFourier:
+  model = @ansatzes.nonlinear_fourier.NonLinearFourier()
+
+ansatzes.nonlinear_fourier.NonLinearFourier:
+  features = (4, 4)
+  num_freqs = 3
+  act_fn = @jax.numpy.sin
+  dyadic = True
+  zero_freq = True
+
+encode_decode.create_resnet_encoder:
+  ansatz = %ANSATZ
+  filters = 1
+  num_levels = 4
+  num_resnet_blocks = 1
+  kernel_size = (5,)
+  act_fn = @nn.tanh
+
+latent_dynamics.create_hyperunet_dynamics_model:
+  ansatz = %ANSATZ
+  embed_dims = (4, 256, 1024)
+  act_fn = @nn.swish
+  use_layernorm = True

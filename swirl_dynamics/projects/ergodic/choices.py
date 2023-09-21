@@ -1,0 +1,161 @@
+# Copyright 2023 The swirl_dynamics Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Training choices.
+
+enum.Enum classes that define the various experiment choices, such as system,
+learned model integrator, neural architecture, etc.
+"""
+
+from collections.abc import Callable
+import enum
+import functools
+
+from flax import linen as nn
+import jax
+import ml_collections
+from swirl_dynamics.lib.networks import convnets
+from swirl_dynamics.lib.networks import fno
+from swirl_dynamics.lib.networks import nonlinear_fourier
+from swirl_dynamics.lib.solvers import ode
+from swirl_dynamics.projects.ergodic import measure_distances
+
+
+Array = jax.Array
+MeasureDistFn = Callable[[Array, Array], float | Array]
+
+
+class Experiment(enum.Enum):
+  """Experiment choices.
+
+  1. Lorenz 63 system (lorenz63)
+  2. Kuramoto-Sivashinsky system, on a 1D grid (ks_1d)
+  3. Navier-Stokes with Kolmogorov forcing, on a 2D grid (ns_2d)
+  """
+
+  L63 = "lorenz63"
+  KS_1D = "ks_1d"
+  NS_2D = "ns_2d"
+
+
+class Integrator(enum.Enum):
+  """Integrator choices."""
+
+  EULER = "ExplicitEuler"
+  RK4 = "RungeKutta4"
+  ONE_STEP_DIRECT = "OneStepDirect"
+  MULTI_STEP_DIRECT = "MultiStepDirect"
+
+  def dispatch(
+      self,
+  ) -> ode.ScanOdeSolver | ode.MultiStepScanOdeSolver:
+    """Dispatch integator.
+
+    Returns:
+      ScanOdeSolver | MultiStepScanOdeSolver
+    """
+    # TODO(yairschiff): Profile if the moveaxis call required here introduces a
+    # bottleneck
+    return {
+        "ExplicitEuler": ode.ExplicitEuler(time_axis_pos=1),
+        "RungeKutta4": ode.RungeKutta4(time_axis_pos=1),
+        "OneStepDirect": ode.OneStepDirect(time_axis_pos=1),
+        "MultiStepDirect": ode.MultiStepDirect(time_axis_pos=1),
+    }[self.value]
+
+
+class MeasureDistance(enum.Enum):
+  """Measure distance choices."""
+
+  MMD = "MMD"
+  MMD_DIST = "MMD_DIST"
+  SD = "SD"
+
+  def dispatch(
+      self,
+      downsample_factor: int = 1,
+  ) -> measure_distances.MeasureDistFn:
+    """Dispatch measure distance.
+
+    Args:
+      downsample_factor: downsample factor for empirical distribution samples.
+
+    Returns:
+      Measure distance function.
+    """
+    dist_fn = {
+        "MMD": measure_distances.mmd,
+        "MMD_DIST": measure_distances.mmd_distributed,
+        "SD": measure_distances.sinkhorn_div,
+    }[self.value]
+    if downsample_factor > 1:
+      return functools.partial(
+          measure_distances.spatial_downsampled_dist,
+          dist_fn,
+          spatial_downsample=downsample_factor,
+      )
+    return dist_fn
+
+
+class Model(enum.Enum):
+  """Model choices."""
+
+  FNO = "Fno"
+  FNO_2D = "Fno2d"
+  MLP = "MLP"
+  PERIODIC_CONV_NET_MODEL = "PeriodicConvNetModel"
+
+  def dispatch(self, conf: ml_collections.ConfigDict) -> nn.Module:
+    """Dispatch model.
+
+    Args:
+      conf: Config dictionary.
+
+    Returns:
+      nn.Module
+    """
+    if self.value == Model.MLP.value:
+      return nonlinear_fourier.MLP(features=conf.mlp_sizes, act_fn=nn.swish)
+    if self.value == Model.PERIODIC_CONV_NET_MODEL.value:
+      return convnets.PeriodicConvNetModel(
+          latent_dim=conf.latent_dim,
+          num_levels=conf.num_levels,
+          num_processors=conf.num_processors,
+          encoder_kernel_size=conf.encoder_kernel_size,
+          decoder_kernel_size=conf.decoder_kernel_size,
+          processor_kernel_size=conf.processor_kernel_size,
+          padding=conf.padding,
+          is_input_residual=conf.is_input_residual,
+      )
+    if self.value == Model.FNO.value:
+      return fno.Fno(
+          out_channels=conf.out_channels,
+          hidden_channels=conf.hidden_channels,
+          num_modes=conf.num_modes,
+          lifting_channels=conf.lifting_channels,
+          projection_channels=conf.projection_channels,
+          num_blocks=conf.num_blocks,
+          layers_per_block=conf.layers_per_block,
+          block_skip_type=conf.block_skip_type,
+          fft_norm=conf.fft_norm,
+          separable=conf.separable,
+      )
+    if self.value == Model.FNO_2D.value:
+      return fno.Fno2d(
+          out_channels=conf.out_channels,
+          num_modes=conf.num_modes,
+          width=conf.width,
+          fft_norm=conf.fft_norm
+      )
+    raise ValueError()

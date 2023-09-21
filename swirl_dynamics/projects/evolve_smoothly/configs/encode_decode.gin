@@ -1,0 +1,104 @@
+from __gin__ import dynamic_registration
+
+from flax import linen as nn
+import jax
+import optax
+import orbax
+from swirl_dynamics.data import tfgrain_transforms as transforms
+from swirl_dynamics.projects.evolve_smoothly import ansatzes
+from swirl_dynamics.projects.evolve_smoothly import data_pipelines
+from swirl_dynamics.projects.evolve_smoothly import encode_decode
+from swirl_dynamics.lib.networks import encoders
+from swirl_dynamics.templates import callbacks
+from swirl_dynamics.templates import train
+
+
+# Must be overriden
+WORKDIR = %gin.REQUIRED
+
+# ********************
+# Train Function
+# ********************
+train.run:
+  train_dataloader = @train/data_pipelines.create_encode_decode_pipeline()
+  trainer = @encode_decode.EncodeDecodeTrainer()
+  workdir = %WORKDIR
+  total_train_steps = 1000000
+  metric_aggregation_steps = 50
+  eval_dataloader = @eval/data_pipelines.create_encode_decode_pipeline()
+  eval_every_steps = 2500
+  num_batches_per_eval = 10
+  callbacks = [@callbacks.TrainStateCheckpoint()]
+
+callbacks.TrainStateCheckpoint:
+  base_dir = %WORKDIR
+  options = @orbax.checkpoint.CheckpointManagerOptions()
+
+orbax.checkpoint.CheckpointManagerOptions:
+  save_interval_steps = 20000
+  max_to_keep = 3
+
+# ********************
+# Data
+# ********************
+HDF5_DATASET_PATH = "/swirl_dynamics/hdf5/pde/1d/ks_trajectories.hdf5"
+RESCALE_TRANSFORM = @transforms.LinearRescale()
+
+train/data_pipelines.create_encode_decode_pipeline:
+  hdf5_file_path = %HDF5_DATASET_PATH
+  snapshot_field = "train/u"
+  grid_field = "train/x"
+  transformations = [%RESCALE_TRANSFORM]
+  seed = 42
+  batch_size = 32
+
+eval/data_pipelines.create_encode_decode_pipeline:
+  hdf5_file_path = %HDF5_DATASET_PATH
+  snapshot_field = "eval/u"
+  grid_field = "eval/x"
+  transformations = [%RESCALE_TRANSFORM]
+  seed = 56
+  batch_size = 32
+
+transforms.LinearRescale:
+  feature_name = "x"
+  input_range = (0, 64)
+  output_range = (-1, 1)
+
+# ********************
+# Trainer and Model
+# ********************
+encode_decode.EncodeDecodeTrainer:
+  rng = @trainer/jax.random.PRNGKey()
+  optimizer = @optax.adam()
+  model = @encode_decode.EncodeDecode()
+
+trainer/jax.random.PRNGKey:
+  seed = 42
+
+optax.adam:
+  learning_rate = 1e-4
+
+encode_decode.EncodeDecode:
+  ansatz = @ansatzes.NonLinearFourier()
+  encoder = @encoders.EncoderResNet()
+  snapshot_dims = (512, 1)
+  consistency_weight = 1.0
+
+ansatzes.NonLinearFourier:
+  model = @ansatzes.nonlinear_fourier.NonLinearFourier()
+
+ansatzes.nonlinear_fourier.NonLinearFourier:
+  features = (4, 4)
+  num_freqs = 3
+  act_fn = @jax.numpy.sin
+  dyadic = True
+  zero_freq = True
+
+encoders.EncoderResNet:
+  filters = 1
+  dim_out = 85
+  num_levels = 4
+  num_resnet_blocks = 1
+  kernel_size = (5,)
+  act_fn = @nn.tanh

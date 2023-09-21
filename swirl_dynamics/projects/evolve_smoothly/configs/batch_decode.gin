@@ -1,0 +1,78 @@
+from __gin__ import dynamic_registration
+
+import jax
+import optax
+import orbax
+from swirl_dynamics.data import tfgrain_transforms as transforms
+from swirl_dynamics.projects.evolve_smoothly import ansatzes
+from swirl_dynamics.projects.evolve_smoothly import batch_decode
+from swirl_dynamics.projects.evolve_smoothly import data_pipelines
+from swirl_dynamics.templates import callbacks
+from swirl_dynamics.templates import train
+
+# Must be overriden
+WORKDIR = %gin.REQUIRED
+
+NUM_TRAIN_SNAPSHOTS = 5000
+
+# ********************
+# Train Function
+# ********************
+train.run:
+  train_dataloader = @data_pipelines.create_batch_decode_pipeline()
+  trainer = @batch_decode.BatchDecodeTrainer()
+  workdir = %WORKDIR
+  total_train_steps = 10000
+  metric_aggregation_steps = 50
+  callbacks = [@callbacks.TrainStateCheckpoint()]
+
+callbacks.TrainStateCheckpoint:
+  base_dir = %WORKDIR
+  options = @orbax.checkpoint.CheckpointManagerOptions()
+
+orbax.checkpoint.CheckpointManagerOptions:
+  save_interval_steps = 10000
+  max_to_keep = 3
+
+# ********************
+# Data
+# ********************
+data_pipelines.create_batch_decode_pipeline:
+  hdf5_file_path = "/swirl_dynamics/hdf5/pde/1d/ks_trajectories.hdf5"
+  num_snapshots_to_train = %NUM_TRAIN_SNAPSHOTS
+  transformations = [@transforms.LinearRescale()]
+  seed = 42
+  batch_size = 32
+
+transforms.LinearRescale:
+  feature_name = "x"
+  input_range = (0, 64)
+  output_range = (-1, 1)
+
+# ********************
+# Trainer and Model
+# ********************
+batch_decode.BatchDecodeTrainer:
+  rng = @trainer/jax.random.PRNGKey()
+  optimizer = @optax.adam()
+  model = @batch_decode.BatchDecode()
+
+trainer/jax.random.PRNGKey:
+  seed = 42
+
+optax.adam:
+  learning_rate = 1e-4
+
+batch_decode.BatchDecode:
+  ansatz = @ansatzes.NonLinearFourier()
+  num_snapshots = %NUM_TRAIN_SNAPSHOTS
+
+ansatzes.NonLinearFourier:
+  model = @ansatzes.nonlinear_fourier.NonLinearFourier()
+
+ansatzes.nonlinear_fourier.NonLinearFourier:
+  features = (4, 4)
+  num_freqs = 3
+  act_fn = @jax.numpy.sin
+  dyadic = True
+  zero_freq = True

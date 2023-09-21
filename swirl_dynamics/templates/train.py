@@ -1,0 +1,128 @@
+# Copyright 2023 The swirl_dynamics Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Function that runs training."""
+
+from collections.abc import Iterable, Sequence
+from typing import Any
+
+from clu import metric_writers
+import jax
+from swirl_dynamics.templates import callbacks as cb
+from swirl_dynamics.templates import trainers
+from swirl_dynamics.templates import utils
+import tensorflow as tf
+
+
+# TODO(wanzy): package parameters into logical groupings (see cl/497196196)
+def run(
+    *,
+    train_dataloader: Iterable[Any],
+    trainer: trainers.BaseTrainer,
+    workdir: str,
+    # training configs
+    total_train_steps: int,
+    metric_aggregation_steps: int = 50,
+    # evaluation configs
+    eval_dataloader: Iterable[Any] | None = None,
+    eval_every_steps: int = 100,
+    num_batches_per_eval: int = 10,
+    # callbacks
+    callbacks: Sequence[cb.Callback] = tuple(),
+) -> None:
+  """Runs trainer for a training task.
+
+  This function runs a trainer in batches of "metric aggregation" steps, where
+  the step-wise metrics obtained within the same batch are aggregated
+  (i.e. by computing the average and/or std based on the metric defined in
+  the trainer class). The aggregated metrics are then automatically saved to a
+  tensroflow event file in `workdir`. Evaluation runs periodically (i.e. every
+  `eval_every_steps` steps) if an eval dataloader is provided.
+
+  Args:
+    train_dataloader: Training dataloader.
+    trainer: Trainer object hosting the train and eval logic.
+    workdir: Working directory where results (e.g. train & eval metrics) and
+      progress (e.g. checkpoints) are saved.
+    total_train_steps: Total number of training steps to run.
+    metric_aggregation_steps: The trainer runs this number of steps at a time,
+      after which training metrics are aggregated and logged.
+    eval_dataloader: Evaluation dataloader (optional). If set to `None`, no
+      evaluation will run.
+    eval_every_steps: The period, in number of train steps, at which evaluation
+      runs. Must be an integer multiple of `metric_aggregation_steps`.
+    num_batches_per_eval: The number of batches to step through every time
+      evaluation is run (resulting metrics are aggregated).
+    callbacks: Self-contained programs executing non-essential logic (e.g.
+      checkpoint saving, logging, timing, profiling etc.).
+  """
+  if not tf.io.gfile.exists(workdir):
+    tf.io.gfile.makedirs(workdir)
+
+  train_iter = iter(train_dataloader)
+  eval_iter = None
+  run_evaluation = eval_dataloader is not None
+  if run_evaluation:
+    if eval_every_steps % metric_aggregation_steps != 0:
+      raise ValueError(
+          f"`eval_every_steps` ({eval_every_steps}) "
+          "must be an integer multiple of "
+          "`metric_aggregation_steps` ({metric_aggregation_steps})"
+      )
+    eval_iter = iter(eval_dataloader)
+
+  writer = metric_writers.create_default_writer(
+      workdir, just_logging=jax.process_index() > 0
+  )
+
+  for callback in callbacks:
+    callback.metric_writer = writer
+    callback.on_train_begin(trainer)
+
+  cur_step = trainer.train_state.int_step
+  while cur_step < total_train_steps:
+    for callback in callbacks:
+      callback.on_train_batches_begin(trainer)
+
+    num_steps = min(total_train_steps - cur_step, metric_aggregation_steps)
+    train_metrics = trainer.train(train_iter, num_steps).compute()
+    cur_step += num_steps
+    writer.write_scalars(cur_step, train_metrics)
+
+    # At train/eval batch end, callbacks are called in reverse order so that
+    # they are last-in-first-out, loosely resembling nested python contexts.
+    for callback in reversed(callbacks):
+      callback.on_train_batches_end(trainer, train_metrics)
+
+    if run_evaluation:
+      if cur_step == total_train_steps or cur_step % eval_every_steps == 0:
+        for callback in callbacks:
+          callback.on_eval_batches_begin(trainer)
+
+        assert eval_iter is not None
+        eval_metrics = trainer.eval(eval_iter, num_batches_per_eval).compute()
+        eval_metrics_to_log = {
+            k: v
+            for k, v in eval_metrics.items()
+            if utils.is_scalar(v)
+        }
+        writer.write_scalars(cur_step, eval_metrics_to_log)
+
+        for callback in reversed(callbacks):
+          callback.on_eval_batches_end(trainer, eval_metrics)
+
+  for callback in reversed(callbacks):
+    callback.on_train_end(trainer)
+
+  writer.flush()
