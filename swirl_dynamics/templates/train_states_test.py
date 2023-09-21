@@ -14,6 +14,7 @@
 
 import os
 
+from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 import flax
@@ -24,7 +25,9 @@ import optax
 from orbax import checkpoint
 from swirl_dynamics.templates import train_states
 
-mock = absltest.mock
+jax.config.parse_flags_with_absl()
+
+FLAGS = flags.FLAGS
 
 
 class TrainStateTest(parameterized.TestCase):

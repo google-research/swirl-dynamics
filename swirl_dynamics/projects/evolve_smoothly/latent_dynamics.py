@@ -70,7 +70,7 @@ class LatentDynamics(models.BaseModel):
   latent_weight: float = 1.0
   consistency_weight: float = 1.0
 
-  def initialize(self, rng: jax.random.KeyArray) -> models.ModelVariable:
+  def initialize(self, rng: Array) -> models.ModelVariable:
     """Initializes the variables of the dynamics model."""
     sample_input = jnp.ones((1, self.ansatz.num_params))
     out, variables = self.latent_dynamics_model.init_with_output(
@@ -83,7 +83,7 @@ class LatentDynamics(models.BaseModel):
       self,
       params: PyTree,
       batch: models.BatchType,
-      rng: jax.random.KeyArray,
+      rng: Array,
       mutables: PyTree,
   ) -> models.LossAndAux:
     """Computes the reconstruction and consistency loss."""
@@ -123,7 +123,7 @@ class LatentDynamics(models.BaseModel):
       self,
       variables: PyTree,
       batch: models.BatchType,
-      rng: jax.random.KeyArray,
+      rng: Array,
   ) -> models.ArrayDict:
     """Evaluates mean, worst-case and std relative l2 errors."""
     ambient_ic, ambient_target = batch["u"][:, 0], batch["u"]

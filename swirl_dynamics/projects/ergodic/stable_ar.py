@@ -83,7 +83,7 @@ class StableARModel(models.BaseModel):
       self,
       params: PyTree,
       batch: models.BatchType,
-      rng: jax.random.KeyArray,
+      rng: Array,
       mutables: PyTree,
   ) -> models.LossAndAux:
     """Computes training loss and metrics."""
@@ -182,7 +182,7 @@ class StableARModel(models.BaseModel):
       variables: PyTree,
       # batch is dict with keys: ['ic', 'true', 'tspan', 'normalize_stats']
       batch: models.BatchType,
-      rng: jax.random.KeyArray,
+      rng: Array,
       **kwargs,
   ) -> models.ArrayDict:
     tspan = batch["tspan"].reshape((-1,))
@@ -308,7 +308,7 @@ class StableARTrainer(trainers.BasicTrainer):
     )
 
   def preprocess_train_batch(
-      self, batch_data: trainers.BatchType, step: int, rng: jax.random.KeyArray
+      self, batch_data: trainers.BatchType, step: int, rng: Array
   ) -> trainers.BatchType:
     """Wrapper method for _preprocess_train_batch.
 
@@ -343,7 +343,7 @@ class StableARTrainer(trainers.BasicTrainer):
     return self._preprocess_train_batch(batch_data, num_time_steps)
 
   def preprocess_eval_batch(
-      self, batch_data: trainers.BatchType, rng: jax.random.KeyArray
+      self, batch_data: trainers.BatchType, rng: Array
   ) -> trainers.BatchType:
     """Preprocessed batch data."""
     if self.conf.num_lookback_steps > 1:
@@ -432,7 +432,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     return jax.jit(trainers.reshape_for_pmap)(batch_dict)
 
   def preprocess_train_batch(
-      self, batch_data: trainers.BatchType, step: int, rng: jax.random.KeyArray
+      self, batch_data: trainers.BatchType, step: int, rng: Array
   ) -> trainers.BatchType:
     """Wrapper method for _preprocess_train_batch.
 
@@ -461,7 +461,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     return self._preprocess_train_batch(batch_data, num_time_steps)
 
   def preprocess_eval_batch(
-      self, batch_data: trainers.BatchType, rng: jax.random.KeyArray
+      self, batch_data: trainers.BatchType, rng: Array
   ) -> trainers.BatchType:
     """Preprocessed batch data."""
     if self.conf.num_lookback_steps > 1:

@@ -61,7 +61,7 @@ class EncodeDecode(models.BaseModel):
     self.snapshot_dims = snapshot_dims
     self.consistency_weight = consistency_weight
 
-  def initialize(self, rng: jax.random.KeyArray) -> models.ModelVariable:
+  def initialize(self, rng: Array) -> models.ModelVariable:
     """Initializes the variables of the encoder."""
     enc_output, enc_vars = self.encoder.init_with_output(
         rng, jnp.ones((1,) + self.snapshot_dims)
@@ -78,7 +78,7 @@ class EncodeDecode(models.BaseModel):
       self,
       params: PyTree,
       batch: models.BatchType,
-      rng: jax.random.KeyArray,
+      rng: Array,
       mutables: PyTree,
   ) -> models.LossAndAux:
     """Computes the reconstruction and consistency loss."""
@@ -108,7 +108,7 @@ class EncodeDecode(models.BaseModel):
     return loss, (metric, mutables)
 
   def eval_fn(
-      self, variables: PyTree, batch: models.BatchType, rng: jax.random.KeyArray
+      self, variables: PyTree, batch: models.BatchType, rng: Array
   ) -> models.ArrayDict:
     """Evaluates mean, worst-case and std relative l2 errors."""
     del rng

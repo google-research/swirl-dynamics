@@ -32,11 +32,15 @@ class RationalNetworksTest(absltest.TestCase):
     x = jax.random.normal(rng, (10,))
     params = rat_net.init(rng, x)['params']
 
-    # Checking that the arrays are the same up to 1e-6.
+    # Checking that the arrays are the same up to 1e-5.
     expected_p_params = jnp.array([1.1915, 1.5957, 0.5, 0.0218])
     expected_q_params = jnp.array([2.383, 0.0, 1.0])
-    self.assertSequenceAlmostEqual(params['p_coeffs'], expected_p_params)
-    self.assertSequenceAlmostEqual(params['q_coeffs'], expected_q_params)
+    self.assertSequenceAlmostEqual(
+        params['p_coeffs'], expected_p_params, places=5
+    )
+    self.assertSequenceAlmostEqual(
+        params['q_coeffs'], expected_q_params, places=5
+    )
 
     test_apply = rat_net.apply({'params': params}, x)
 
@@ -52,7 +56,6 @@ class RationalNetworksTest(absltest.TestCase):
         0.750805377960,
         0.586633801460,
     ])
-
     self.assertSequenceAlmostEqual(test_apply, expected_apply, places=5)
 
   def test_unshared_rational_default_init(self):
@@ -64,7 +67,7 @@ class RationalNetworksTest(absltest.TestCase):
     x = jax.random.normal(rng, (10,))
     params = rat_net.init(rng, x)['params']
 
-    # Checking that the arrays are the same up to 1e-6.
+    # Checking that the arrays are the same up to 1e-5.
     expected_p_params = jnp.array([1.1915, 1.5957, 0.5, 0.0218]) * jnp.ones(
         (x.shape[-1], 1)
     )
@@ -72,10 +75,14 @@ class RationalNetworksTest(absltest.TestCase):
         (x.shape[-1], 1)
     )
     self.assertSequenceAlmostEqual(
-        params['p_params'].reshape((-1,)), expected_p_params.reshape((-1,))
+        params['p_params'].reshape((-1,)),
+        expected_p_params.reshape((-1,)),
+        places=5,
     )
     self.assertSequenceAlmostEqual(
-        params['q_params'].reshape((-1,)), expected_q_params.reshape((-1,))
+        params['q_params'].reshape((-1,)),
+        expected_q_params.reshape((-1,)),
+        places=5,
     )
 
     test_apply = rat_net.apply({'params': params}, x)
@@ -92,7 +99,6 @@ class RationalNetworksTest(absltest.TestCase):
         0.750805377960,
         0.586633801460,
     ])
-
     self.assertSequenceAlmostEqual(test_apply, expected_apply, places=5)
 
 

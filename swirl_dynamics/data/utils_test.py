@@ -14,9 +14,12 @@
 
 import os
 
+from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 from swirl_dynamics.data import utils
+
+FLAGS = flags.FLAGS
 
 
 class UtilsTest(parameterized.TestCase):

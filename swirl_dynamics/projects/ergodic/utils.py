@@ -304,7 +304,7 @@ def sobolev_norm(
   )
 
   # Performing the integration using trapezoidal rule.
-  norm_squared = jnp.sum(mult * u_fft_squared, axis=axes) / (n_x)**dim
+  norm_squared = jnp.sum(mult * u_fft_squared, axis=axes) / (n_x) ** dim
 
   # Returns the mean.
   return jnp.mean(norm_squared)
@@ -358,7 +358,7 @@ def sample_uniform_spherical_shell(
     n_points: int,
     radii: tuple[float, float],
     shape: tuple[int, ...],
-    key: jax.random.KeyArray,
+    key: Array,
 ):
   """Uniform sampling (in angle and radius) from an spherical shell.
 
@@ -379,17 +379,19 @@ def sample_uniform_spherical_shell(
   broadcasting_shape = (n_points,) + len(shape) * (1,)
   # Obtain the correct axis for the sum, depending on the shape.
   # Here we suppose that shape comes in the form (nx, ny, d) or (nx, d).
-  assert len(shape) < 4 and len(shape) >= 2, ("The shape should represent ",
-                                              "one- or two-dimensional points.",
-                                              f" Instead we have shape {shape}")
+  assert len(shape) < 4 and len(shape) >= 2, (
+      "The shape should represent ",
+      "one- or two-dimensional points.",
+      f" Instead we have shape {shape}",
+  )
 
-  axis_sum = (1,) if len(shape) == 2 else (1, 2,)
+  axis_sum = (1,) if len(shape) == 2 else (1, 2)
 
   key_radius, key_vec = jax.random.split(key)
 
-  sampling_radius = jax.random.uniform(key_radius, (n_points,),
-                                       minval=inner_radius,
-                                       maxval=outer_radius)
+  sampling_radius = jax.random.uniform(
+      key_radius, (n_points,), minval=inner_radius, maxval=outer_radius
+  )
   vec = jax.random.normal(key_vec, shape=((n_points,) + shape))
 
   vec_norm = jnp.linalg.norm(vec, axis=axis_sum).reshape(broadcasting_shape)
@@ -416,6 +418,7 @@ def linear_scale_dissipative_target(inputs: Array, scale: float = 1.0):
 
 def plot_cos_sims(dt: Array, traj_length: int, trajs: Array, pred_trajs: Array):
   """Plot cosine similarities over time."""
+
   def sum_non_batch_dims(x: Array) -> Array:
     """Helper method to sum array along all dimensions except the 0th."""
     ndim = x.ndim
@@ -429,17 +432,16 @@ def plot_cos_sims(dt: Array, traj_length: int, trajs: Array, pred_trajs: Array):
     Args:
       x: array of states; shape: batch_size x state_dimension
       y: array of states; shape: batch_size x state_dimension
+
     Returns:
       cosine similarity averaged along batch dimension.
     """
     x_norm = jnp.expand_dims(
-        jnp.sqrt(sum_non_batch_dims((x ** 2))),
-        axis=tuple(range(1, x.ndim))
+        jnp.sqrt(sum_non_batch_dims((x**2))), axis=tuple(range(1, x.ndim))
     )
     x /= x_norm
     y_norm = jnp.expand_dims(
-        jnp.sqrt(sum_non_batch_dims((y ** 2))),
-        axis=tuple(range(1, y.ndim))
+        jnp.sqrt(sum_non_batch_dims((y**2))), axis=tuple(range(1, y.ndim))
     )
     y /= y_norm
     return sum_non_batch_dims(x * y).mean(axis=0)
@@ -450,20 +452,22 @@ def plot_cos_sims(dt: Array, traj_length: int, trajs: Array, pred_trajs: Array):
   # Plot 0.9, 0.8 threshold lines
   ax.plot(
       plot_time,
-      jnp.ones(traj_length)*0.9,
-      color="black", linestyle="dashed",
-      label="0.9 threshold"
+      jnp.ones(traj_length) * 0.9,
+      color="black",
+      linestyle="dashed",
+      label="0.9 threshold",
   )
   ax.plot(
       plot_time,
-      jnp.ones(traj_length)*0.8,
-      color="red", linestyle="dashed",
-      label="0.8 threshold"
+      jnp.ones(traj_length) * 0.8,
+      color="red",
+      linestyle="dashed",
+      label="0.8 threshold",
   )
   # Plot correlation lines
-  cosine_sims = jax.vmap(
-      state_cos_sim, in_axes=(1, 1)
-  )(trajs[:, :traj_length, :], pred_trajs[:, :traj_length, :])
+  cosine_sims = jax.vmap(state_cos_sim, in_axes=(1, 1))(
+      trajs[:, :traj_length, :], pred_trajs[:, :traj_length, :]
+  )
   ax.plot(plot_time, cosine_sims)
   ax.set_xlim([0, t_max])
   ax.set_xlabel(r"$t$")

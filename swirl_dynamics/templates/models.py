@@ -42,7 +42,7 @@ class BaseModel(metaclass=abc.ABCMeta):
   """
 
   @abc.abstractmethod
-  def initialize(self, rng: jax.random.KeyArray) -> ModelVariable:
+  def initialize(self, rng: jax.Array) -> ModelVariable:
     """Initializes variables of the wrapped flax module(s).
 
     This method by design does not take any sample input in its argument. Input
@@ -75,7 +75,7 @@ class BaseModel(metaclass=abc.ABCMeta):
       self,
       params: PyTree,
       batch: BatchType,
-      rng: jax.random.KeyArray,
+      rng: jax.Array,
       mutables: PyTree,
       **kwargs,
   ) -> LossAndAux:
@@ -107,7 +107,7 @@ class BaseModel(metaclass=abc.ABCMeta):
       self,
       variables: PyTree,
       batch: BatchType,
-      rng: jax.random.KeyArray,
+      rng: jax.Array,
       **kwargs,
   ) -> ArrayDict:
     """Computes evaluation metrics."""

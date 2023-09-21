@@ -23,10 +23,12 @@ keywords = [
 # Installed locally with `pip install -e .`
 dependencies = [
   "absl-py",
+  "chex",
   "clu",
+  "etils",
   "flax",
   "h5py",
-  # "grain@git+https://github.com/google/grain",
+  "grain@git+https://github.com/google/grain.git@b80f7066ce1f69317519bf64739e5ff9a463059a",
   "gin-config",
   "jax",
   "numpy",

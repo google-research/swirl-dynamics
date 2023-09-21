@@ -46,7 +46,7 @@ class BatchDecode(models.BaseModel):
     self.ansatz = ansatz
     self.num_snapshots = num_snapshots
 
-  def initialize(self, rng: jax.random.KeyArray) -> models.ModelVariable:
+  def initialize(self, rng: jax.Array) -> models.ModelVariable:
     """Initializes the variables of the ansatz."""
     return jax.vmap(self.ansatz.model.init, in_axes=(0, None))(
         jax.random.split(rng, self.num_snapshots),
@@ -57,7 +57,7 @@ class BatchDecode(models.BaseModel):
       self,
       params: PyTree,
       batch: models.BatchType,
-      rng: jax.random.KeyArray,
+      rng: jax.Array,
       mutables: PyTree,
   ) -> models.LossAndAux:
     """Computes the l2 reconstruction loss."""
@@ -69,7 +69,7 @@ class BatchDecode(models.BaseModel):
     return loss, ({"loss": loss}, mutables)
 
   def eval_fn(
-      self, variables: PyTree, batch: models.BatchType, rng: jax.random.KeyArray
+      self, variables: PyTree, batch: models.BatchType, rng: jax.Array
   ) -> models.ArrayDict:
     """Evaluates mean, worst-case and std relative l2 errors."""
     del rng

@@ -15,6 +15,7 @@
 import io
 import os
 
+from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 from clu import metric_writers
@@ -27,6 +28,9 @@ from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
 from swirl_dynamics.templates import utils
 
+jax.config.parse_flags_with_absl()
+
+FLAGS = flags.FLAGS
 mock = absltest.mock
 
 
