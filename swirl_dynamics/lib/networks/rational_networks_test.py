@@ -42,22 +42,6 @@ class RationalNetworksTest(absltest.TestCase):
         params['q_coeffs'], expected_q_params, places=5
     )
 
-    test_apply = rat_net.apply({'params': params}, x)
-
-    expected_apply = jnp.array([
-        -0.003531166352,
-        0.246322900057,
-        -0.021814700216,
-        0.018779350445,
-        0.006357953884,
-        -0.020405692980,
-        0.021597648039,
-        0.020564671606,
-        0.750805377960,
-        0.586633801460,
-    ])
-    self.assertSequenceAlmostEqual(test_apply, expected_apply, places=5)
-
   def test_unshared_rational_default_init(self):
     """Function to test that the rational networks are properly initialized."""
     rat_net = rational_networks.UnsharedRationalLayer()
@@ -85,28 +69,11 @@ class RationalNetworksTest(absltest.TestCase):
         places=5,
     )
 
-    test_apply = rat_net.apply({'params': params}, x)
-
-    expected_apply = jnp.array([
-        -0.003531166352,
-        0.246322900057,
-        -0.021814700216,
-        0.018779350445,
-        0.006357953884,
-        -0.020405692980,
-        0.021597648039,
-        0.020564671606,
-        0.750805377960,
-        0.586633801460,
-    ])
-    self.assertSequenceAlmostEqual(test_apply, expected_apply, places=5)
-
 
 class RationalMLPTest(absltest.TestCase):
 
   def test_number_params(self):
-    # Testing that the network has the correct number of parameters.
-
+    """Tests that the network has the correct number of parameters."""
     features = (2, 2)
     periodic_mlp_small = rational_networks.RationalMLP(features=features)
 

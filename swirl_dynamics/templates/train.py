@@ -38,7 +38,8 @@ def run(
     eval_dataloader: Iterable[Any] | None = None,
     eval_every_steps: int = 100,
     num_batches_per_eval: int = 10,
-    # callbacks
+    # other configs
+    metric_writer: metric_writers.MultiWriter | None = None,
     callbacks: Sequence[cb.Callback] = tuple(),
 ) -> None:
   """Runs trainer for a training task.
@@ -64,6 +65,8 @@ def run(
       runs. Must be an integer multiple of `metric_aggregation_steps`.
     num_batches_per_eval: The number of batches to step through every time
       evaluation is run (resulting metrics are aggregated).
+    metric_writer: A metric writer that writes scalar metrics to disc. It is
+      also accessible to callbacks for custom writing in other formats.
     callbacks: Self-contained programs executing non-essential logic (e.g.
       checkpoint saving, logging, timing, profiling etc.).
   """
@@ -82,12 +85,13 @@ def run(
       )
     eval_iter = iter(eval_dataloader)
 
-  writer = metric_writers.create_default_writer(
-      workdir, just_logging=jax.process_index() > 0
-  )
+  if metric_writer is None:
+    metric_writer = metric_writers.create_default_writer(
+        workdir, just_logging=jax.process_index() > 0
+    )
 
   for callback in callbacks:
-    callback.metric_writer = writer
+    callback.metric_writer = metric_writer
     callback.on_train_begin(trainer)
 
   cur_step = trainer.train_state.int_step
@@ -98,7 +102,7 @@ def run(
     num_steps = min(total_train_steps - cur_step, metric_aggregation_steps)
     train_metrics = trainer.train(train_iter, num_steps).compute()
     cur_step += num_steps
-    writer.write_scalars(cur_step, train_metrics)
+    metric_writer.write_scalars(cur_step, train_metrics)
 
     # At train/eval batch end, callbacks are called in reverse order so that
     # they are last-in-first-out, loosely resembling nested python contexts.
@@ -113,11 +117,9 @@ def run(
         assert eval_iter is not None
         eval_metrics = trainer.eval(eval_iter, num_batches_per_eval).compute()
         eval_metrics_to_log = {
-            k: v
-            for k, v in eval_metrics.items()
-            if utils.is_scalar(v)
+            k: v for k, v in eval_metrics.items() if utils.is_scalar(v)
         }
-        writer.write_scalars(cur_step, eval_metrics_to_log)
+        metric_writer.write_scalars(cur_step, eval_metrics_to_log)
 
         for callback in reversed(callbacks):
           callback.on_eval_batches_end(trainer, eval_metrics)
@@ -125,4 +127,4 @@ def run(
   for callback in reversed(callbacks):
     callback.on_train_end(trainer)
 
-  writer.flush()
+  metric_writer.flush()

@@ -56,7 +56,7 @@ class SdeSolver(Protocol):
       dynamics: SdeDynamics,
       x0: Array,
       tspan: Array,
-      rng: jax.random.KeyArray,
+      rng: Array,
       params: PyTree,
   ) -> Array:
     """Solves a SDE at given time stamps.
@@ -95,7 +95,7 @@ class ScanSdeSolver:
       x0: Array,
       t0: Array,
       dt: Array,
-      rng: jax.random.KeyArray,
+      rng: Array,
       params: SdeParams,
   ) -> Array:
     """Advances the current state one step forward in time."""
@@ -106,14 +106,14 @@ class ScanSdeSolver:
       dynamics: SdeDynamics,
       x0: Array,
       tspan: Array,
-      rng: jax.random.KeyArray,
+      rng: Array,
       params: SdeParams,
   ) -> Array:
     """Solves a SDE by integrating the step function with `jax.lax.scan`."""
 
     def scan_fun(
         state: tuple[Array, Array],
-        ext: tuple[Array, jax.random.KeyArray],
+        ext: tuple[Array, Array],
     ) -> tuple[tuple[Array, Array], Array]:
       x0, t0 = state
       t_next, step_rng = ext
@@ -138,7 +138,7 @@ class EulerMaruyama(ScanSdeSolver):
       x0: Array,
       t0: Array,
       dt: Array,
-      rng: jax.random.KeyArray,
+      rng: Array,
       params: SdeParams,
   ) -> Array:
     """Makes one Euler-Maruyama integration step in time."""

@@ -17,7 +17,7 @@ import os
 from absl.testing import absltest
 from absl.testing import parameterized
 from clu import metrics as clu_metrics
-import grain.tensorflow as grain
+import grain.python as pygrain
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.templates import callbacks
@@ -25,7 +25,6 @@ from swirl_dynamics.templates import train
 from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
 from swirl_dynamics.templates import utils
-import tensorflow as tf
 
 mock = absltest.mock
 
@@ -92,13 +91,8 @@ class TrainTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    source = grain.TfInMemoryDataSource.from_dataset(
-        tf.data.Dataset.from_tensor_slices(np.ones(10))
-    )
-    sampler = grain.TfDefaultIndexSampler(
-        num_records=10, seed=12, shard_options=grain.NoSharding()
-    )
-    self.dummy_dataloader = grain.TfDataLoader(source=source, sampler=sampler)
+    source = pygrain.RangeDataSource(start=1, stop=10, step=1)
+    self.dummy_dataloader = pygrain.load(source, seed=12, batch_size=1)
 
     # mock trainer with constant metrics returned
     self.test_trainer = mock.Mock(spec=trainers.BasicTrainer)

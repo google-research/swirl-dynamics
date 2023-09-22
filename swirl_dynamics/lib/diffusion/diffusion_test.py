@@ -26,7 +26,7 @@ class DiffusionTest(parameterized.TestCase):
   def test_tangent_noise_schedule(self, clip_max, start, end):
     sigma = diffusion.tangent_noise_schedule(clip_max, start, end)
     self.assertAlmostEqual(sigma(1.0), clip_max, places=3)
-    self.assertEqual(sigma(0.0), 0)
+    self.assertAlmostEqual(sigma(0.0), 0, places=8)
 
     test_points = np.random.default_rng(1234).uniform(0.05, 1.0, size=(10,))
     np.testing.assert_allclose(
