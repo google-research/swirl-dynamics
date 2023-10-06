@@ -103,6 +103,11 @@ def plot_trajectories(
 class KS1DPlotFigures(stable_ar.PlotFigures):
   """Kuramoto Sivashinsky 1D plotting."""
 
+  def __init__(self, cos_sim_plot_steps: int = 500):
+    super().__init__()
+    # Correlation breaks down early, do not need all the steps
+    self.cos_sim_plot_steps = cos_sim_plot_steps
+
   def on_eval_batches_end(
       self, trainer: callbacks.Trainer, eval_metrics: Mapping[str, Array]
   ) -> None:
@@ -126,7 +131,7 @@ class KS1DPlotFigures(stable_ar.PlotFigures):
     figs.update(
         utils.plot_cos_sims(
             dt=dt,
-            traj_length=traj_length,
+            traj_length=min(traj_length, self.cos_sim_plot_steps),
             trajs=eval_metrics["all_trajs"]["trajs"],
             pred_trajs=eval_metrics["all_trajs"]["pred_trajs"],
         )

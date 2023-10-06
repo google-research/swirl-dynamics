@@ -28,11 +28,12 @@ def get_config():
   config = ml_collections.ConfigDict()
   config.experiment = 'ks_1d'
   # Train params
-  config.train_steps = 50_000
+  config.train_steps = 300_000
   config.seed = 42
   config.lr = 1e-4
+  config.use_lr_scheduler = True
   config.metric_aggregation_steps = 50
-  config.save_interval_steps = 5_000
+  config.save_interval_steps = 30_000
   config.max_checkpoints_to_keep = 10
   # Data params
   config.batch_size = 128
@@ -50,20 +51,19 @@ def get_config():
   config.order_sobolev_norm = 1
   config.noise_level = 0.0
 
-  # TODO(yairschiff): Split different models into separate configs
   # Model params
+  config.model = 'PeriodicConvNetModel'  # 'Fno'
+  # TODO(yairschiff): Split CNN and FNO into separate configs
   ########### PeriodicConvNetModel ################
-  # config.model = 'PeriodicConvNetModel'
-  # config.latent_dim = 48
-  # config.num_levels = 4
-  # config.num_processors = 4
-  # config.encoder_kernel_size = (5,)
-  # config.decoder_kernel_size = (5,)
-  # config.processor_kernel_size = (5,)
-  # config.padding = 'CIRCULAR'
-  # config.is_input_residual = True
+  config.latent_dim = 48
+  config.num_levels = 4
+  config.num_processors = 4
+  config.encoder_kernel_size = (5,)
+  config.decoder_kernel_size = (5,)
+  config.processor_kernel_size = (5,)
+  config.padding = 'CIRCULAR'
+  config.is_input_residual = True
   ########### FNO ################
-  config.model = 'Fno'
   config.out_channels = 1
   config.hidden_channels = 64
   config.num_modes = (24,)
@@ -77,14 +77,17 @@ def get_config():
 
   config.num_lookback_steps = 1
   # Update num_time_steps and integrator based on num_lookback_steps setting
-  config.num_time_steps += config.num_lookback_steps - 1
-  if config.num_lookback_steps > 1:
+  config.num_time_steps += config.get_ref('num_lookback_steps') - 1
+  if config.get_ref('num_lookback_steps') > 1:
     config.integrator = 'MultiStepDirect'
   else:
     config.integrator = 'OneStepDirect'
   # Trainer params
+  config.rollout_weighting = 'geometric'
+  config.rollout_weighting_r = 0.9
+  config.rollout_weighting_clip = 10e-4
   config.num_rollout_steps = 1
-  config.train_steps_per_cycle = 5_000
+  config.train_steps_per_cycle = 60_000
   config.time_steps_increase_per_cycle = 1
   config.use_curriculum = False  # Sweepable
   config.use_pushfwd = False  # Sweepable
@@ -106,6 +109,8 @@ def skip(
 
   if not use_curriculum and use_pushfwd:
     return True
+  if measure_dist_lambda > 0.0 and measure_dist_k_lambda == 0.0:
+    return True
   if (
       measure_dist_type == 'SD'
       and measure_dist_lambda == 0.0
@@ -119,87 +124,79 @@ def skip(
 # use option --sweep=False in the command line to avoid sweeping
 def sweep(add):
   """Define param sweep."""
-  for seed in [42]:
-    for normalize in [False, True]:
-      for batch_size in [128]:
-        for lr in [1e-4]:
-          for use_curriculum in [False, True]:
-            for use_pushfwd in [False, True]:
-              for measure_dist_type in ['MMD', 'SD']:
-                for measure_dist_lambda in [0.0, 1.0]:
-                  for measure_dist_k_lambda in [0.0, 1.0, 100.0]:
-                    if use_curriculum:
-                      train_steps_per_cycle = 50_000
-                      time_steps_increase_per_cycle = 1
-                    else:
-                      train_steps_per_cycle = 0
-                      time_steps_increase_per_cycle = 0
-                    if skip(
-                        use_curriculum,
-                        use_pushfwd,
-                        measure_dist_lambda,
-                        measure_dist_k_lambda,
-                        measure_dist_type,
-                    ):
-                      continue
-                    add(
-                        seed=seed,
-                        batch_size=batch_size,
-                        normalize=normalize,
-                        lr=lr,
-                        measure_dist_type=measure_dist_type,
-                        train_steps_per_cycle=train_steps_per_cycle,
-                        time_steps_increase_per_cycle=time_steps_increase_per_cycle,
-                        use_curriculum=use_curriculum,
-                        use_pushfwd=use_pushfwd,
-                        measure_dist_lambda=measure_dist_lambda,
-                        measure_dist_k_lambda=measure_dist_k_lambda,
-                    )
+  # pylint: disable=line-too-long
+  for seed in [1, 11, 21, 31, 42]:
+    for normalize in [True]:
+      for model in ['PeriodicConvNetModel']:
+        for batch_size in [32, 64, 128, 256]:
+          for lr in [5e-4]:
+            for use_curriculum in [True]:
+              for use_pushfwd in [True]:
+                for measure_dist_type in ['MMD', 'SD']:
+                  for measure_dist_lambda in [0.0, 1.0]:
+                    for measure_dist_k_lambda in [0.0, 1.0, 10.0, 100.0, 1000.0]:
+                      if use_curriculum:
+                        train_steps_per_cycle = 60_000
+                        time_steps_increase_per_cycle = 1
+                      else:
+                        train_steps_per_cycle = 0
+                        time_steps_increase_per_cycle = 0
+                      if skip(
+                          use_curriculum,
+                          use_pushfwd,
+                          measure_dist_lambda,
+                          measure_dist_k_lambda,
+                          measure_dist_type,
+                      ):
+                        continue
+                      add(
+                          seed=seed,
+                          normalize=normalize,
+                          model=model,
+                          batch_size=batch_size,
+                          lr=lr,
+                          measure_dist_type=measure_dist_type,
+                          train_steps_per_cycle=train_steps_per_cycle,
+                          time_steps_increase_per_cycle=time_steps_increase_per_cycle,
+                          use_curriculum=use_curriculum,
+                          use_pushfwd=use_pushfwd,
+                          measure_dist_lambda=measure_dist_lambda,
+                          measure_dist_k_lambda=measure_dist_k_lambda,
+                      )
 
 
+# TODO(yairschiff): Ablation!
 # def sweep(add):
 #   """Define param sweep."""
-#   for seed in [21, 42, 84]:
-#     for measure_dist_type in ['MMD', 'SD']:
-#       for batch_size in [32, 64, 128, 256]:
-#         for lr in [1e-3, 1e-4, 1e-5]:
-#           # Skipping 1-step objective
-#           for use_curriculum in [True]:  # [False, True]:
-#             # Running grid search on just Pfwd
-#             for use_pushfwd in [True]:  # [False, True]:
-#               # Skipping all x0 regs
-#               for regularize_measure_dist in [False]:  # [False, True]:
-#                 for regularize_measure_dist_k in [False, True]:
-#                   for measure_dist_lambda in [0.0, 1.0, 100.0]:
-#                     if use_curriculum:
-#                       train_steps_per_cycle = 50_000
-#                       time_steps_increase_per_cycle = 1
-#                     else:
-#                       train_steps_per_cycle = 0
-#                       time_steps_increase_per_cycle = 0
-#                     if skip(
-#                         use_curriculum,
-#                         use_pushfwd,
-#                         regularize_measure_dist,
-#                         regularize_measure_dist_k,
-#                         measure_dist_lambda,
-#                         measure_dist_type
-#                     ):
-#                       continue
-#                     add(
-#                         num_time_steps=61,
-#                         train_steps=3_000_000,
-#                         save_interval_steps=250_000,
-#                         max_checkpoints_to_keep=3_000_000//250_000,
-#                         seed=seed,
-#                         batch_size=batch_size,
-#                         lr=lr,
-#                         measure_dist_type=measure_dist_type,
-#                         train_steps_per_cycle=train_steps_per_cycle,
-#                         time_steps_increase_per_cycle=time_steps_increase_per_cycle,
-#                         use_curriculum=use_curriculum,
-#                         use_pushfwd=use_pushfwd,
-#                         regularize_measure_dist=regularize_measure_dist,
-#                         regularize_measure_dist_k=regularize_measure_dist_k,
-#                         measure_dist_lambda=measure_dist_lambda,
-#                     )
+#   # pylint: disable=line-too-long
+#   for seed in [1, 11, 21, 31, 42]:
+#     for normalize in [True]:
+#       for model in ['PeriodicConvNetModel']:
+#         for batch_size in [32, 64, 128, 256, 512]:
+#           for lr in [5e-4]:
+#             for use_curriculum in [True]:
+#               for use_pushfwd in [True]:
+#                 for measure_dist_type, measure_dist_lambda, measure_dist_k_lambda in [('MMD', 0.0, 10.0), ('SD', 0.0, 10.0)]: #[('MMD', 0.0, 0.0), ('MMD', 1.0, 1000.0), ('SD', 0.0, 1.0)]:
+#                   train_steps_per_cycle = 60_000
+#                   time_steps_increase_per_cycle = 1
+#                   train_steps = 300_000
+#                   max_checkpoints_to_keep = 10
+#                   num_time_steps = 11
+#                   add(
+#                       seed=seed,
+#                       train_steps=train_steps,
+#                       max_checkpoints_to_keep=max_checkpoints_to_keep,
+#                       num_time_steps=num_time_steps,
+#                       normalize=normalize,
+#                       model=model,
+#                       batch_size=batch_size,
+#                       lr=lr,
+#                       measure_dist_type=measure_dist_type,
+#                       train_steps_per_cycle=train_steps_per_cycle,
+#                       time_steps_increase_per_cycle=time_steps_increase_per_cycle,
+#                       use_curriculum=use_curriculum,
+#                       use_pushfwd=use_pushfwd,
+#                       measure_dist_lambda=measure_dist_lambda,
+#                       measure_dist_k_lambda=measure_dist_k_lambda,
+#                   )
+#   # pylint: enable=line-too-long

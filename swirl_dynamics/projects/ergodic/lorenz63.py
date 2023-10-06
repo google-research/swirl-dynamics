@@ -209,7 +209,7 @@ def plot_correlations(dt, traj_length, trajs, pred_trajs):
 class Lorenz63PlotFigures(stable_ar.PlotFigures):
   """Lorenz 63 plotting."""
 
-  def __init__(self, corr_plot_steps: int = 2000):
+  def __init__(self, corr_plot_steps: int = 20):
     super().__init__()
     # Correlation breaks down early, do not need all the steps
     self.corr_plot_steps = corr_plot_steps

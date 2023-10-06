@@ -96,6 +96,7 @@ class StableARModel(models.BaseModel):
     # When using data parallelism, it will add an extra dimension due to the
     # pmap_reshape, so this line is to avoid shape mismatches.
     tspan = batch["tspan"].reshape((-1,))
+    rollout_weight = batch["rollout_weight"].reshape((-1,))
 
     # TODO(lzepedanunez): implement the logic in the Neural Markov paper.
     if self.conf.add_noise:
@@ -122,11 +123,16 @@ class StableARModel(models.BaseModel):
       )[:, -1, ...]
 
       # Computing losses.
-      measure_dist = self.conf.measure_dist(pred, true[:, 0, ...])
-      measure_dist_k = self.conf.measure_dist(pred, true[:, -1, ...])
+      measure_dist = (
+          self.conf.measure_dist(pred, true[:, 0, ...]) * rollout_weight[-1]
+      )
+      measure_dist_k = (
+          self.conf.measure_dist(pred, true[:, -1, ...]) * rollout_weight[-1]
+      )
 
       # Compare to true trajectory last step.
       if self.conf.use_sobolev_norm:
+        # TODO(yairschiff): Rollout weighting not implemented for this case!
         # The spatial dimension is the length of the shape minus 2,
         # which accounts for the batch, frame, and channel dimensions.
         dim = len(pred.shape) - 2
@@ -134,32 +140,45 @@ class StableARModel(models.BaseModel):
             pred - true[:, -1, ...], s=self.conf.order_sobolev_norm, dim=dim
         )
       else:
-        l2 = jnp.mean(jnp.square(pred - true[:, -1, ...]))
+        l2 = jnp.mean(
+            jnp.square(pred - true[:, -1, ...]).mean(
+                axis=tuple(range(1, pred.ndim))
+            )
+            * rollout_weight[-1]
+        )
 
     else:  # Regular unrolling without stop-gradient
       # Expected shape: (bsz, num_rollout_steps, ...)
-      pred = self.pred_integrator(
-          x0, tspan, dict(params=params, **mutables)
-      )[:, self.conf.num_lookback_steps :, ...]
+      pred = self.pred_integrator(x0, tspan, dict(params=params, **mutables))[
+          :, self.conf.num_lookback_steps :, ...
+      ]
       measure_dist = jnp.mean(
           jax.vmap(
               lambda p: self.conf.measure_dist(p, true[:, 0, ...]),
               in_axes=(1),
-          )(pred)
+          )(pred) * rollout_weight
       )
       measure_dist_k = jnp.mean(
-          self.vmapped_measure_dist(pred, true[:, 1:, ...])
+          self.vmapped_measure_dist(pred, true[:, 1:, ...]) * rollout_weight
       )
 
       # Compare to full reference trajectory.
       # TODO(lzepedanunez): this is code is repeated.
       if self.conf.use_sobolev_norm:
+        # TODO(yairschiff): Rollout weighting not implemented for this case!
         dim = len(pred.shape) - 3
         l2 = ergodic_utils.sobolev_norm(
-            pred - true[:, 1:, ...], s=self.conf.order_sobolev_norm, dim=dim
+            pred - true[:, 1:, ...],
+            s=self.conf.order_sobolev_norm,
+            dim=dim,
         )
       else:
-        l2 = jnp.mean(jnp.square(pred - true[:, 1:, ...]))
+        l2 = jnp.mean(
+            jnp.square(pred - true[:, 1:, ...]).mean(
+                axis=tuple(range(2, pred.ndim))
+            )
+            * rollout_weight
+        )
 
     # Gathering the metrics together.
     loss = l2
@@ -172,6 +191,7 @@ class StableARModel(models.BaseModel):
         measure_dist=measure_dist,
         measure_dist_k=measure_dist_k,
         rollout=jnp.array(tspan.shape[0] - 1),
+        max_rollout_decay=rollout_weight[-1],
     )
 
     return loss, (metric, mutables)
@@ -220,6 +240,7 @@ class StableARModel(models.BaseModel):
 class StableARTrainerConfig:
   """Config used by stable AR trainers."""
 
+  rollout_weighting: choices.RolloutWeightingFn
   num_rollout_steps: int = 1
   num_lookback_steps: int = 1
   add_noise: bool = False
@@ -243,6 +264,7 @@ class StableARTrainer(trainers.BasicTrainer):
     measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")
     measure_dist_k_std: clu_metrics.Average.from_output("measure_dist_k")
     rollout: clu_metrics.Average.from_output("rollout")
+    max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")
 
   @flax.struct.dataclass
   class EvalMetrics(clu_metrics.Collection):
@@ -275,6 +297,7 @@ class StableARTrainer(trainers.BasicTrainer):
 
     dt = jnp.mean(jnp.diff(batch_data["t"], axis=1))
     tspan = jnp.arange(num_time_steps) * dt
+    rollout_weight = self.conf.rollout_weighting(num_time_steps)
     # `x0`: first "state" (which can be `num_lookback_steps` time steps).
     # `true`: num_rollout_steps + 1 states (where the first state corresponds to
     # x0, except when num_lookback_steps > 1, where true[:, 0] corresponds to
@@ -305,6 +328,7 @@ class StableARTrainer(trainers.BasicTrainer):
         x0=x0,
         true=true,
         tspan=tspan,
+        rollout_weight=rollout_weight,
     )
 
   def preprocess_train_batch(
@@ -336,8 +360,8 @@ class StableARTrainer(trainers.BasicTrainer):
       )[0]
     # pytype: disable=attribute-error
     assert num_time_steps <= batch_data["u"].shape[1], (
-        f"Not enough time steps in data ({batch_data.shape[1]}) for desired"
-        f" steps ({num_time_steps})."
+        f"Not enough time steps in data ({batch_data['u'].shape[1]}) for"
+        f" desired steps ({num_time_steps})."
     )
     # pytype: enable=attribute-error
     return self._preprocess_train_batch(batch_data, num_time_steps)
@@ -373,6 +397,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")
     measure_dist_k_std: clu_metrics.Average.from_output("measure_dist_k")
     rollout: clu_metrics.Average.from_output("rollout")
+    max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")
 
   @flax.struct.dataclass
   class EvalMetrics(clu_metrics.Collection):
@@ -413,10 +438,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
       x0 = batch_data["u"][:, : self.conf.num_lookback_steps, ...]
       true = batch_data["u"][
           :,
-          self.conf.num_lookback_steps
-          - 1 : num_time_steps
-          + self.conf.num_lookback_steps
-          - 1,  # pylint: disable=line-too-long
+          self.conf.num_lookback_steps - 1 : num_time_steps + self.conf.num_lookback_steps - 1,  # pylint: disable=line-too-long
           ...,
       ]
     else:

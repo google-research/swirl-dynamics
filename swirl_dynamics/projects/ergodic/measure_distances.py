@@ -63,19 +63,23 @@ def mmd(x: Array, y: Array) -> Array:
   rx = jnp.broadcast_to(jnp.expand_dims(jnp.diag(xx), axis=0), xx.shape)
   ry = jnp.broadcast_to(jnp.expand_dims(jnp.diag(yy), axis=0), yy.shape)
 
-  dxx = rx.T + rx - 2.0 * xx  # Used for A in (1)
-  dyy = ry.T + ry - 2.0 * yy  # Used for B in (1)
-  dxy = rx.T + ry - 2.0 * zz  # Used for C in (1)
+  dxx = rx.T + rx - 2.0 * xx
+  dyy = ry.T + ry - 2.0 * yy
+  dxy = rx.T + ry - 2.0 * zz
 
   xx, yy, xy = (jnp.zeros_like(xx), jnp.zeros_like(xx), jnp.zeros_like(xx))
 
   # Multiscale
+  # TODO(yairschiff): We may need to experiment with these bandwidths to have
+  # MMD loss better distinguish distributions, especially for high dim data
   bandwidth_range = [0.2, 0.5, 0.9, 1.3]
   for a in bandwidth_range:
     xx += a**2 * (a**2 + dxx) ** -1
     yy += a**2 * (a**2 + dyy) ** -1
     xy += a**2 * (a**2 + dxy) ** -1
 
+  # TODO(yairschiff): We may want to use jnp.sqrt(...) here; see:
+  # https://arxiv.org/abs/1502.02761
   return jnp.mean(xx + yy - 2.0 * xy)
 
 

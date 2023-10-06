@@ -26,7 +26,7 @@ PyTree = Any
 
 
 def plot_trajectories(
-    dt, traj_lengths, trajs, pred_trajs, case_ids=(11, 32, 67, 89)
+    dt, traj_lengths, trajs, pred_trajs, case_ids=(1, 3, 5, 7)
 ):
   """Plot sample trajectories."""
   assert trajs.shape[0] > max(case_ids), (
@@ -62,6 +62,11 @@ def plot_trajectories(
 class NS2dPlotFigures(stable_ar.PlotFigures):
   """Navier Stokes 2D plotting."""
 
+  def __init__(self, cos_sim_plot_steps: int = 200):
+    super().__init__()
+    # Correlation breaks down early, do not need all the steps
+    self.cos_sim_plot_steps = cos_sim_plot_steps
+
   def on_eval_batches_end(
       self, trainer: callbacks.Trainer, eval_metrics: Mapping[str, Array]
   ) -> None:
@@ -84,7 +89,7 @@ class NS2dPlotFigures(stable_ar.PlotFigures):
     figs.update(
         utils.plot_cos_sims(
             dt=dt,
-            traj_length=traj_length,
+            traj_length=min(traj_length, self.cos_sim_plot_steps),
             trajs=eval_metrics["all_trajs"]["trajs"],
             pred_trajs=eval_metrics["all_trajs"]["pred_trajs"],
         )

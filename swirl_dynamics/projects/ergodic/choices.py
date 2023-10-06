@@ -30,10 +30,12 @@ from swirl_dynamics.lib.networks import fno
 from swirl_dynamics.lib.networks import nonlinear_fourier
 from swirl_dynamics.lib.solvers import ode
 from swirl_dynamics.projects.ergodic import measure_distances
+from swirl_dynamics.projects.ergodic import rollout_weighting
 
 
 Array = jax.Array
 MeasureDistFn = Callable[[Array, Array], float | Array]
+RolloutWeightingFn = Callable[[int], Array]
 
 
 class Experiment(enum.Enum):
@@ -156,6 +158,44 @@ class Model(enum.Enum):
           out_channels=conf.out_channels,
           num_modes=conf.num_modes,
           width=conf.width,
-          fft_norm=conf.fft_norm
+          fft_norm=conf.fft_norm,
       )
+    raise ValueError()
+
+
+class RolloutWeighting(enum.Enum):
+  """Rollout weighting choices."""
+
+  GEOMETRIC = "geometric"
+  INV_SQRT = "inv_sqrt"
+  INV_SQUARED = "inv_squared"
+  LINEAR = "linear"
+  NO_WEIGHT = "no_weight"
+
+  def dispatch(self, conf: ml_collections.ConfigDict) -> RolloutWeightingFn:
+    """Dispatch rollout weighting."""
+    if self.value == RolloutWeighting.GEOMETRIC.value:
+      return functools.partial(
+          rollout_weighting.geometric,
+          r=conf.rollout_weighting_r,
+          clip=conf.rollout_weighting_clip
+      )
+    if self.value == RolloutWeighting.INV_SQRT.value:
+      return functools.partial(
+          rollout_weighting.inverse_sqrt,
+          clip=conf.rollout_weighting_clip
+      )
+    if self.value == RolloutWeighting.INV_SQUARED.value:
+      return functools.partial(
+          rollout_weighting.inverse_squared,
+          clip=conf.rollout_weighting_clip
+      )
+    if self.value == RolloutWeighting.LINEAR.value:
+      return functools.partial(
+          rollout_weighting.linear,
+          m=conf.rollout_weighting_m,
+          clip=conf.rollout_weighting_clip
+      )
+    if self.value == RolloutWeighting.NO_WEIGHT.value:
+      return rollout_weighting.no_weight
     raise ValueError()

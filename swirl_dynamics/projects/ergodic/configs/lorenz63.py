@@ -31,6 +31,7 @@ def get_config():
   config.train_steps = 500_000
   config.seed = 42
   config.lr = 1e-4
+  config.use_lr_scheduler = False
   config.metric_aggregation_steps = 50
   config.save_interval_steps = 50_000
   config.max_checkpoints_to_keep = 10
@@ -58,6 +59,9 @@ def get_config():
   # Update num_time_steps based on num_lookback_steps setting
   config.num_time_steps += config.num_lookback_steps - 1
   # Trainer params
+  config.rollout_weighting = 'geometric'
+  config.rollout_weighting_r = 0.1
+  config.rollout_weighting_clip = 10e-8
   config.num_rollout_steps = 1
   config.train_steps_per_cycle = 50_000
   config.time_steps_increase_per_cycle = 0
@@ -95,42 +99,43 @@ def skip(
 # TODO(yairschiff): Refactor sweeps and experiment definition to use gin.
 def sweep(add):
   """Define param sweep."""
-  for seed in [21, 42]:
+  # pylint: disable=line-too-long
+  for seed in [1, 11, 21, 31, 42]:
     for batch_size in [2048]:
-      for time_stride in [50]:
-        for normalize in [True]:
-          for measure_dist_type in  ['MMD', 'SD']:
-            for use_curriculum in [True]:
-              for use_pushfwd in [False]:
-                for measure_dist_lambda in [0.0]:  #, 1.0]:
-                  for measure_dist_k_lambda in [0.0]:  #, 1.0, 1000.0]:
-                    if use_curriculum:
-                      train_steps = 2_000_000
-                      train_steps_per_cycle = 200_000
-                      time_steps_increase_per_cycle = 1
-                    else:
-                      train_steps = 500_000
-                      train_steps_per_cycle = 0
-                      time_steps_increase_per_cycle = 0
-                    if skip(
-                        use_curriculum,
-                        use_pushfwd,
-                        measure_dist_lambda,
-                        measure_dist_k_lambda,
-                        measure_dist_type,
-                    ):
-                      continue
-                    add(
-                        seed=seed,
-                        batch_size=batch_size,
-                        time_stride=time_stride,
-                        normalize=normalize,
-                        measure_dist_type=measure_dist_type,
-                        train_steps=train_steps,
-                        train_steps_per_cycle=train_steps_per_cycle,
-                        time_steps_increase_per_cycle=time_steps_increase_per_cycle,
-                        use_curriculum=use_curriculum,
-                        use_pushfwd=use_pushfwd,
-                        measure_dist_lambda=measure_dist_lambda,
-                        measure_dist_k_lambda=measure_dist_k_lambda,
-                    )
+      for lr in [1e-4]:
+        for time_stride in [40]:
+          for normalize in [True]:
+            for measure_dist_type in  ['MMD', 'SD']:
+              for use_curriculum in [True]:
+                for use_pushfwd in [False, True]:
+                  for measure_dist_lambda in [0.0, 1.0]:
+                    for measure_dist_k_lambda in [0.0, 1.0, 10.0, 100.0, 1000.0]:
+                      if use_curriculum:
+                        train_steps_per_cycle = 50_000
+                        time_steps_increase_per_cycle = 1
+                      else:
+                        train_steps_per_cycle = 0
+                        time_steps_increase_per_cycle = 0
+                      if skip(
+                          use_curriculum,
+                          use_pushfwd,
+                          measure_dist_lambda,
+                          measure_dist_k_lambda,
+                          measure_dist_type,
+                      ):
+                        continue
+                      add(
+                          seed=seed,
+                          batch_size=batch_size,
+                          lr=lr,
+                          time_stride=time_stride,
+                          normalize=normalize,
+                          measure_dist_type=measure_dist_type,
+                          train_steps_per_cycle=train_steps_per_cycle,
+                          time_steps_increase_per_cycle=time_steps_increase_per_cycle,
+                          use_curriculum=use_curriculum,
+                          use_pushfwd=use_pushfwd,
+                          measure_dist_lambda=measure_dist_lambda,
+                          measure_dist_k_lambda=measure_dist_k_lambda,
+                      )
+  # pylint: enable=line-too-long

@@ -73,14 +73,13 @@ def main(argv):
   if experiment == choices.Experiment.L63:
     fig_callback_cls = lorenz63.Lorenz63PlotFigures
     state_dims = (3 // config.spatial_downsample_factor,)
-    optimizer = optax.adam(learning_rate=config.lr)
   elif experiment == choices.Experiment.KS_1D:
     fig_callback_cls = ks_1d.KS1DPlotFigures
     state_dims = (
         512 // config.spatial_downsample_factor,
         config.num_lookback_steps,
     )
-    optimizer = optax.adam(learning_rate=config.lr)
+
   elif experiment == choices.Experiment.NS_2D:
     fig_callback_cls = ns_2d.NS2dPlotFigures
     # TODO(yairschiff): This state dim is temporary for FNO data, should be 256
@@ -89,16 +88,20 @@ def main(argv):
         64 // config.spatial_downsample_factor,
         config.num_lookback_steps,
     )
+  else:
+    raise NotImplementedError(f"Unknown experiment: {config.experiment}")
+
+  if config.use_lr_scheduler:
     optimizer = optax.adam(
         learning_rate=optax.exponential_decay(
             init_value=config.lr,
-            transition_steps=72_000,
+            transition_steps=config.train_steps_per_cycle,
             decay_rate=0.5,
             staircase=True,
         )
     )
   else:
-    raise NotImplementedError(f"Unknown experiment: {config.experiment}")
+    optimizer = optax.adam(learning_rate=config.lr)
 
   # Dataloaders
   if "use_tfds" in config and config.use_tfds:
@@ -167,10 +170,14 @@ def main(argv):
 
   # Trainer
   trainer_config = stable_ar.StableARTrainerConfig(
+      rollout_weighting=choices.RolloutWeighting(
+          config.rollout_weighting
+      ).dispatch(config),
       num_rollout_steps=config.num_rollout_steps,
       num_lookback_steps=config.num_lookback_steps,
       add_noise=config.add_noise,
       use_curriculum=config.use_curriculum,
+      use_pushfwd=config.use_pushfwd,
       train_steps_per_cycle=config.train_steps_per_cycle,
       time_steps_increase_per_cycle=config.time_steps_increase_per_cycle,
   )
