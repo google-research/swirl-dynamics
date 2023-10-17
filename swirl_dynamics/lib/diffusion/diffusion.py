@@ -293,13 +293,13 @@ def exponential_noise_schedule(
 
 class NoiseLevelSampling(Protocol):
 
-  def __call__(self, rng: jax.random.KeyArray, shape: tuple[int, ...]) -> Array:
+  def __call__(self, rng: jax.Array, shape: tuple[int, ...]) -> Array:
     """Samples noise levels for training."""
     ...
 
 
 def _uniform_samples(
-    rng: jax.random.KeyArray,
+    rng: jax.Array,
     shape: tuple[int, ...],
     uniform_grid: bool,
 ) -> Array:
@@ -319,7 +319,7 @@ def log_uniform_sampling(
   """Samples noise whose natural log follows a uniform distribution."""
 
   def _noise_sampling(
-      rng: jax.random.KeyArray, shape: tuple[int, ...]
+      rng: jax.Array, shape: tuple[int, ...]
   ) -> Array:
     samples = _uniform_samples(rng, shape, uniform_grid)
     log_min, log_max = jnp.log(clip_min), jnp.log(scheme.sigma_max)
@@ -335,7 +335,7 @@ def time_uniform_sampling(
   """Samples noise from a uniform distribution in t."""
 
   def _noise_sampling(
-      rng: jax.random.KeyArray, shape: tuple[int, ...]
+      rng: jax.Array, shape: tuple[int, ...]
   ) -> Array:
     samples = _uniform_samples(rng, shape, uniform_grid)
     min_t = scheme.sigma.inverse(clip_min)
@@ -367,7 +367,7 @@ def normal_sampling(
     A normal sampling function.
   """
 
-  def _noise_sampler(rng: jax.random.KeyArray, shape: tuple[int, ...]) -> Array:
+  def _noise_sampler(rng: jax.Array, shape: tuple[int, ...]) -> Array:
     log_sigma = jax.random.normal(rng, shape, dtype=jnp.float32)
     log_sigma = p_mean + p_std * log_sigma
     return jnp.clip(jnp.exp(log_sigma), clip_min, scheme.sigma_max)
