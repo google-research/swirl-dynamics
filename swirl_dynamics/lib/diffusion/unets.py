@@ -351,6 +351,53 @@ def position_embedding(ndim: int, **kwargs) -> nn.Module:
     raise ValueError("Only 1D or 2D position embeddings are supported.")
 
 
+def process_channelwise_cond(
+    x: Array,
+    cond: dict[str, Array],
+    embed_dim: int,
+    resize_method: str,
+    padding: str,
+):
+  """Merges conditional inputs along the channel dimension.
+
+  Relevant fields in the conditional input dictionary are first resized and then
+  concatenated with the main input along their last axes.
+
+  Args:
+    x: The main model input.
+    cond: A dictionary of conditional inputs. Those with keys that start with
+      "channel:" are processed here while all others are omitted.
+    embed_dim: The embedding dimension of the conditional input before the
+      channelwise concatenation takes place.
+    resize_method: The resizing method to use. See `jax.image.resize`.
+    padding: The padding configuration for convolutions.
+
+  Returns:
+    Model input merged with channel conditions.
+  """
+  kernel_dim = x.ndim - 2
+  for key, value in cond.items():
+    if key.startswith("channel:"):
+      if value.ndim != x.ndim:
+        raise ValueError(
+            f"Channel condition `{key}` does not have the same ndim"
+            f" ({value.ndim}) as x ({x.ndim})!"
+        )
+    value = jax.image.resize(
+        value, x.shape[:-1] + (value.shape[-1],), method=resize_method
+    )
+    value = conv_layer(
+        features=embed_dim,
+        kernel_size=kernel_dim * (3,),
+        padding=padding,
+        kernel_init=default_init(),
+        name=f"conv_cond_{key}",
+    )(value)
+    value = nn.swish(nn.GroupNorm(min(value.shape[-1] // 4, 32))(value))
+    x = jnp.concatenate([x, value], axis=-1)
+  return x
+
+
 class DStack(nn.Module):
   """Downsampling stack.
 
@@ -522,9 +569,18 @@ class UNet(nn.Module):
   use_attention: bool = True  # lowest resolution only
   use_position_encoding: bool = True
   num_heads: int = 8
+  cond_resize_method: str = "bilinear"
+  cond_embed_dim: int = 128
 
   @nn.compact
-  def __call__(self, x: Array, sigma: Array, *, is_training: bool) -> Array:
+  def __call__(
+      self,
+      x: Array,
+      sigma: Array,
+      cond: dict[str, Array] | None = None,
+      *,
+      is_training: bool,
+  ) -> Array:
     """Predicts denoised given noised input and noise level.
 
     Args:
@@ -532,8 +588,10 @@ class UNet(nn.Module):
         **spatial_dims, channels)`.
       sigma: The noise level, which either shares the same batch dimension as
         `x` or is a scalar (will be broadcasted accordingly).
-      is_training: A flag that indicates whether the module runs in training
-        mode.
+      cond: The conditional inputs as a dictionary. Currently, only channelwise
+        conditioning is supported.
+      is_training: A boolean flag that indicates whether the module runs in
+        training mode.
 
     Returns:
       An output array with the same dimension as `x`.
@@ -546,6 +604,11 @@ class UNet(nn.Module):
           "sigma must be 1D and have the same leading (batch) dimension as x"
           f" ({x.shape[0]})!"
       )
+
+    cond = {} if cond is None else cond
+    x = process_channelwise_cond(
+        x, cond, self.cond_embed_dim, self.cond_resize_method, self.padding
+    )
 
     kernel_dim = x.ndim - 2
     emb = FourierEmbedding(dims=self.noise_embed_dim)(sigma)
@@ -588,7 +651,14 @@ class PreconditionedDenoiser(UNet):
   sigma_data: float = 1.0
 
   @nn.compact
-  def __call__(self, x: Array, sigma: Array, *, is_training: bool) -> Array:
+  def __call__(
+      self,
+      x: Array,
+      sigma: Array,
+      cond: dict[str, Array] | None = None,
+      *,
+      is_training: bool,
+  ) -> Array:
     """Runs preconditioned denoising."""
     if sigma.ndim < 1:
       sigma = jnp.broadcast_to(sigma, (x.shape[0],))
@@ -610,6 +680,6 @@ class PreconditionedDenoiser(UNet):
     c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
 
     f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, is_training=is_training
+        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
     )
     return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)

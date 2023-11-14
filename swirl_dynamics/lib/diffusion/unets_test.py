@@ -17,6 +17,7 @@ import functools
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
+import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib.diffusion import unets
 
@@ -66,6 +67,37 @@ class NetworksTest(parameterized.TestCase):
     )
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma
+    )
+    self.assertEqual(out.shape, x.shape)
+
+  @parameterized.parameters(
+      {"x_dims": (1, 16, 3), "c_dims": (1, 16, 3)},
+      {"x_dims": (1, 16, 3), "c_dims": (1, 12, 5)},
+      {"x_dims": (1, 16, 16, 3), "c_dims": (1, 16, 16, 3)},
+      {"x_dims": (1, 16, 16, 3), "c_dims": (1, 32, 32, 6)},
+  )
+  def test_channelwise_conditioning_output_shape(self, x_dims, c_dims):
+    x = jax.random.normal(jax.random.PRNGKey(42), x_dims)
+    cond = {"channel:cond1": jax.random.normal(jax.random.PRNGKey(42), c_dims)}
+    sigma = jnp.array(0.5)
+    model = unets.PreconditionedDenoiser(
+        out_channels=x_dims[-1],
+        num_channels=(4, 8, 12),
+        downsample_ratio=(2, 2, 2),
+        num_blocks=2,
+        num_heads=4,
+        sigma_data=1.0,
+        use_position_encoding=False,
+        cond_embed_dim=128,
+        cond_resize_method="cubic",
+    )
+    variables = model.init(
+        jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
+    )
+    self.assertIn("conv_cond_channel:cond1", variables["params"])
+
+    out = jax.jit(functools.partial(model.apply, is_training=True))(
+        variables, x, sigma, cond
     )
     self.assertEqual(out.shape, x.shape)
 
