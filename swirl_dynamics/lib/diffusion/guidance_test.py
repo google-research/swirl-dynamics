@@ -19,7 +19,7 @@ import numpy as np
 from swirl_dynamics.lib.diffusion import guidance
 
 
-class GuidanceTest(parameterized.TestCase):
+class GuidanceTransformsTest(parameterized.TestCase):
 
   @parameterized.parameters(
       {"test_dim": (4, 16), "ds_ratios": (None, 8), "guide_shape": (4, 2)},
@@ -31,13 +31,17 @@ class GuidanceTest(parameterized.TestCase):
   )
   def test_super_resolution(self, test_dim, ds_ratios, guide_shape):
     superresolve = guidance.InfillFromSlices(
-        slices=tuple(slice(None, None, r) for r in ds_ratios)
+        slices=tuple(slice(None, None, r) for r in ds_ratios),
     )
-    dummy_denoiser = lambda x, sigma: jnp.ones_like(x)
+
+    def _dummy_denoiser(x, sigma, cond=None):
+      del sigma, cond
+      return jnp.ones_like(x)
+
     guided_denoiser = superresolve(
-        dummy_denoiser, guidance_input=jnp.array(0.0)
+        _dummy_denoiser, {"observed_slices": jnp.array(0.0)}
     )
-    denoised = guided_denoiser(jnp.ones(test_dim), jnp.array(0.1))
+    denoised = guided_denoiser(jnp.ones(test_dim), jnp.array(0.1), None)
     guided_elements = denoised[superresolve.slices]
     self.assertEqual(denoised.shape, test_dim)
     self.assertEqual(guided_elements.shape, guide_shape)

@@ -67,10 +67,10 @@ class TimeStepSchedulersTest(parameterized.TestCase):
     np.testing.assert_allclose(tspan, np.asarray(expected_tspan), atol=1e-6)
 
 
-class TestGuidance:
+class TestTransform:
 
-  def __call__(self, denoise_fn, guidance_input):
-    return lambda x, t: denoise_fn(x, t) + guidance_input
+  def __call__(self, denoise_fn, guidance_inputs):
+    return lambda x, t, cond: denoise_fn(x, t, cond) + guidance_inputs["const"]
 
 
 class SamplersTest(parameterized.TestCase):
@@ -93,14 +93,14 @@ class SamplersTest(parameterized.TestCase):
         input_shape=input_shape,
         integrator=solver,
         scheme=scheme,
-        denoise_fn=lambda x, t: x,
+        denoise_fn=lambda x, t, cond: x,
         apply_denoise_at_end=apply_denoise_at_end,
     )
-    generate = jax.jit(sampler.generate, static_argnums=(2,))
+    generate = jax.jit(sampler.generate, static_argnums=0)
     samples, aux = generate(
+        num_samples=num_samples,
         rng=jax.random.PRNGKey(0),
         tspan=samplers.exponential_noise_decay(scheme, num_steps),
-        num_samples=num_samples,
     )
     self.assertEqual(samples.shape, (num_samples,) + input_shape)
     self.assertEqual(
@@ -139,11 +139,11 @@ class SamplersTest(parameterized.TestCase):
         scheme=scheme,
         denoise_fn=denoise_fn,
     )
-    generate = jax.jit(sampler.generate, static_argnums=(2,))
+    generate = jax.jit(sampler.generate, static_argnums=0)
     samples, aux = generate(
+        num_samples=num_samples,
         rng=jax.random.PRNGKey(0),
         tspan=samplers.exponential_noise_decay(scheme, num_steps),
-        num_samples=num_samples,
     )
     self.assertEqual(samples.shape, (num_samples,) + input_shape)
     self.assertEqual(
@@ -164,15 +164,40 @@ class SamplersTest(parameterized.TestCase):
         input_shape=input_shape,
         integrator=solver,
         scheme=scheme,
-        denoise_fn=lambda x, t: x * t,
-        guidance_fn=TestGuidance(),
+        denoise_fn=lambda x, t, cond: x * t,
+        guidance_transforms=(TestTransform(),),
     )
-    generate = jax.jit(sampler.generate, static_argnums=(2,))
+    generate = jax.jit(sampler.generate, static_argnums=0)
     samples, _ = generate(
+        num_samples=num_samples,
         rng=jax.random.PRNGKey(0),
         tspan=samplers.exponential_noise_decay(scheme, num_steps),
+        guidance_inputs={"const": jnp.ones(input_shape)},
+    )
+    self.assertEqual(samples.shape, (num_samples,) + input_shape)
+
+  @parameterized.parameters(
+      (samplers.OdeSampler, ode.HeunsMethod()),
+      (samplers.SdeSampler, sde.EulerMaruyama()),
+  )
+  def test_output_shape_with_cond(self, sampler, solver):
+    input_shape = (5, 1)
+    num_samples = 4
+    num_steps = 8
+    sigma_schedule = diffusion.tangent_noise_schedule()
+    scheme = diffusion.Diffusion.create_variance_exploding(sigma_schedule)
+    sampler = sampler(
+        input_shape=input_shape,
+        integrator=solver,
+        scheme=scheme,
+        denoise_fn=lambda x, t, cond: x * t + cond["bias"],
+    )
+    generate = jax.jit(sampler.generate, static_argnums=0)
+    samples, _ = generate(
         num_samples=num_samples,
-        guidance_input=jnp.ones(input_shape),
+        rng=jax.random.PRNGKey(0),
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
+        cond={"bias": jnp.ones(input_shape)},
     )
     self.assertEqual(samples.shape, (num_samples,) + input_shape)
 

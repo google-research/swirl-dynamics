@@ -14,7 +14,7 @@
 
 """Diffusion samplers."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 import flax
@@ -27,7 +27,8 @@ from swirl_dynamics.lib.solvers import sde
 
 Array = jax.Array
 PyTree = Any
-DenoiseFn = Callable[[Array, Array], Array]
+Cond = Mapping[str, PyTree] | None
+DenoiseFn = Callable[[Array, Array, Cond], Array]
 ScoreFn = DenoiseFn
 
 
@@ -46,11 +47,11 @@ def denoiser2score(
 ) -> ScoreFn:
   """Converts a denoiser to the corresponding score function."""
 
-  def _score(x: Array, sigma: Array) -> Array:
+  def _score(x: Array, sigma: Array, cond: Cond = None) -> Array:
     # reference: eq. 74 in Karras et al. (https://arxiv.org/abs/2206.00364).
     scale = scheme.scale(scheme.sigma.inverse(sigma))
     x_hat = jnp.divide(x, scale)
-    target = denoise_fn(x_hat, sigma)
+    target = denoise_fn(x_hat, sigma, cond)
     return jnp.divide(target - x_hat, scale * jnp.square(sigma))
 
   return _score
@@ -125,13 +126,13 @@ class Sampler(Protocol):
   """Interface for diffusion samplers."""
 
   def generate(
-      self, rng: Array, num_samples: int, **kwargs
+      self, num_samples: int, rng: Array, **kwargs
   ) -> tuple[Array, Any]:
     """Generate a specified number of diffusion samples.
 
     Args:
-      rng: The base rng for the generation process.
       num_samples: The number of samples to generate.
+      rng: The base rng for the generation process.
       **kwargs: Additional keyword arguments.
 
     Returns:
@@ -139,6 +140,16 @@ class Sampler(Protocol):
       and `aux` contains the auxiliary output of the generation process.
     """
     ...
+
+
+def _apply_guidance_transforms(
+    denoise_fn: DenoiseFn,
+    transforms: Sequence[guidance.Transform],
+    guidance_inputs: Mapping[str, PyTree],
+) -> DenoiseFn:
+  for transform in transforms:
+    denoise_fn = transform(denoise_fn, guidance_inputs)
+  return denoise_fn
 
 
 @flax.struct.dataclass
@@ -150,10 +161,10 @@ class OdeSampler:
     integrator: The ODE solver to use.
     scheme: The diffusion scheme which contains the scale and noise schedules to
       follow.
-    denoise_fn: The denoise function; required to work on batched states and
+    denoise_fn: The denoising function; required to work on batched states and
       noise levels.
-    guidance_fn: An optional guidance function that modifies the denoise
-      funciton in a post-process fashion.
+    guidance_transforms: An optional sequence of guidance transforms that
+      modifies the denoising funciton in a post-process fashion.
     apply_denoise_at_end: Whether to apply the denoise function for another time
       to the terminal state.
   """
@@ -162,23 +173,37 @@ class OdeSampler:
   integrator: ode.OdeSolver
   scheme: diffusion.Diffusion
   denoise_fn: DenoiseFn
-  guidance_fn: guidance.Guidance | None = None
+  guidance_transforms: Sequence[guidance.Transform] = ()
   apply_denoise_at_end: bool = True
-
-  def get_guided_denoise_fn(self, guidance_input: Any = None) -> DenoiseFn:
-    denoise_fn = self.denoise_fn
-    if self.guidance_fn is not None:
-      denoise_fn = self.guidance_fn(denoise_fn, guidance_input=guidance_input)
-    return denoise_fn
 
   def generate(
       self,
+      num_samples: int,
       rng: Array,
       tspan: Array,
-      num_samples: int,
-      guidance_input: Any = None,
+      cond: Cond = None,
+      guidance_inputs: Mapping[str, Any] | None = None,
   ) -> tuple[Array, dict[str, Array]]:
-    """Generate samples by solving the sampling ODE."""
+    """Generate samples by solving the sampling ODE.
+
+    Args:
+      num_samples: The number of distinct samples to generate.
+      rng: The jax random seed to be used for sampling.
+      tspan: The time steps for integrating the ode.
+      cond: The (explicit) conditioning inputs, i.e. those to be directly passed
+        through the denoiser interface. These inputs should not come with a
+        batch dimension - one will be created based on the number of samples (by
+        repeating every leaf of the pytree) to generate.
+      guidance_inputs: The inputs to the (a posteriori) guidance transforms.
+        They will *not* be passed to the denoiser directly but rather used to
+        "construct" a new denoising function. These inputs should also not come
+        with a batch dimension but the exact shapes are handled inside the
+        guidance transforms.
+
+    Returns:
+      A tuple of generated samples and auxiliary outputs. The latter currently
+      consists of the entire ode trajectory.
+    """
     if tspan.ndim != 1:
       raise ValueError("`tspan` must be a 1-d array.")
 
@@ -186,17 +211,24 @@ class OdeSampler:
     t0, t1 = tspan[0], tspan[-1]
     x1 = jax.random.normal(rng, x_shape)
     x1 *= self.scheme.sigma(t0) * self.scheme.scale(t0)
-    params = {"guidance_input": guidance_input}
+    if cond is not None:
+      rep_fn = lambda x: jnp.tile(x[None], (num_samples,) + (1,) * x.ndim)
+      cond = jax.tree_map(rep_fn, cond)
 
+    params = dict(cond=cond, guidance_inputs=guidance_inputs)
     trajectories = self.integrator(self.dynamics, x1, tspan, params)
     samples = trajectories[-1]
 
     if self.apply_denoise_at_end:
-      denoise_fn = self.get_guided_denoise_fn(
-          guidance_input=params["guidance_input"]
+      denoise_fn = _apply_guidance_transforms(
+          self.denoise_fn,
+          self.guidance_transforms,
+          guidance_inputs=guidance_inputs,
       )
       samples = denoise_fn(
-          jnp.divide(samples, self.scheme.scale(t1)), self.scheme.sigma(t1)
+          jnp.divide(samples, self.scheme.scale(t1)),
+          self.scheme.sigma(t1),
+          cond,
       )
     return samples, {"trajectories": trajectories}
 
@@ -217,14 +249,16 @@ class OdeSampler:
 
     def _dynamics(x: Array, t: Array, params: PyTree) -> Array:
       assert not t.ndim, "`t` must be a scalar."
-      denoise_fn = self.get_guided_denoise_fn(
-          guidance_input=params["guidance_input"]
+      denoise_fn = _apply_guidance_transforms(
+          self.denoise_fn,
+          self.guidance_transforms,
+          guidance_inputs=params["guidance_inputs"],
       )
       s, sigma = self.scheme.scale(t), self.scheme.sigma(t)
       x_hat = jnp.divide(x, s)
       dlog_sigma_dt = dlog_dt(self.scheme.sigma)(t)
       dlog_s_dt = dlog_dt(self.scheme.scale)(t)
-      target = denoise_fn(x_hat, sigma)
+      target = denoise_fn(x_hat, sigma, params["cond"])
       return (dlog_sigma_dt + dlog_s_dt) * x - dlog_sigma_dt * s * target
 
     return _dynamics
@@ -238,23 +272,37 @@ class SdeSampler:
   integrator: sde.SdeSolver
   scheme: diffusion.Diffusion
   denoise_fn: DenoiseFn
-  guidance_fn: guidance.Guidance | None = None
+  guidance_transforms: Sequence[guidance.Transform] = ()
   apply_denoise_at_end: bool = True
-
-  def get_guided_denoise_fn(self, guidance_input: Any = None) -> DenoiseFn:
-    denoise_fn = self.denoise_fn
-    if self.guidance_fn is not None:
-      denoise_fn = self.guidance_fn(denoise_fn, guidance_input=guidance_input)
-    return denoise_fn
 
   def generate(
       self,
+      num_samples: int,
       rng: Array,
       tspan: Array,
-      num_samples: int,
-      guidance_input: Any = None,
+      cond: Cond = None,
+      guidance_inputs: Mapping[str, Any] | None = None,
   ) -> tuple[Array, dict[str, Array]]:
-    """Generate samples by solving an SDE."""
+    """Generate samples by solving an SDE.
+
+    Args:
+      num_samples: The number of distinct samples to generate.
+      rng: The jax random seed to be used for sampling.
+      tspan: The time steps for integrating the sde.
+      cond: The (explicit) conditioning inputs, i.e. those to be directly passed
+        through the denoiser interface. These inputs *should not come with a
+        batch dimension* - one will be created based on the number of samples
+        (by repeating every leaf of the pytree).
+      guidance_inputs: The inputs to the (a posteriori) guidance transforms.
+        They will *not* be passed to the denoiser directly but rather used to
+        "construct" a new denoising function. Like `cond`, these inputs should
+        not come with a batch dimension in principle, but the shape handling
+        logic may be customized inside the specific guidance transforms.
+
+    Returns:
+      A tuple of generated samples and auxiliary outputs. The latter currently
+      consists of the entire sde trajectory.
+    """
     if tspan.ndim != 1:
       raise ValueError("`tspan` must be a 1-d array.")
 
@@ -263,15 +311,26 @@ class SdeSampler:
     t0, t1 = tspan[0], tspan[-1]
     x1 = jax.random.normal(init_rng, x_shape)
     x1 *= self.scheme.sigma(t0) * self.scheme.scale(t0)
-    params = dict(drift={"guidance_input": guidance_input}, diffusion={})
+    if cond is not None:
+      rep_fn = lambda x: jnp.tile(x[None], (num_samples,) + (1,) * x.ndim)
+      cond = jax.tree_map(rep_fn, cond)
+
+    params = dict(
+        drift=dict(guidance_inputs=guidance_inputs, cond=cond), diffusion={}
+    )
     trajectories = self.integrator(self.dynamics, x1, tspan, solver_rng, params)
     samples = trajectories[-1]
+
     if self.apply_denoise_at_end:
-      denoise_fn = self.get_guided_denoise_fn(
-          guidance_input=params["drift"]["guidance_input"]
+      denoise_fn = _apply_guidance_transforms(
+          self.denoise_fn,
+          self.guidance_transforms,
+          guidance_inputs=guidance_inputs,
       )
       samples = denoise_fn(
-          jnp.divide(samples, self.scheme.scale(t1)), self.scheme.sigma(t1)
+          jnp.divide(samples, self.scheme.scale(t1)),
+          self.scheme.sigma(t1),
+          cond,
       )
     return samples, {"trajectories": trajectories}
 
@@ -298,15 +357,17 @@ class SdeSampler:
 
     def _drift(x: Array, t: Array, params: PyTree) -> Array:
       assert not t.ndim, "`t` must be a scalar."
-      denoise_fn = self.get_guided_denoise_fn(
-          guidance_input=params["guidance_input"]
+      denoise_fn = _apply_guidance_transforms(
+          self.denoise_fn,
+          self.guidance_transforms,
+          guidance_inputs=params["guidance_inputs"],
       )
       s, sigma = self.scheme.scale(t), self.scheme.sigma(t)
       x_hat = jnp.divide(x, s)
       dlog_sigma_dt = dlog_dt(self.scheme.sigma)(t)
       dlog_s_dt = dlog_dt(self.scheme.scale)(t)
       drift = (2 * dlog_sigma_dt + dlog_s_dt) * x
-      drift -= 2 * dlog_sigma_dt * s * denoise_fn(x_hat, sigma)
+      drift -= 2 * dlog_sigma_dt * s * denoise_fn(x_hat, sigma, params["cond"])
       return drift
 
     def _diffusion(x: Array, t: Array, params: PyTree) -> Array:
