@@ -17,24 +17,50 @@ import os
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
-from swirl_dynamics.data import utils
+from jax import tree_util
+import numpy as np
+from swirl_dynamics.data import hdf5_utils
 
 FLAGS = flags.FLAGS
 
 
-class UtilsTest(parameterized.TestCase):
+class Hdf5UtilsTest(parameterized.TestCase):
+
+  @parameterized.parameters(
+      ({"a": 0, "b": 1},),
+      ({"a": {"b": np.ones((10,)), "c": 2}},),
+      ({"a": {"b": np.ones((10,)), "c": 2.0 * np.ones((3, 3))}, "d": 8},),
+  )
+  def test_save_and_load_whole_dicts(self, test_input):
+    tmp_dir = self.create_tempdir().full_path
+    save_path = os.path.join(tmp_dir, "test.hdf5")
+    hdf5_utils.save_array_dict(save_path, test_input)
+    self.assertTrue(os.path.exists(save_path))
+
+    restored = hdf5_utils.read_all_arrays_as_dict(save_path)
+    self.assertEqual(
+        tree_util.tree_flatten(test_input)[1],
+        tree_util.tree_flatten(restored)[1],
+    )
+    self.assertTrue(
+        np.all(
+            tree_util.tree_flatten(
+                tree_util.tree_map(np.array_equal, test_input, restored)
+            )[0]
+        )
+    )
 
   @parameterized.parameters(
       ({"a": 0, "b": 1}, {"a": 0, "b": 1}),
       ({"a": {"b": 1, "c": 2}}, {"a/b": 1, "a/c": 2}),
   )
-  def test_save_and_load_nparrays_from_hdf5(self, test_input, check_items):
+  def test_save_and_load_nparrays(self, test_input, check_items):
     tmp_dir = self.create_tempdir().full_path
     save_path = os.path.join(tmp_dir, "test.hdf5")
-    utils.save_dict_to_hdf5(save_path, test_input)
+    hdf5_utils.save_array_dict(save_path, test_input)
     self.assertTrue(os.path.exists(save_path))
     for key, value in check_items.items():
-      (saved,) = utils.read_nparray_from_hdf5(save_path, key)
+      saved = hdf5_utils.read_single_array(save_path, key)
       self.assertEqual(saved, value)
 
 

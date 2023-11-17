@@ -27,7 +27,7 @@ from jax import numpy as jnp
 import numpy as np
 from orbax import checkpoint
 import pandas as pd
-from swirl_dynamics.data import utils as data_utils
+from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.lib.solvers import utils as solver_utils
 from swirl_dynamics.projects.ergodic import choices
 import tensorflow as tf
@@ -157,7 +157,7 @@ def generate_pred_traj(exps_df, all_steps, dt, trajs, mean=None, std=None):
           pt += mean
         del params
         print("Generated.", end=" ")
-        data_utils.save_dict_to_hdf5(traj_file, {"pred_traj": pt})
+        hdf5_utils.save_array_dict(traj_file, {"pred_traj": pt})
         print(f"Saved to file {traj_file}.")
       cnt += 1
 
@@ -168,10 +168,8 @@ def main(argv):
   exp_dir = FLAGS.exp_dir
   exps_df = parse_dir(exp_dir)
   dataset_path = exps_df["dataset_path"].unique().tolist()[0]
-  trajs, tspan = data_utils.read_nparray_from_hdf5(
-      dataset_path,
-      "test/u",
-      "test/t",
+  trajs, tspan = hdf5_utils.read_arrays_as_tuple(
+      dataset_path, ("test/u", "test/t")
   )
   all_steps = trajs.shape[1]
   dt = jnp.mean(jnp.diff(tspan, axis=1))
@@ -185,9 +183,7 @@ def main(argv):
     trajs = trajs[:, :, ::spatial_downsample, ::spatial_downsample, :]
   print("Spatial resolution:", trajs.shape[2:-1])
 
-  train_snapshots = data_utils.read_nparray_from_hdf5(dataset_path, "train/u")[
-      0
-  ]
+  train_snapshots = hdf5_utils.read_single_array(dataset_path, "train/u")
   mean = jnp.mean(train_snapshots, axis=(0, 1))
   std = jnp.std(train_snapshots, axis=(0, 1))
   del train_snapshots

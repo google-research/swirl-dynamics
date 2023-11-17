@@ -16,8 +16,8 @@
 
 import grain.tensorflow as tfgrain
 import numpy as np
+from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.data import tfgrain_transforms as transforms
-from swirl_dynamics.data import utils as data_utils
 import tensorflow as tf
 
 _DEFAULT_LINEAR_RESCALE = transforms.LinearRescale(
@@ -57,8 +57,8 @@ def create_batch_decode_pipeline(
   Returns:
     A TfGrain dataloader.
   """
-  snapshots, grid = data_utils.read_nparray_from_hdf5(
-      hdf5_file_path, snapshot_field, grid_field
+  snapshots, grid = hdf5_utils.read_arrays_as_tuple(
+      hdf5_file_path, (snapshot_field, grid_field)
   )
   snapshots = np.reshape(snapshots, (-1,) + snapshots.shape[-2:])
   # select a subset of snapshots to train
@@ -119,8 +119,8 @@ def create_encode_decode_pipeline(
   Returns:
     A TfGrain dataloader.
   """
-  snapshots, grid = data_utils.read_nparray_from_hdf5(
-      hdf5_file_path, snapshot_field, grid_field
+  snapshots, grid = hdf5_utils.read_arrays_as_tuple(
+      hdf5_file_path, (snapshot_field, grid_field)
   )
   snapshots = np.reshape(snapshots, (-1,) + snapshots.shape[-2:])
   # select a subset of snapshots to train if applicable
@@ -190,8 +190,8 @@ def create_latent_dynamics_pipeline(
   Returns:
     A TfGrain dataloader.
   """
-  snapshots, tspan, grid = data_utils.read_nparray_from_hdf5(
-      hdf5_file_path, snapshot_field, tspan_field, grid_field
+  snapshots, tspan, grid = hdf5_utils.read_arrays_as_tuple(
+      hdf5_file_path, (snapshot_field, tspan_field, grid_field)
   )
   source = tfgrain.TfInMemoryDataSource.from_dataset(
       tf.data.Dataset.from_tensor_slices({

@@ -21,8 +21,8 @@ import grain.tensorflow as tfgrain
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.data import tfgrain_transforms as transforms
-from swirl_dynamics.data import utils as data_utils
 from swirl_dynamics.lib.solvers import ode
 import tensorflow as tf
 
@@ -90,10 +90,8 @@ def create_loader_from_hdf5(
                               mean and std stats (if normalize=True, else dict
                               contains NoneType values).
   """
-  snapshots, tspan = data_utils.read_nparray_from_hdf5(
-      dataset_path,
-      f"{split}/u",
-      f"{split}/t",
+  snapshots, tspan = hdf5_utils.read_arrays_as_tuple(
+      dataset_path, (f"{split}/u", f"{split}/t")
   )
   if spatial_downsample_factor > 1:
     if snapshots.ndim == 3:
@@ -116,10 +114,7 @@ def create_loader_from_hdf5(
       std = normalize_stats["std"]
     else:
       if split != "train":
-        data_for_stats = data_utils.read_nparray_from_hdf5(
-            dataset_path,
-            "train/u",
-        )
+        data_for_stats = hdf5_utils.read_single_array(dataset_path, "train/u")
       else:
         data_for_stats = snapshots
       mean = jnp.mean(data_for_stats, axis=(0, 1))
