@@ -21,7 +21,9 @@ the encoder reconstructs the snapshots by evaluating the ansatz on the same
 grid points. The reconstruction loss is minimized under a consistency
 regularization.
 """
+
 from collections.abc import Callable
+import functools
 from typing import Any
 
 from clu import metrics as clu_metrics
@@ -29,7 +31,7 @@ import flax
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.lib.metrics import regression as metrics
+from swirl_dynamics.lib import metrics
 from swirl_dynamics.lib.networks import encoders
 from swirl_dynamics.projects.evolve_smoothly import ansatzes
 from swirl_dynamics.templates import models
@@ -120,16 +122,16 @@ class EncodeDecode(models.BaseModel):
     reencoding = self.encoder.apply(
         variables, reconstruction, is_training=False
     )
-    reconstruction_rel_l2 = metrics.l2_err(
-        pred=reconstruction, true=snapshots, norm_axis=(-1, -2), relative=True
+    rrmse = functools.partial(
+        metrics.mean_squared_error,
+        sum_axes=(-1, -2),
+        relative=True,
+        squared=False,
     )
-    consistency_rel_l2 = metrics.l2_err(
-        pred=reencoding, true=encoding, norm_axis=(-1, -2), relative=True
+    return dict(
+        reconstruction_rel_l2=rrmse(pred=reconstruction, true=snapshots),
+        consistency_rel_l2=rrmse(pred=reencoding, true=encoding),
     )
-    return {
-        "reconstruction_rel_l2": jnp.mean(reconstruction_rel_l2),
-        "consistency_rel_l2": jnp.mean(consistency_rel_l2),
-    }
 
   @staticmethod
   def inference_fn(

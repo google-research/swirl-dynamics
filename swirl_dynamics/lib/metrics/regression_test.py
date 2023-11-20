@@ -15,40 +15,53 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
-from swirl_dynamics.lib.metrics import regression
+from swirl_dynamics.lib.metrics import regression as reg
+
+_TEST_INPUT_SHAPE = (1, 2, 3, 4)
 
 
 class RegressionMetricsTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      {  # absolute error along a single axis
-          "input_shape": (1, 2, 3),
-          "norm_axis": 2,
-          "relative": False,
-          "output_shape": (1, 2),
-          "mean_value": np.sqrt(3),
-      },
-      {  # relative error along multiple axes
-          "input_shape": (1, 2, 3, 4),
-          "norm_axis": (1, 2),
-          "relative": True,
-          "output_shape": (1, 4),
-          "mean_value": 0.5,
-      },
+      (reg.mean_squared_error, (1,), (2,), (1, 4)),
+      (reg.mean_squared_error, (), (2,), (1, 2, 4)),
+      (reg.mean_squared_error, (3,), None, ()),
+      (reg.mean_absolute_error, (1,), (2,), (1, 4)),
+      (reg.mean_absolute_error, (), (2,), (1, 2, 4)),
+      (reg.mean_absolute_error, (3,), None, ()),
   )
-  def test_l2_err_shape_and_value(
-      self, input_shape, norm_axis, relative, output_shape, mean_value
-  ):
-    xpred = np.ones(input_shape)
-    xtrue = 2 * np.ones(input_shape)
-    err = regression.l2_err(
-        pred=xpred, true=xtrue, norm_axis=norm_axis, relative=relative
-    )
-    with self.subTest(checking="shape"):
-      self.assertEqual(err.shape, output_shape)
+  def test_mse_and_mae_shapes(self, metric, sum_axes, mean_axes, output_shape):
+    xpred = np.ones(_TEST_INPUT_SHAPE)
+    xtrue = 2 * np.ones(_TEST_INPUT_SHAPE)
+    err = metric(pred=xpred, true=xtrue, sum_axes=sum_axes, mean_axes=mean_axes)
+    self.assertEqual(err.shape, output_shape)
 
-    with self.subTest(checking="value"):
-      self.assertTrue(np.allclose(np.mean(err), mean_value))
+  @parameterized.parameters(
+      (False, True, 4.0),
+      (False, False, 2.0),
+      (True, True, 0.25),
+      (True, False, 0.5),
+  )
+  def test_mse_values(self, relative, squared, expected):
+    xpred = np.ones(_TEST_INPUT_SHAPE)
+    xtrue = 2 * np.ones(_TEST_INPUT_SHAPE)
+    err = reg.mean_squared_error(
+        pred=xpred,
+        true=xtrue,
+        sum_axes=(-1,),
+        relative=relative,
+        squared=squared,
+    )
+    self.assertAlmostEqual(err, expected, places=5)
+
+  @parameterized.parameters((False, 12.0), (True, 0.75))
+  def test_mae_values(self, relative, expected):
+    xpred = np.ones(_TEST_INPUT_SHAPE)
+    xtrue = 4 * np.ones(_TEST_INPUT_SHAPE)
+    err = reg.mean_absolute_error(
+        pred=xpred, true=xtrue, sum_axes=(-1,), relative=relative
+    )
+    self.assertAlmostEqual(err, expected, places=5)
 
 
 if __name__ == "__main__":

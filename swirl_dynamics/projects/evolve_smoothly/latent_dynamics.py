@@ -24,7 +24,7 @@ import flax
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.lib.metrics import regression as metrics
+from swirl_dynamics.lib import metrics
 from swirl_dynamics.lib.networks import hyper_unet
 from swirl_dynamics.lib.networks import nonlinear_fourier
 from swirl_dynamics.lib.solvers import ode
@@ -141,27 +141,17 @@ class LatentDynamics(models.BaseModel):
     reencoding = jax.vmap(self.encoder)(reconstruction)
     latent_target = jax.vmap(self.encoder)(ambient_target)
     reconstruction = jnp.reshape(reconstruction, ambient_target.shape)
-
-    reconstruction_rel_l2 = metrics.l2_err(
-        pred=reconstruction,
-        true=ambient_target,
-        norm_axis=(-1, -2),
+    rrmse = functools.partial(
+        metrics.mean_squared_error,
+        sum_axes=(-1, -2),
         relative=True,
+        squared=False,
     )
-    latent_rel_l2 = metrics.l2_err(
-        pred=latent_rollout,
-        true=latent_target,
-        norm_axis=(-1, -2),
-        relative=True,
+    return dict(
+        reconstruction_rel_l2=rrmse(pred=reconstruction, true=ambient_target),
+        latent_rel_l2=rrmse(pred=latent_rollout, true=latent_target),
+        consistency_rel_l2=rrmse(pred=reencoding, true=latent_rollout),
     )
-    consistency_rel_l2 = metrics.l2_err(
-        pred=reencoding, true=latent_rollout, norm_axis=(-1, -2), relative=True
-    )
-    return {
-        "reconstruction_rel_l2": jnp.mean(reconstruction_rel_l2),
-        "latent_rel_l2": jnp.mean(latent_rel_l2),
-        "consistency_rel_l2": jnp.mean(consistency_rel_l2),
-    }
 
   @staticmethod
   def inference_fn(

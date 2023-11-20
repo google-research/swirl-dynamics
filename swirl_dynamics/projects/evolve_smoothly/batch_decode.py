@@ -31,7 +31,7 @@ from clu import metrics as clu_metrics
 import flax
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.lib.metrics import regression as metrics
+from swirl_dynamics.lib import metrics
 from swirl_dynamics.projects.evolve_smoothly import ansatzes
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
@@ -76,14 +76,14 @@ class BatchDecode(models.BaseModel):
     ypred = jax.vmap(self.ansatz.batch_evaluate, in_axes=(0, None), out_axes=1)(
         variables, batch["x"]
     )
-    rrmse = metrics.l2_err(
-        pred=ypred, true=batch["u"], norm_axis=(-1, -2), relative=True
+    rrmse = metrics.mean_squared_error(
+        pred=ypred,
+        true=batch["u"],
+        sum_axes=(-1, -2),
+        relative=True,
+        squared=False,
     )
-    return {
-        "rrmse_mean": jnp.mean(rrmse),
-        "rrmse_worst": jnp.max(rrmse),
-        "rrmse_std": jnp.std(rrmse),
-    }
+    return dict(rrmse=rrmse)
 
 
 class BatchDecodeTrainer(trainers.BasicTrainer):
@@ -96,6 +96,5 @@ class BatchDecodeTrainer(trainers.BasicTrainer):
 
   @flax.struct.dataclass
   class EvalMetrics(clu_metrics.Collection):
-    eval_rrmse_mean: clu_metrics.Average.from_output("rrmse_mean")
-    eval_rrmse_worst: clu_metrics.Average.from_output("rrmse_worst")
-    eval_rrmse_std: clu_metrics.Average.from_output("rrmse_std")
+    eval_rrmse_mean: clu_metrics.Average.from_output("rrmse")
+    eval_rrmse_std: clu_metrics.Std.from_output("rrmse")
