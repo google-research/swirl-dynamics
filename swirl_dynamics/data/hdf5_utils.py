@@ -21,20 +21,18 @@ from typing import Any
 from etils import epath
 import h5py
 import numpy as np
-import tensorflow as tf
 
-gfile = tf.io.gfile
-exists = tf.io.gfile.exists
+filesys = epath.backend.tf_backend
 
 
 def read_arrays_as_tuple(
     file_path: epath.PathLike, keys: Sequence[str], dtype: Any = np.float32
 ) -> tuple[np.ndarray, ...]:
   """Reads specified fields from a given file as numpy arrays."""
-  if not exists(file_path):
+  if not filesys.exists(file_path):
     raise FileNotFoundError(f"No data file found at {file_path}")
 
-  with gfile.GFile(file_path, "rb") as f:
+  with filesys.gfile.GFile(file_path, "rb") as f:
     with h5py.File(f, "r") as hf:
       data = tuple(np.asarray(hf[key], dtype=dtype) for key in keys)
   return data
@@ -56,7 +54,7 @@ def _read_group(
     if isinstance(group[key], h5py.Group):
       out[key] = _read_group(group[key])
     elif isinstance(group[key], h5py.Dataset):
-      if group[key].shape:
+      if group[key].shape:  # pytype: disable=attribute-error
         out[key] = np.asarray(group[key], dtype=array_dtype)
       else:
         out[key] = group[key][()]
@@ -69,10 +67,10 @@ def read_all_arrays_as_dict(
     file_path: epath.PathLike, array_dtype: Any = np.float32
 ) -> Mapping[str, Any]:
   """Reads the entire contents of a file as a (possibly nested) dictionary."""
-  if not exists(file_path):
+  if not filesys.exists(file_path):
     raise FileNotFoundError(f"No data file found at {file_path}")
 
-  with gfile.GFile(file_path, "rb") as f:
+  with filesys.gfile.GFile(file_path, "rb") as f:
     with h5py.File(f, "r") as hf:
       return _read_group(hf, array_dtype)
 
@@ -93,5 +91,5 @@ def save_array_dict(save_path: epath.PathLike, data: Mapping[str, Any]) -> None:
   with h5py.File(bio, "w") as f:
     _save_array_dict(f, data)
 
-  with gfile.GFile(save_path, "w") as f:
+  with filesys.gfile.GFile(save_path, "w") as f:
     f.write(bio.getvalue())

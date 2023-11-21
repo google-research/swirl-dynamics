@@ -18,11 +18,13 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from clu import metric_writers
+from etils import epath
 import jax
 from swirl_dynamics.templates import callbacks as cb
 from swirl_dynamics.templates import trainers
 from swirl_dynamics.templates import utils
-import tensorflow as tf
+
+filesys = epath.backend.tf_backend
 
 
 # TODO(wanzy): package parameters into logical groupings (see cl/497196196)
@@ -30,7 +32,7 @@ def run(
     *,
     train_dataloader: Iterable[Any],
     trainer: trainers.BaseTrainer,
-    workdir: str,
+    workdir: epath.PathLike,
     # training configs
     total_train_steps: int,
     metric_aggregation_steps: int = 50,
@@ -70,8 +72,8 @@ def run(
     callbacks: Self-contained programs executing non-essential logic (e.g.
       checkpoint saving, logging, timing, profiling etc.).
   """
-  if not tf.io.gfile.exists(workdir):
-    tf.io.gfile.makedirs(workdir)
+  if not filesys.exists(workdir):
+    filesys.makedirs(workdir)
 
   train_iter = iter(train_dataloader)
   eval_iter = None
