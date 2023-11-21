@@ -347,9 +347,11 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
       grads, (metrics, mutables) = grad_fn(
           train_state.params, batch, rng, train_state.flax_mutables
       )
+      # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
       new_state = self.update_train_state(
           train_state=train_state, grads=grads, mutables=mutables
       )
+      # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
       metrics_update = self.TrainMetrics.single_from_model_output(**metrics)
       return new_state, metrics_update
 
@@ -446,9 +448,11 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
       grads = jax.lax.pmean(grads, axis_name="device")
       # No need to modify `update_state` here because pmapped version should
       # just work
+      # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
       new_state = self.update_train_state(
           train_state=train_state, grads=grads, mutables=mutables
       )
+      # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
       # This takes care of both `gather` (local) and `reduce` (global) so a
       # single unreplicate call returns the computed metrics outside
       metrics_update = self.TrainMetrics.gather_from_model_output(

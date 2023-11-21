@@ -42,7 +42,7 @@ def run(
     num_batches_per_eval: int = 10,
     # other configs
     metric_writer: metric_writers.MultiWriter | None = None,
-    callbacks: Sequence[cb.Callback] = tuple(),
+    callbacks: Sequence[cb.Callback] = (),
 ) -> None:
   """Runs trainer for a training task.
 
@@ -50,18 +50,18 @@ def run(
   the step-wise metrics obtained within the same batch are aggregated
   (i.e. by computing the average and/or std based on the metric defined in
   the trainer class). The aggregated metrics are then automatically saved to a
-  tensroflow event file in `workdir`. Evaluation runs periodically (i.e. every
-  `eval_every_steps` steps) if an eval dataloader is provided.
+  tensorflow event file in `workdir`. Evaluation runs periodically, i.e. once
+  every `eval_every_steps` steps, if an eval dataloader is provided.
 
   Args:
-    train_dataloader: Training dataloader.
-    trainer: Trainer object hosting the train and eval logic.
-    workdir: Working directory where results (e.g. train & eval metrics) and
+    train_dataloader: A dataloader emitting training data in batches.
+    trainer: A trainer object hosting the train and eval logic.
+    workdir: The working directory where results (e.g. train & eval metrics) and
       progress (e.g. checkpoints) are saved.
     total_train_steps: Total number of training steps to run.
     metric_aggregation_steps: The trainer runs this number of steps at a time,
       after which training metrics are aggregated and logged.
-    eval_dataloader: Evaluation dataloader (optional). If set to `None`, no
+    eval_dataloader: An evaluation dataloader (optional). If set to `None`, no
       evaluation will run.
     eval_every_steps: The period, in number of train steps, at which evaluation
       runs. Must be an integer multiple of `metric_aggregation_steps`.
@@ -69,8 +69,8 @@ def run(
       evaluation is run (resulting metrics are aggregated).
     metric_writer: A metric writer that writes scalar metrics to disc. It is
       also accessible to callbacks for custom writing in other formats.
-    callbacks: Self-contained programs executing non-essential logic (e.g.
-      checkpoint saving, logging, timing, profiling etc.).
+    callbacks: A sequence of self-contained programs executing non-essential
+      logic (e.g. checkpoint saving, logging, timing, profiling etc.).
   """
   if not filesys.exists(workdir):
     filesys.makedirs(workdir)
