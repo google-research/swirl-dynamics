@@ -164,7 +164,7 @@ class OdeSampler:
     denoise_fn: The denoising function; required to work on batched states and
       noise levels.
     guidance_transforms: An optional sequence of guidance transforms that
-      modifies the denoising funciton in a post-process fashion.
+      modifies the denoising function in a post-process fashion.
     apply_denoise_at_end: Whether to apply the denoise function for another time
       to the terminal state.
   """
