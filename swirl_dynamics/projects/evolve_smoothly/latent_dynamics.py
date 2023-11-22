@@ -28,7 +28,6 @@ from swirl_dynamics.lib import metrics
 from swirl_dynamics.lib.networks import hyper_unet
 from swirl_dynamics.lib.networks import nonlinear_fourier
 from swirl_dynamics.lib.solvers import ode
-from swirl_dynamics.lib.solvers import utils
 from swirl_dynamics.projects.evolve_smoothly import ansatzes
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import train_states
@@ -163,7 +162,7 @@ class LatentDynamics(models.BaseModel):
       return_latents: bool = False,
   ) -> Callable[[ArrayLike, ArrayLike, ArrayLike], Array | tuple[Array, Array]]:
     """Returns an encoder inference function."""
-    latent_dynamics_fn = utils.nn_module_to_ode_dynamics(latent_dynamics_model)
+    latent_dynamics_fn = ode.nn_module_to_dynamics(latent_dynamics_model)
     integrate_fn = functools.partial(
         integrator, latent_dynamics_fn, params=variables
     )

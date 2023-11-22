@@ -16,10 +16,42 @@ import functools
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib.solvers import ode
+
+
+class TestAutonomous(nn.Module):
+
+  @nn.compact
+  def __call__(self, x, flag=True):
+    return x + 1 if flag else x
+
+
+class TestNonAutonomous(nn.Module):
+
+  @nn.compact
+  def __call__(self, x, t, flag=True):
+    return x + t + 1 if flag else x + t
+
+
+class UtilsTest(parameterized.TestCase):
+
+  @parameterized.parameters((5, True, 6), (5, False, 5))
+  def test_module_to_autonomous_dynamics(self, x, flag, outputs):
+    module = TestAutonomous()
+    func = ode.nn_module_to_dynamics(module, autonomous=True, flag=flag)
+    out = func(x=x * np.ones((10,)), t=jnp.array(0), params={})
+    np.testing.assert_array_equal(out, outputs * np.ones((10,)))
+
+  @parameterized.parameters((6, 8, True, 15), (6, 8, False, 14))
+  def test_module_to_non_autonomous_dynamics(self, x, t, flag, outputs):
+    module = TestNonAutonomous()
+    func = ode.nn_module_to_dynamics(module, autonomous=False, flag=flag)
+    out = func(x=x * np.ones((10,)), t=jnp.array(t), params={})
+    np.testing.assert_array_equal(out, outputs * np.ones((10,)))
 
 
 def dummy_ode_dynamics(x, t, params):

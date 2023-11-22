@@ -28,7 +28,7 @@ import numpy as np
 from orbax import checkpoint
 import pandas as pd
 from swirl_dynamics.data import hdf5_utils
-from swirl_dynamics.lib.solvers import utils as solver_utils
+from swirl_dynamics.lib.solvers import ode
 from swirl_dynamics.projects.ergodic import choices
 import tensorflow as tf
 import tqdm.auto as tqdm
@@ -144,7 +144,7 @@ def generate_pred_traj(exps_df, all_steps, dt, trajs, mean=None, std=None):
         model = choices.Model(model_choice).dispatch(r[1])
         inference_model = functools.partial(
             integrator,
-            solver_utils.nn_module_to_ode_dynamics(model),
+            ode.nn_module_to_dynamics(model),
             params=dict(params=params),
         )
         ics = trajs[:, 0, ...]

@@ -13,9 +13,11 @@
 # limitations under the License.
 
 """Solvers for ordinary differential equations (ODEs)."""
+
 from typing import Any, Protocol
 
 import flax
+import flax.linen as nn
 import jax
 from jax.experimental import checkify
 from jax.experimental import ode
@@ -32,6 +34,21 @@ class OdeDynamics(Protocol):
   def __call__(self, x: Array, t: Array, params: PyTree) -> Array:
     """Evaluate the instantaneous dynamics."""
     ...
+
+
+def nn_module_to_dynamics(
+    module: nn.Module, autonomous: bool = True, **static_kwargs
+) -> OdeDynamics:
+  """Generates an `OdeDynamics` callable from a flax.nn module."""
+
+  def _dynamics_func(x: Array, t: Array, params: PyTree) -> Array:
+    args = (x,) if autonomous else (x, t)
+    # NOTE: `params` here is the whole of model variable, not just the `params`
+    # key
+    variables = params
+    return module.apply(variables, *args, **static_kwargs)
+
+  return _dynamics_func
 
 
 class OdeSolver(Protocol):
@@ -170,9 +187,9 @@ class MultiStepScanOdeSolver:
     """Helper method to package batches for multi-step solvers.
 
     Args:
-      x: Array of containing axes for batch_size (potentially),
-        lookback_steps (e.g., temporal axis), spatial_dims, and channels, where
-        spatial_dims can have ndim >= 1
+      x: Array of containing axes for batch_size (potentially), lookback_steps
+        (e.g., temporal axis), spatial_dims, and channels, where spatial_dims
+        can have ndim >= 1
 
     Returns:
       Array where each time step in the temporal dim is concatenated along
@@ -208,16 +225,16 @@ class MultiStepScanOdeSolver:
       x_next = self.step(func, x0_stack, t0, dt, params)
       x_next = jnp.expand_dims(x_next, axis=self.time_axis_pos)
       x_prev = jnp.take(
-          x0, np.arange(1, x0.shape[self.time_axis_pos]),
-          axis=self.time_axis_pos
+          x0,
+          np.arange(1, x0.shape[self.time_axis_pos]),
+          axis=self.time_axis_pos,
       )
       x_carry = jnp.concatenate([x_prev, x_next], axis=self.time_axis_pos)
       return (x_carry, t_next), x_next.squeeze(axis=self.time_axis_pos)
 
     _, out = jax.lax.scan(scan_fun, (x0, tspan[0]), tspan[1:])
     return jnp.concatenate(
-        [x0, jnp.moveaxis(out, 0, self.time_axis_pos)],
-        axis=self.time_axis_pos
+        [x0, jnp.moveaxis(out, 0, self.time_axis_pos)], axis=self.time_axis_pos
     )
 
 

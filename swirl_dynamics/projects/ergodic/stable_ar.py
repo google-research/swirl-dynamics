@@ -28,7 +28,7 @@ from flax import linen as nn
 import jax
 from jax import numpy as jnp
 import numpy as np
-from swirl_dynamics.lib.solvers import utils as solver_utils
+from swirl_dynamics.lib.solvers import ode
 from swirl_dynamics.projects.ergodic import choices
 from swirl_dynamics.projects.ergodic import measure_distances
 from swirl_dynamics.projects.ergodic import utils as ergodic_utils
@@ -69,8 +69,7 @@ class StableARModel(models.BaseModel):
   def __post_init__(self):
     pred_integrator = self.conf.integrator.dispatch()
     self.pred_integrator = functools.partial(
-        pred_integrator,
-        solver_utils.nn_module_to_ode_dynamics(self.conf.dynamics_model),
+        pred_integrator, ode.nn_module_to_dynamics(self.conf.dynamics_model)
     )
     # TODO(lzepedanunez): check if this is compatible with distributed training.
     self.vmapped_measure_dist = jax.vmap(self.conf.measure_dist, in_axes=(1, 1))
@@ -156,7 +155,8 @@ class StableARModel(models.BaseModel):
           jax.vmap(
               lambda p: self.conf.measure_dist(p, true[:, 0, ...]),
               in_axes=(1),
-          )(pred) * rollout_weight
+          )(pred)
+          * rollout_weight
       )
       measure_dist_k = jnp.mean(
           self.vmapped_measure_dist(pred, true[:, 1:, ...]) * rollout_weight
@@ -312,7 +312,10 @@ class StableARTrainer(trainers.BasicTrainer):
       # where ... is same as just above.
       true = batch_data["u"][
           :,
-          self.conf.num_lookback_steps - 1 : num_time_steps + self.conf.num_lookback_steps - 1,  # pylint: disable=line-too-long
+          self.conf.num_lookback_steps
+          - 1 : num_time_steps
+          + self.conf.num_lookback_steps
+          - 1,  # pylint: disable=line-too-long
           ...,
       ]
     else:
