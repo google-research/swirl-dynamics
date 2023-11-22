@@ -28,7 +28,7 @@ dependencies = [
   "etils",
   "flax",
   "h5py",
-  "grain@git+https://github.com/google/grain.git@b80f7066ce1f69317519bf64739e5ff9a463059a",
+  "grain-nightly",
   "gin-config",
   "jax",
   "numpy",
