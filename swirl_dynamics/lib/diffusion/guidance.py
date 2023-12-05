@@ -97,7 +97,7 @@ class InfillFromSlices:
         return error, denoised
 
       constraint_grad, denoised = jax.grad(constraint, has_aux=True)(x)
-      # normalize wrt the fraction of values being conditioned
+      # Rescale based on the fraction of values being conditioned.
       cond_fraction = jnp.prod(jnp.asarray(x[self.slices].shape)) / jnp.prod(
           jnp.asarray(x.shape)
       )
