@@ -124,7 +124,7 @@ class DenoisingModel(models.BaseModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x"])
-    rng1, rng2 = jax.random.split(rng)
+    rng1, rng2, rng3 = jax.random.split(rng, num=3)
     sigma = self.noise_sampling(rng=rng1, shape=(batch_size,))
     weights = self.noise_weighting(sigma)
     noise = jax.random.normal(rng2, batch["x"].shape)
@@ -132,7 +132,12 @@ class DenoisingModel(models.BaseModel):
     noised = batch["x"] + vmapped_mult(noise, sigma)
     cond = batch["cond"] if self.cond_shape else None
     denoised = self.denoiser.apply(
-        {"params": params}, x=noised, sigma=sigma, cond=cond, is_training=True
+        {"params": params},
+        x=noised,
+        sigma=sigma,
+        cond=cond,
+        is_training=True,
+        rngs={"dropout": rng3},  # TODO(lzepedanunez): refactor this.
     )
     loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))
     metric = dict(loss=loss)

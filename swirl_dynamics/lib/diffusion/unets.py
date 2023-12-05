@@ -245,7 +245,7 @@ class ConvBlock(nn.Module):
 
 
 def depth_to_space(x: Array, block_shape: tuple[int, ...]) -> Array:
-  """Rearranges data from the channels to spatial as a way to upsample.
+  """Rearranges data from the channels to spatial dims as a way to upsample.
 
   Args:
     x: The array to reshape.
@@ -401,7 +401,7 @@ def process_channelwise_cond(
 class DStack(nn.Module):
   """Downsampling stack.
 
-  Repeated convolutional blocks with occaisonal strides for downsampling.
+  Repeated convolutional blocks with occasional strides for downsampling.
   Features at different resolutions are concatenated into output to use
   for skip connections by the UStack module.
   """
