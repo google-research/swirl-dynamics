@@ -101,6 +101,28 @@ class NetworksTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, x.shape)
 
+  @parameterized.parameters(((8, 8),), ((4, 8),))
+  def test_latlon_conv_layer_output_shape_and_equivariance(self, spatial_dims):
+    batch, channels = 2, 1
+    x = np.random.randn(batch, *spatial_dims, channels)
+
+    model = unets.conv_layer(
+        features=1,
+        kernel_size=(3, 3),
+        padding="LATLON",
+        use_bias=False,
+    )
+    out, variables = model.init_with_output(
+        jax.random.PRNGKey(42), x
+    )
+    x_roll = np.roll(x, shift=3, axis=2)
+    out_roll = model.apply(variables, x_roll)
+
+    self.assertEqual(out.shape, x.shape)
+    self.assertEqual(out_roll.shape, x_roll.shape)
+    self.assertEqual(
+        jnp.roll(out, shift=3, axis=2).tolist(), out_roll.tolist()
+    )
 
 if __name__ == "__main__":
   absltest.main()

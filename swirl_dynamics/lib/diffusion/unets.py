@@ -132,9 +132,11 @@ class LatLonConv(nn.Module):
   """
 
   features: int
-  kernel_size: tuple[int, int] = (3, 3)
+  kernel_size: tuple[int, ...] | list[int] = (3, 3)
   use_bias: bool = True
   kernel_init: Initializer = default_init(1.0)
+  strides: tuple[int, ...] | list[int] = (1, 1)
+  use_local: bool = False
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -153,11 +155,13 @@ class LatLonConv(nn.Module):
         x_per, ((0, 0), (lon_pad, lon_pad), (0, 0), (0, 0)), mode="edge"
     )
     # shape: (batch_size, lon, lat, features)
-    return nn.Conv(
+    conv_fn = nn.ConvLocal if self.use_local else nn.Conv
+
+    return conv_fn(
         self.features,
         kernel_size=self.kernel_size,
         use_bias=self.use_bias,
-        strides=(1, 1),
+        strides=self.strides,
         kernel_init=self.kernel_init,
         padding="VALID",
     )(x_per)
@@ -189,9 +193,14 @@ class DownsampleConv(nn.Module):
     return x
 
 
-def conv_layer(padding: str, **kwargs) -> nn.Module:
-  if padding.lower() == "latlon":
-    return LatLonConv(**kwargs)
+def conv_layer(
+    padding: str | int, use_local: bool = False, **kwargs
+) -> nn.Module:
+  """Wrapper for conv layers with non-standard boundary conditions."""
+  if isinstance(padding, str) and padding.lower() == "latlon":
+    return LatLonConv(use_local=use_local, **kwargs)
+  elif use_local:
+    return nn.ConvLocal(padding=padding, **kwargs)
   else:
     return nn.Conv(padding=padding, **kwargs)
 
