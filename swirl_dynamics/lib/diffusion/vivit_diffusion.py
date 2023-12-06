@@ -372,9 +372,7 @@ class ViViTDiffusion(nn.Module):
     attention_dropout_rate: Dropout for attention heads.
     stochastic_droplayer_rate: Probability of dropping a layer. Linearly
       increases from 0 to the provided value..
-    return_prelogits: If true, return the final representation of the network
-      before the classification head. Useful when using features for a
-      downstream task.
+    positional_embedding: Type of positional encoding.
     dtype: JAX data type for activations.
   """
 
@@ -387,8 +385,10 @@ class ViViTDiffusion(nn.Module):
   temporal_encoding_config: ml_collections.ConfigDict
   attention_config: ml_collections.ConfigDict
   dropout_rate: float = 0.1
+  noise_embed_dim: int = 256
   attention_dropout_rate: float = 0.1
   stochastic_droplayer_rate: float = 0.0
+  positional_embedding: str = 'sinusoidal_3d'
   dtype: jnp.dtype = jnp.float32
 
   @nn.compact
@@ -403,7 +403,7 @@ class ViViTDiffusion(nn.Module):
     batch_size_input, num_frames, height, width, _ = x.shape
 
     # Computing the embedding for modulation.
-    emb = unets.FourierEmbedding()(sigma)
+    emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)
 
     # Shape: (batch_size, num_frames//patch_time, height//patch_height,
     #         width//patch_width, emd_dim).
@@ -431,6 +431,7 @@ class ViViTDiffusion(nn.Module):
         dropout_rate=self.dropout_rate,
         attention_dropout_rate=self.attention_dropout_rate,
         stochastic_droplayer_rate=self.stochastic_droplayer_rate,
+        positional_embedding=self.positional_embedding,
         dtype=self.dtype,
         name='Transformer')(
             x, emb, train=is_training)

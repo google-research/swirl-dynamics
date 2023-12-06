@@ -92,6 +92,32 @@ class VivitTest(parameterized.TestCase):
 
     self.assertEqual(out.shape, (batch_size, num_tokens, channel))
 
+  @parameterized.parameters(
+      ((1, 2, 4, 8, 3), (2, 2, 2), 1),
+      ((1, 2, 8, 8, 3), (2, 2, 2), 2),
+      ((1, 2, 8, 8, 3), (2, 2, 2), 3),
+  )
+  def test_decoder_output_shape(self, enc_shapes, patch_size, output_features):
+    batch_size, time, height, width, channels = enc_shapes
+
+    t, h, w = patch_size
+    x = jax.random.normal(jax.random.PRNGKey(0), enc_shapes)
+
+    decoder = vivit.TemporalDecoder(
+        patches=patch_size,
+        features_out=output_features,
+        encoded_shapes=(time, height, width),
+    )
+
+    out, _ = decoder.init_with_output(
+        jax.random.PRNGKey(42),
+        x.reshape((batch_size, -1, channels)),
+        train=False,
+    )
+
+    self.assertEqual(out.shape, (batch_size, time * t, height * h, width * w,
+                                 output_features))
+
 
 if __name__ == "__main__":
   absltest.main()

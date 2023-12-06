@@ -51,6 +51,15 @@ _AXIS_TO_NAME_3D = dict({
     3: 'width',
 })
 
+# Permutation to perform a depth to space in three dimension.
+# Basically we seek to go from:
+# (batch_size, time, height, width,
+#  time_patch, height_patch, width_patch, emb_dim )
+# to
+# (batch_size, time, time_patch, height, height_patch,
+#  width, width_patch, emb_dim)
+_PERMUTATION = (0, 1, 4, 2, 5, 3, 6, 7)
+
 
 def get_fixed_sincos_position_embedding(
     x_shape: Shape,
@@ -338,12 +347,12 @@ class TemporalEncoder(nn.Module):
 
 
 class TemporalDecoder(nn.Module):
-  """Temporal Decoder.
+  """Temporal Decoder from latent space to original 3d space.
 
   Attributes:
     patches: The size of each patch used for the temporal embedding.
     features_out: Number of features in the output.
-    encoded_shapes: Shape in time, height, and width of the encoded inputs.
+    encoded_shapes: Shape of the encoded input following [time, height, width].
   """
   patches: tuple[int, ...]
   features_out: int
@@ -355,15 +364,26 @@ class TemporalDecoder(nn.Module):
     # We suppose that the input is batch_size, num_tokens, emb_dim
     batch_size, _, emb_dim = inputs.shape
 
-    time, height, width = self.patches
+    t, h, w = self.patches
+    enc_t, enc_h, enc_w = self.encoded_shapes
     x = jnp.reshape(inputs, (batch_size, *self.encoded_shapes, emb_dim))
 
-    x = nn.ConvTranspose(features=self.features_out,
-                         kernel_size=(2, 2, 2),
-                         strides=(time, height, width),
-                         kernel_dilation=(time, height, width),
-                         transpose_kernel=True,
-                         name='conv_transpose_temporal_decoder')(x)
+    x = nn.Conv(
+        features=self.features_out * t * h * w,
+        kernel_size=(1, 1, 1),
+        strides=(1, 1, 1),
+        name='conv_transpose_temporal_decoder',
+    )(x)
+
+    # TODO(lzepedanunez): Use unets.depth_to_space here instead.
+    x = jnp.reshape(
+        x, (batch_size, *self.encoded_shapes, t, h, w, self.features_out)
+    )
+    x = jnp.transpose(x, _PERMUTATION)
+    x = jnp.reshape(
+        x, (batch_size, enc_t * t, enc_h * h, enc_w * w, self.features_out)
+    )
+
     return x
 
 
