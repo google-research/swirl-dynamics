@@ -289,21 +289,19 @@ class Embedding3D(nn.Module):
 
     if self.kernel_init_method == 'central_frame_initializer':
       kernel_initializer = central_frame_initializer()
-      # logging.info('Using central frame initializer for input embedding')
     elif self.kernel_init_method == 'average_frame_initializer':
       kernel_initializer = average_frame_initializer()
-      # logging.info('Using average frame initializer for input embedding')
     else:
       kernel_initializer = linear.default_kernel_init
-      # logging.info('Using default initializer for input embedding')
 
     x = nn.Conv(
-        self.embedding_dim, (ft, fh, fw),
+        features=self.embedding_dim,
+        kernel_size=(ft, fh, fw),
         strides=(ft, fh, fw),
         padding='VALID',
         name='_conv_3d_embedding',
-        kernel_init=kernel_initializer)(
-            x)
+        kernel_init=kernel_initializer,
+    )(x)
 
     return x
 
