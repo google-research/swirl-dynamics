@@ -83,7 +83,7 @@ def uniform_time(
         "Exactly one of `end_time` and `end_sigma` must be specified."
     )
 
-  start = diffusion.MAX_DIFFUION_TIME
+  start = diffusion.MAX_DIFFUSION_TIME
   end = end_time or scheme.sigma.inverse(end_sigma)
   return jnp.linspace(start, end, num_steps)
 

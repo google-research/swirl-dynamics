@@ -28,8 +28,8 @@ import numpy as np
 Array = jax.Array
 ScheduleFn = Callable[[chex.Numeric], chex.Numeric]
 
-MIN_DIFFUION_TIME = 0.0
-MAX_DIFFUION_TIME = 1.0
+MIN_DIFFUSION_TIME = 0.0
+MAX_DIFFUSION_TIME = 1.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -100,7 +100,7 @@ class Diffusion:
 
   @property
   def sigma_max(self) -> chex.Numeric:
-    return self.sigma(MAX_DIFFUION_TIME)
+    return self.sigma(MAX_DIFFUSION_TIME)
 
   @classmethod
   def create_variance_preserving(
@@ -190,7 +190,7 @@ def tangent_noise_schedule(
     raise ValueError("Must have -pi/2 < `start` < `end` < pi/2.")
 
   in_rescale = _linear_rescale(
-      in_min=0.0, in_max=MAX_DIFFUION_TIME, out_min=start, out_max=end
+      in_min=0.0, in_max=MAX_DIFFUSION_TIME, out_min=start, out_max=end
   )
   out_rescale = _linear_rescale(
       in_min=np.tan(start), in_max=np.tan(end), out_min=0.0, out_max=clip_max
@@ -229,8 +229,8 @@ def power_noise_schedule(
     raise ValueError("Must have `p` > 0 and 0 <= `start` < `end`.")
 
   in_rescale = _linear_rescale(
-      in_min=MIN_DIFFUION_TIME,
-      in_max=MAX_DIFFUION_TIME,
+      in_min=MIN_DIFFUSION_TIME,
+      in_max=MAX_DIFFUSION_TIME,
       out_min=start,
       out_max=end,
   )
@@ -271,8 +271,8 @@ def exponential_noise_schedule(
     raise ValueError("Must have `base` > 1 and `start` < `end`.")
 
   in_rescale = _linear_rescale(
-      in_min=MIN_DIFFUION_TIME,
-      in_max=MAX_DIFFUION_TIME,
+      in_min=MIN_DIFFUSION_TIME,
+      in_max=MAX_DIFFUSION_TIME,
       out_min=start,
       out_max=end,
   )
@@ -339,7 +339,7 @@ def time_uniform_sampling(
   ) -> Array:
     samples = _uniform_samples(rng, shape, uniform_grid)
     min_t = scheme.sigma.inverse(clip_min)
-    samples = (MAX_DIFFUION_TIME - min_t) * samples + min_t
+    samples = (MAX_DIFFUSION_TIME - min_t) * samples + min_t
     return jnp.asarray(scheme.sigma(samples))
 
   return _noise_sampling
