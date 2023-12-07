@@ -250,6 +250,7 @@ def create_cond_dataset(
     cond_variables: Sequence[str],
     sample_indexers: Mapping[str, Any] | None = None,
     cond_indexers: Mapping[str, Any] | None = None,
+    sample_field_rename: str = "x",
     date_range: tuple[str, str] = ("1959", "2015"),
     num_epochs: int | None = None,
     shuffle: bool = False,
@@ -318,12 +319,74 @@ def create_cond_dataset(
   transformations = standardizations + [
       Squeeze(input_fields=all_variables, axis=0),  # Squeeze out the time dim.
       Rot90(input_fields=all_variables, k=1, axes=(0, 1)),
-      Stack(input_fields=variables, output_field="x", axis=-1),
+      Stack(input_fields=variables, output_field=sample_field_rename, axis=-1),
       Stack(
           input_fields=prefixed_cond_variables, output_field="low_res", axis=-1
       ),
       RandomMaskout(input_fields=("low_res",), probability=cond_maskout_prob),
       AssembleCondDict(cond_fields=("low_res",), prefix="channel:"),
+  ]
+  data_loader = pygrain.load(
+      source=source,
+      num_epochs=num_epochs,
+      shuffle=shuffle,
+      seed=seed,
+      shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
+      transformations=transformations,
+      batch_size=batch_size,
+      drop_remainder=drop_remainder,
+      worker_count=worker_count,
+  )
+  return data_loader
+
+
+def create_uncond_dataset(
+    zarr_path: epath.PathLike,
+    variables: Sequence[str],
+    sample_indexers: Mapping[str, Any] | None = None,
+    sample_field_rename: str = "x",
+    date_range: tuple[str, str] = ("1959", "2015"),
+    num_epochs: int | None = None,
+    shuffle: bool = False,
+    seed: int = 42,
+    batch_size: int = 16,
+    drop_remainder: bool = True,
+    worker_count: int | None = 0,
+    standardize_samples: bool = False,
+    stats_zarr_path: epath.PathLike | None = None,
+) -> pygrain.DataLoader:
+  """Creates a pygrain data pipeline for training conditional generation."""
+  source = CondZarrDataSource(
+      path=zarr_path,
+      variables=variables,
+      isel_indexers=sample_indexers,
+      date_range=date_range,
+  )
+  standardizations = []
+  if standardize_samples:
+    standardizations += [
+        # output
+        Standardize(
+            input_fields=variables,
+            mean=read_zarr_variables_as_tuple(
+                stats_zarr_path,
+                variables,
+                dataset_sel_indexers={"stats": "mean"},
+                dataset_isel_indexers=sample_indexers,
+            ),
+            std=read_zarr_variables_as_tuple(
+                stats_zarr_path,
+                variables,
+                dataset_sel_indexers={"stats": "std"},
+                dataset_isel_indexers=sample_indexers,
+            ),
+        ),
+    ]
+
+  transformations = standardizations + [
+      Squeeze(input_fields=variables, axis=0),  # squeeze out the time dim
+      Rot90(input_fields=variables, k=1, axes=(0, 1)),
+      Stack(input_fields=variables, output_field=sample_field_rename, axis=-1),
   ]
   data_loader = pygrain.load(
       source=source,

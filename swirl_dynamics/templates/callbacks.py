@@ -21,6 +21,7 @@ import time
 from clu import metric_writers
 from clu import periodic_actions
 import flax
+import gin
 import jax
 import numpy as np
 from orbax import checkpoint
@@ -241,3 +242,15 @@ class TqdmProgressBar(Callback):
     del trainer
     assert self.bar is not None
     self.bar.close()
+
+
+class LogGinConfig(Callback):
+  """Write gin config string as text in TensorBoard."""
+
+  def on_train_begin(self, trainer: trainers.BaseTrainer) -> None:
+    if jax.process_index() == 0:
+      config_str = gin.operative_config_str()
+      self.metric_writer.write_texts(
+          0, {"config": gin.markdown(config_str), "raw_config_str": config_str}
+      )
+      self.metric_writer.flush()

@@ -53,6 +53,7 @@ class CondSamplingBenchmark(evaluate.Benchmark):
 
   num_samples_per_cond: int
   sample_batch_size: int
+  num_examples_to_save: int
   brier_score_thresholds: Sequence[int | float]
 
   def __post_init__(self):
@@ -134,10 +135,9 @@ class CondSamplingBenchmark(evaluate.Benchmark):
     )  # ~ (1, *spatial, channels, n_thresholds);
     batch_collect = dict(
         observation=obs,
-        example1=pred[:, 0],
+        examples=pred[:, : self.num_examples_to_save],
         cond_stddev=cond_stddev,
         crps=crps,
-        thres_brier_scores=thres_brier_scores,
     )
     batch_result = dict(
         crps=crps,

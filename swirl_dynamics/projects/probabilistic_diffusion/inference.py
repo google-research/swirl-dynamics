@@ -14,16 +14,16 @@
 
 """Inference modules."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import dataclasses
 from typing import Any, Protocol
 
 import flax.linen as nn
 import jax
 import numpy as np
-from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.lib.diffusion import samplers
 from swirl_dynamics.projects.probabilistic_diffusion import trainers
+import xarray_tensorstore as xrts
 
 Array = jax.Array
 PyTree = Any
@@ -137,11 +137,20 @@ def get_inference_fn_from_sampler(
 # ****************
 
 
-def read_stats_from_hdf5(
-    file_path: str, variables: Sequence[str], group: str = "mean"
+def read_stats_from_zarr(
+    path: str,
+    variables: Sequence[str],
+    stat: str = "mean",
+    isel_indexers: Mapping[str, Any] | None = None,
+    rot90_k: int = 1,
 ):
   """Reads statistics from a hdf5 file and applies a 90 degree rotation."""
-  variables = [f"{group}/{v}" for v in variables]
-  arrays = hdf5_utils.read_arrays_as_tuple(file_path, keys=variables)
-  out = np.stack(arrays, axis=-1)
-  return np.rot90(out, k=1, axes=(0, 1))
+  ds = xrts.open_zarr(path).sel(stats=stat)
+
+  if isel_indexers:
+    ds = ds.isel(isel_indexers)
+
+  stats = tuple(
+      np.rot90(ds[v].to_numpy(), k=rot90_k, axes=(0, 1)) for v in variables
+  )
+  return np.stack(stats, axis=-1)

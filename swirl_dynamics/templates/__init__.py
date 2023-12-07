@@ -19,6 +19,7 @@
 
 from swirl_dynamics.templates.callbacks import (
     Callback,
+    LogGinConfig,
     ProgressReport,
     TqdmProgressBar,
     TrainStateCheckpoint,

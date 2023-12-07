@@ -60,3 +60,10 @@ def optax_chain(
 ) -> optax.GradientTransformation:
   """Wraps `optax.chain` to allow keyword arguments (for gin config)."""
   return optax.chain(*transformations)
+
+
+def create_slice(
+    start: int | None = None, end: int | None = None, step: int | None = None
+) -> slice:
+  """Wraps the python `slice` to allow keyword arguments (for gin config)."""
+  return slice(start, end, step)
