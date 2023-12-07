@@ -19,7 +19,7 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 import numpy as np
-from swirl_dynamics.lib.diffusion import unets
+from swirl_dynamics.lib import diffusion  # gpylint: disable=g-importing-member
 
 
 class NetworksTest(parameterized.TestCase):
@@ -34,7 +34,7 @@ class NetworksTest(parameterized.TestCase):
     batch, channels = 2, 3
     x = np.random.randn(batch, *spatial_dims, channels)
     sigma = np.linspace(0, 1, batch)
-    model = unets.UNet(
+    model = diffusion.unets.UNet(
         out_channels=channels,
         num_channels=(4, 8, 12),
         downsample_ratio=ds_ratio,
@@ -53,7 +53,7 @@ class NetworksTest(parameterized.TestCase):
     batch, channels = 2, 3
     x = np.random.randn(batch, *spatial_dims, channels)
     sigma = np.linspace(0, 1, batch)
-    model = unets.PreconditionedDenoiser(
+    model = diffusion.unets.PreconditionedDenoiser(
         out_channels=channels,
         num_channels=(4, 8, 12),
         downsample_ratio=(2, 2, 2),
@@ -80,7 +80,7 @@ class NetworksTest(parameterized.TestCase):
     x = jax.random.normal(jax.random.PRNGKey(42), x_dims)
     cond = {"channel:cond1": jax.random.normal(jax.random.PRNGKey(42), c_dims)}
     sigma = jnp.array(0.5)
-    model = unets.PreconditionedDenoiser(
+    model = diffusion.unets.PreconditionedDenoiser(
         out_channels=x_dims[-1],
         num_channels=(4, 8, 12),
         downsample_ratio=(2, 2, 2),
@@ -106,7 +106,7 @@ class NetworksTest(parameterized.TestCase):
     batch, channels = 2, 1
     x = np.random.randn(batch, *spatial_dims, channels)
 
-    model = unets.conv_layer(
+    model = diffusion.unets.conv_layer(
         features=1,
         kernel_size=(3, 3),
         padding="LATLON",
