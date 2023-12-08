@@ -50,6 +50,30 @@ class GuidanceTransformsTest(parameterized.TestCase):
     expected[superresolve.slices] = 0.0
     np.testing.assert_allclose(denoised, expected)
 
+  @parameterized.parameters(
+      {"mask_keys": None, "mask_value": 0, "expected": 13},
+      {"mask_keys": None, "mask_value": 1, "expected": 12},
+      {"mask_keys": ("0", "1", "2"), "mask_value": 0, "expected": 11.6},
+  )
+  def test_classifier_free_hybrid(self, mask_keys, mask_value, expected):
+    cf_hybrid = guidance.ClassifierFreeHybrid(
+        guidance_strength=0.2,
+        cond_mask_keys=mask_keys,
+        cond_mask_value=mask_value,
+    )
+
+    def _dummy_denoiser(x, sigma, cond):
+      del sigma
+      out = jnp.ones_like(x)
+      for v in cond.values():
+        out += v
+      return out
+
+    guided_denoiser = cf_hybrid(_dummy_denoiser, {})
+    cond = {str(v): jnp.array(v) for v in range(5)}
+    denoised = guided_denoiser(jnp.array(0), jnp.array(0.1), cond)
+    self.assertAlmostEqual(denoised, expected, places=5)
+
 
 if __name__ == "__main__":
   absltest.main()

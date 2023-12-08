@@ -14,7 +14,7 @@
 
 """Modules for guidance transforms for denoising functions."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 import flax
@@ -23,8 +23,8 @@ import jax.numpy as jnp
 
 Array = jax.Array
 PyTree = Any
-Cond = Mapping[str, PyTree] | None
-DenoiseFn = Callable[[Array, Array, Cond], Array]
+ArrayMapping = Mapping[str, Array]
+DenoiseFn = Callable[[Array, Array, ArrayMapping | None], Array]
 
 
 class Transform(Protocol):
@@ -37,7 +37,7 @@ class Transform(Protocol):
   """
 
   def __call__(
-      self, denoise_fn: DenoiseFn, guidance_inputs: Mapping[str, Array]
+      self, denoise_fn: DenoiseFn, guidance_inputs: ArrayMapping
   ) -> DenoiseFn:
     """Constructs a guided denoising function.
 
@@ -84,11 +84,13 @@ class InfillFromSlices:
   guide_strength: float = 0.5
 
   def __call__(
-      self, denoise_fn: DenoiseFn, guidance_inputs: Mapping[str, Array]
+      self, denoise_fn: DenoiseFn, guidance_inputs: ArrayMapping
   ) -> DenoiseFn:
     """Constructs denoise function guided by values on specified slices."""
 
-    def _guided_denoise(x: Array, sigma: Array, cond: Cond = None) -> Array:
+    def _guided_denoise(
+        x: Array, sigma: Array, cond: ArrayMapping | None = None
+    ) -> Array:
       def constraint(xt: Array) -> tuple[Array, Array]:
         denoised = denoise_fn(xt, sigma, cond)
         error = jnp.sum(
@@ -104,5 +106,63 @@ class InfillFromSlices:
       guide_strength = self.guide_strength / cond_fraction
       denoised -= guide_strength * constraint_grad
       return denoised.at[self.slices].set(guidance_inputs["observed_slices"])
+
+    return _guided_denoise
+
+
+@flax.struct.dataclass
+class ClassifierFreeHybrid:
+  """Classifier-free guidance for a hybrid (cond/uncond) denoising model.
+
+  This guidance technique, introduced by Ho and Salimans
+  (https://arxiv.org/abs/2207.12598), aims to improve the quality of denoised
+  images by combining conditional and unconditional denoising outputs.
+  The guided denoise function is given by:
+
+    D̃(x, σ, c) = (1 + w) * D(x, σ, c) - w * D(x, σ, Ø),
+
+  where
+
+    - x: The noisy input.
+    - σ: The noise level.
+    - c: The conditioning information (e.g., class label).
+    - Ø: A special masking condition (typically zeros) indicating unconditional
+      denoising.
+    - w: The guidance strength, controlling the influence of each denoising
+      output. A value of 0 indicates non-guided denoising.
+
+  Attributes:
+    guidance_strength: The strength of guidance (i.e. w). The original paper
+      reports optimal values of 0.1 and 0.3 for 64x64 and 128x128 ImageNet
+      respectively.
+    cond_mask_keys: A collection of keys in the conditions dictionary that will
+      be masked. If `None`, all conditions are masked.
+    cond_mask_value: The values that the conditions will be masked by. This
+      value must be consistent with the masking applied at training.
+  """
+
+  guidance_strength: float = 0.0
+  cond_mask_keys: Sequence[str] | None = None
+  cond_mask_value: float = 0.0
+
+  def __call__(
+      self, denoise_fn: DenoiseFn, guidance_inputs: ArrayMapping
+  ) -> DenoiseFn:
+    """Constructs denoise function with classifier free guidance."""
+
+    def _guided_denoise(x: Array, sigma: Array, cond: ArrayMapping) -> Array:
+      masked_cond = {
+          k: (
+              v  # pylint: disable=g-long-ternary
+              if self.cond_mask_keys is not None
+              and k not in self.cond_mask_keys
+              else jnp.ones_like(v) * self.cond_mask_value
+          )
+          for k, v in cond.items()
+      }
+      uncond_denoised = denoise_fn(x, sigma, masked_cond)
+      return (1 + self.guidance_strength) * denoise_fn(
+          x, sigma, cond
+      ) - self.guidance_strength * uncond_denoised
 
     return _guided_denoise

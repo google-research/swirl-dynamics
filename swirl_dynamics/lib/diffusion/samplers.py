@@ -26,9 +26,9 @@ from swirl_dynamics.lib.solvers import ode
 from swirl_dynamics.lib.solvers import sde
 
 Array = jax.Array
-PyTree = Any
-Cond = Mapping[str, PyTree] | None
-DenoiseFn = Callable[[Array, Array, Cond], Array]
+ArrayMapping = Mapping[str, Array]
+DenoiseFn = Callable[[Array, Array, ArrayMapping | None], Array]
+Params = Mapping[str, Any]
 ScoreFn = DenoiseFn
 
 
@@ -47,7 +47,7 @@ def denoiser2score(
 ) -> ScoreFn:
   """Converts a denoiser to the corresponding score function."""
 
-  def _score(x: Array, sigma: Array, cond: Cond = None) -> Array:
+  def _score(x: Array, sigma: Array, cond: ArrayMapping | None = None) -> Array:
     # reference: eq. 74 in Karras et al. (https://arxiv.org/abs/2206.00364).
     scale = scheme.scale(scheme.sigma.inverse(sigma))
     x_hat = jnp.divide(x, scale)
@@ -145,7 +145,7 @@ class Sampler(Protocol):
 def _apply_guidance_transforms(
     denoise_fn: DenoiseFn,
     transforms: Sequence[guidance.Transform],
-    guidance_inputs: Mapping[str, PyTree],
+    guidance_inputs: Mapping[str, Array],
 ) -> DenoiseFn:
   for transform in transforms:
     denoise_fn = transform(denoise_fn, guidance_inputs)
@@ -181,8 +181,8 @@ class OdeSampler:
       num_samples: int,
       rng: Array,
       tspan: Array,
-      cond: Cond = None,
-      guidance_inputs: Mapping[str, Any] | None = None,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
   ) -> tuple[Array, dict[str, Array]]:
     """Generate samples by solving the sampling ODE.
 
@@ -247,7 +247,7 @@ class OdeSampler:
     where s(t), σ(t) are the scale and noise schedule of the diffusion scheme.
     """
 
-    def _dynamics(x: Array, t: Array, params: PyTree) -> Array:
+    def _dynamics(x: Array, t: Array, params: Params) -> Array:
       assert not t.ndim, "`t` must be a scalar."
       denoise_fn = _apply_guidance_transforms(
           self.denoise_fn,
@@ -280,8 +280,8 @@ class SdeSampler:
       num_samples: int,
       rng: Array,
       tspan: Array,
-      cond: Cond = None,
-      guidance_inputs: Mapping[str, Any] | None = None,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
   ) -> tuple[Array, dict[str, Array]]:
     """Generate samples by solving an SDE.
 
@@ -355,7 +355,7 @@ class SdeSampler:
     respectively.
     """
 
-    def _drift(x: Array, t: Array, params: PyTree) -> Array:
+    def _drift(x: Array, t: Array, params: Params) -> Array:
       assert not t.ndim, "`t` must be a scalar."
       denoise_fn = _apply_guidance_transforms(
           self.denoise_fn,
@@ -370,7 +370,7 @@ class SdeSampler:
       drift -= 2 * dlog_sigma_dt * s * denoise_fn(x_hat, sigma, params["cond"])
       return drift
 
-    def _diffusion(x: Array, t: Array, params: PyTree) -> Array:
+    def _diffusion(x: Array, t: Array, params: Params) -> Array:
       del x, params
       assert not t.ndim, "`t` must be a scalar."
       dsquare_sigma_dt = dsquare_dt(self.scheme.sigma)(t)
