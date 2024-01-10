@@ -192,18 +192,18 @@ class ReFlowModel(models.BaseModel):
 
     vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     x_t = vmap_mult(x_1, time_eval) + vmap_mult(x_0, 1 - time_eval)
-    flow_fn = self.flow_fn(variables, self.flow_model)
+    flow_fn = self.inference_fn(variables, self.flow_model)
     v_t = jax.vmap(flow_fn, in_axes=(1, None), out_axes=1)(
         x_t, time_eval
     )
 
     # Eq. (1) in [1]
     int_losses = jax.vmap(jnp.mean)(jnp.square((x_1 - x_0 - v_t)))
-    eval_losses = {f"sigma_lvl{i}": loss for i, loss in enumerate(int_losses)}
+    eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
     return eval_losses
 
   @staticmethod
-  def flow_fn(variables: models.PyTree, flow_model: nn.Module):
+  def inference_fn(variables: models.PyTree, flow_model: nn.Module):
     """Returns the inference flow function."""
 
     def _flow(
