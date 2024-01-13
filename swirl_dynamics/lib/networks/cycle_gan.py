@@ -199,7 +199,7 @@ class Generator(nn.Module):
   use_skips: bool = True
   use_global_skip: bool = True
   dtype: jnp.dtype = jnp.float32
-  padding: str = "CIRCULAR"  # TODO(lzepedanunez): add one adapted for ERA5.
+  padding: str = "CIRCULAR"  # TODO(lzepedanunez): Add one adapted for ERA5.
   padding_transpose: str = "CIRCULAR"
   use_weight_global_skip: bool = False
   weight_skip: bool = False
@@ -220,15 +220,14 @@ class Generator(nn.Module):
           % self.upsample_mode
       )
 
-    # Saving for a skip connection, if the input and ouput resolution is the
-    # same.
+    # Saving for a skip connection.
     input_x = x
-    # Kernel dimension for the posional embedding.
+    # Kernel dimension for the positional embedding.
     kernel_dim = x.ndim - 2
 
     batch_size, input_height, input_width, input_channels = x.shape
 
-    # We interpolate the input to the interpolated shape.
+    # Interpolate the input to the desired shape.
     if self.interpolated_shape:
       x = functools.partial(
           jax.image.resize,
@@ -340,6 +339,7 @@ class Generator(nn.Module):
         )(x)
 
       elif self.upsample_mode == "deconv":
+        # TODO(lzepedanunez): use channel unrolling for the upsampling.
         x = nn.ConvTranspose(
             features=(self.ngf * mult) // 2,
             kernel_size=self.kernel_size_upsampling,

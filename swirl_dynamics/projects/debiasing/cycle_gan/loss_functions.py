@@ -19,13 +19,19 @@ https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/e2c7618a2f2bf4ee012
 """
 
 import dataclasses
+import enum
 from typing import Callable
 
 import jax
 import jax.numpy as jnp
 
-
 Array = jax.Array
+
+
+class GanMode(enum.Enum):
+  LSGAN = "lsgan"
+  BCE_WITH_LOGITS = "bce_with_logits"
+  WGANGP = "wgangp"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,12 +47,16 @@ class GanLoss:
   The GANLoss class abstracts away the need to create the target label tensor
   that has the same size as the input.
   """
-  gan_mode: str
+  gan_mode: GanMode
   target_real_label: float = 1.0
   target_fake_label: float = 0.0
 
   def setup(self):
-    if self.gan_mode not in ["lsgan", "bce_with_logits", "wgangp"]:
+    if self.gan_mode not in [
+        GanMode.LSGAN,
+        GanMode.BCE_WITH_LOGITS,
+        GanMode.WGANGP,
+    ]:
       raise NotImplementedError(
           "gan loss %s is not implemented" % self.gan_mode
       )
@@ -79,18 +89,18 @@ class GanLoss:
       # Dummy value of the loss.
       loss_value = jnp.array([-1.0])
 
-      if self.gan_mode in ["lsgan", "bce_with_logits"]:
+      if self.gan_mode in [GanMode.LSGAN, GanMode.BCE_WITH_LOGITS]:
         if target_array.shape != prediction.shape:
           raise ValueError(
               f"Target shapes ({target_array.shape}) must coincide with the",
               f" input shapes ({prediction.shape})",
           )
         # Using Mean Square Error (MSE) loss.
-        if self.gan_mode == "lsgan":
+        if self.gan_mode == GanMode.LSGAN:
           loss_value = jnp.mean((prediction - target_array) ** 2)
 
         # Using BCEWithLogitsLoss.
-        elif self.gan_mode == "bce_with_logits":
+        elif self.gan_mode == GanMode.BCE_WITH_LOGITS:
           max_val = jnp.clip(-prediction, 0, None)
           loss_value = (
               prediction * (1 - target_array)
@@ -100,7 +110,7 @@ class GanLoss:
           loss_value = jnp.mean(loss_value)  # default to mean loss
 
       # Using the loss by Wasserstein GAN.
-      elif self.gan_mode in ["wgangp"]:
+      elif self.gan_mode == GanMode.WGANGP:
         if target_is_real:
           loss_value = -jnp.mean(prediction)
         else:
