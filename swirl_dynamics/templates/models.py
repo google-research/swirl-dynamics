@@ -73,7 +73,7 @@ class BaseModel(metaclass=abc.ABCMeta):
   @abc.abstractmethod
   def loss_fn(
       self,
-      params: PyTree,
+      params: PyTree | tuple[PyTree, ...],
       batch: BatchType,
       rng: jax.Array,
       mutables: PyTree,
@@ -105,7 +105,7 @@ class BaseModel(metaclass=abc.ABCMeta):
 
   def eval_fn(
       self,
-      variables: PyTree,
+      variables: tuple[PyTree, ...] | PyTree,
       batch: BatchType,
       rng: jax.Array,
       **kwargs,

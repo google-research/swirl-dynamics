@@ -18,7 +18,7 @@ References:
 [1] Zhu, J.Y., Park, T., Isola, P. and Efros, A.A., "Unpaired image-to-image
     translation using cycle-consistent adversarial networks". In Proceedings of
     the IEEE international conference on computer vision (pp. 2223-2232) 2017.
-[2] https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190#issuecomment-358546675  # pylint: disable=line-too-long
+[2] https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190#issuecomment-358546675  # pylint: disable=unused-argument: disable=line-too-long
 """
 
 import dataclasses
@@ -27,10 +27,12 @@ from typing import Any
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from swirl_dynamics.lib.networks import cycle_gan
 from swirl_dynamics.projects.debiasing.cycle_gan import loss_functions
+from swirl_dynamics.templates import models as swirl_models
 
 
-Pytree = Any
+PyTree = Any
 Array = jax.Array
 Initializer = nn.initializers.Initializer
 
@@ -123,7 +125,7 @@ class CycleGAN(nn.Module):
 
   def init(
       self, rng: Array, *args, **kwargs
-  ) -> tuple[Pytree, Pytree, Pytree, Pytree]:
+  ) -> tuple[PyTree, PyTree, PyTree, PyTree]:
     """Initialize the weights of all the networks.
 
     Args:
@@ -154,7 +156,7 @@ class CycleGAN(nn.Module):
   def run_generator_forward(
       self,
       rngs: dict[str, Array],
-      params_gen: tuple[Pytree, Pytree],
+      params_gen: tuple[PyTree, PyTree],
       real_data: tuple[Array, Array],
       is_training: bool = True,
   ) -> tuple[Array, Array, Array, Array]:
@@ -206,7 +208,7 @@ class CycleGAN(nn.Module):
   def run_generator_forward_a2b(
       self,
       rngs: dict[str, Array],
-      params_gen_a2b: Pytree,
+      params_gen_a2b: PyTree,
       real_data_a: Array,
       is_training: bool = False,
   ) -> Array:
@@ -234,7 +236,7 @@ class CycleGAN(nn.Module):
   def run_generator_backward(
       self,
       rngs: dict[str, Array],
-      params: tuple[Pytree, ...],
+      params: tuple[PyTree, ...],
       generated_data: tuple[Array, Array, Array, Array],
       real_data: tuple[Array, Array],
       is_training: bool = True,
@@ -315,15 +317,15 @@ class CycleGAN(nn.Module):
                 loss_id_b=jnp.array(loss_id_b))
 
   def run_discriminator_backward_a(self,
-                                   params: Pytree,
+                                   params: PyTree,
                                    real_a: Array,
                                    fake_a: Array) -> Array:
     """Running the disctriminator loss on samples from A.
 
     Args:
-        params: params for one discriminator
-        real_a: real image from dataset
-        fake_a: generated image from image pool
+        params: Parameters for one discriminator for samples from A.
+        real_a: Real image from dataset A.
+        fake_a: Generated image from the generator.
 
     Returns:
       The average of the losses from the discriminator in A.
@@ -343,15 +345,15 @@ class CycleGAN(nn.Module):
 
     return loss
 
-  def run_discriminator_backward_b(self, params: Pytree,
+  def run_discriminator_backward_b(self, params: PyTree,
                                    real_b: Array,
                                    fake_b: Array) -> Array:
     """Running the disctriminator backwards on samples from B.
 
     Args:
-        params: params for one discriminator
-        real_b: real image from dataset
-        fake_b: generated image from image pool
+        params: Parameters for the discriminator for samples from B.
+        real_b: Real image from dataset B.
+        fake_b: G.nerated image from the generator.
 
     Returns:
       The average of the losses from the discriminator in B.
@@ -396,3 +398,259 @@ class CycleGAN(nn.Module):
     loss = (loss_dis_real_a + loss_dis_real_b) * 0.5
 
     return loss
+
+
+@dataclasses.dataclass(kw_only=True)
+class CycleGANConfig:
+  """Config used by cycleGAN models."""
+
+  generator_a2b: cycle_gan.Generator
+  generator_b2a: cycle_gan.Generator
+
+  dims_a: tuple[int, ...]
+  dims_b: tuple[int, ...]
+
+  discriminator_a: cycle_gan.Discriminator
+  discriminator_b: cycle_gan.Discriminator
+
+  lambda_a: float
+  lambda_b: float
+  lambda_id: float
+
+
+@dataclasses.dataclass(kw_only=True)
+class CycleGANModel(swirl_models.BaseModel):
+  """Model used storing cycleGan information.
+
+  Attributes:
+    cycle_gan: Flax Module containing all the functionatly for CycleGAN.
+    dim_inputs: The dimension of the inputs for both samples from A and B.
+      These shapes may de different from the ones inside the model due to an
+      interpolation step.
+  """
+
+  cycle_gan: CycleGAN
+  dim_inputs: tuple[tuple[int, ...], tuple[int, ...]]
+
+  def initialize(self, rng: Array) -> tuple[PyTree, PyTree, PyTree, PyTree]:
+    # Initialize the parameters.
+    # Here we need the input dimension for both A and B, and the output should
+    # be a dictionary with 4 fields.
+    init_input = self.dim_inputs
+    dummy_a = jnp.ones(init_input[0])
+    dummy_b = jnp.ones(init_input[1])
+
+    return self.cycle_gan.init(rng, dummy_a, dummy_b)
+
+  def __post_init__(self):
+    # Adding the generator functions.
+    self.run_generator_forward = self.cycle_gan.run_generator_forward
+    self.run_generator_backward = self.cycle_gan.run_generator_backward
+    self.run_discriminator_backward_a = (
+        self.cycle_gan.run_discriminator_backward_a
+    )
+    self.run_discriminator_backward_b = (
+        self.cycle_gan.run_discriminator_backward_b
+    )
+
+  def loss_fn(
+      self,
+      params: tuple[PyTree, ...],  # this would be a tuple of parameters.
+      batch: swirl_models.BatchType,
+      rng: Array,
+      mutables: PyTree,
+  ) -> tuple[
+      jax.Array, tuple[swirl_models.ArrayDict, PyTree, tuple[Array, ...]]
+  ]:  # pytype: disable=signature-mismatch
+    """Loss function for the generator.
+
+    Args:
+      params: Parameters for the neural networks within the CycleGAN module.
+      batch: Batch dictionary with containing the real data.
+      rng: Random seed.
+      mutables: The rest of the mutables in the flax modules.
+
+    Returns:
+      The loss and auxiliary fields. In this case we add an extra field that
+      stores the values of the generated samples, which will be used later for
+      computing the discriminators loss.
+
+    The generator is updated by generating data and letting the discriminator
+    critique it. It's loss goes down if the discriminator wrongly predicts it to
+    to be real data.
+    """
+    # Split the States.
+    # TODO(lzepedanunez): specify how to split the parameters.
+
+    params_gen_a2b = params[0]
+    params_gen_b2a = params[1]
+    params_dis_a = params[2]
+    params_dis_b = params[3]
+
+    real_data = (batch["real_data_a"], batch["real_data_b"])
+
+    rng_forward, rng_backward = jax.random.split(rng)
+
+    # Run the model forward
+    generated_data = self.run_generator_forward(
+        {"dropout": rng_forward},
+        (params_gen_a2b, params_gen_b2a),
+        real_data,
+        is_training=True
+    )
+    backward_params = (params[0], params[1],
+                       jax.lax.stop_gradient(params_dis_a),
+                       jax.lax.stop_gradient(params_dis_b))
+
+    loss_dict = self.run_generator_backward(
+        {"dropout": rng_backward},
+        backward_params,
+        generated_data,
+        real_data,
+        is_training=True,
+    )
+
+    loss = jnp.sum(jnp.array([loss_dict[key] for key in loss_dict.keys()]))
+
+    # Add all the metrics from run generator backwards.
+    metrics = dict(
+        loss=loss,
+        **loss_dict
+    )
+
+    return jnp.array(loss), (metrics, mutables, generated_data)
+
+  def loss_fn_discriminator(
+      self,
+      params: tuple[PyTree, ...],
+      batch: swirl_models.BatchType,
+      rng: Array,  # pylint: disable=unused-argument
+      mutables: PyTree,  # pylint: disable=unused-argument
+  ) ->  Array:
+    """Loss function for the discriminator.
+
+    Args:
+      params: Parameters of the networks within the cyclaGAN class, here they
+        are a tuple of PyTrees.
+      batch: Data for training, as dictionary-like object with fields
+        '["real_data", "fake_data"]'.
+      rng: Random seed for the random number generator.
+      mutables: Set of mutables for the networks. In this case this is a dummy
+        variable, necessary due to the interface.
+
+    Returns:
+      The total loss for the discriminators.
+
+      The discriminator is updated by critiquing both real and generated data.
+      The value of the loss decreased as it predicts correctly if images are
+      real (part of the training set) or generated by the neural network.
+    """
+    real_data_a = batch["real_data_a"]
+    real_data_b = batch["real_data_b"]
+
+    fake_data_a = batch["fake_data_a"]
+    fake_data_b = batch["fake_data_b"]
+
+    params_dis_a = params[2]
+    params_dis_b = params[3]
+
+    # Loss for the discriminator of A.
+    loss_a = self.cycle_gan.run_discriminator_backward_a(
+        params_dis_a, real_data_a, fake_data_a
+    )
+
+    # Step for D_B
+    loss_b = self.cycle_gan.run_discriminator_backward_b(
+        params_dis_b, real_data_b, fake_data_b
+    )
+
+    # Training discriminators to discriminate samples from A and B.
+    if self.cycle_gan.use_crossed_dis_loss:
+      loss_crossed = self.cycle_gan.run_discriminators_crossed(
+          (params_dis_a, params_dis_b), real_data_a, real_data_b
+      )
+    else:
+      loss_crossed = 0
+
+    return jnp.array(loss_a + loss_b + loss_crossed)
+
+  def eval_fn(
+      self,
+      variables: tuple[PyTree, ...],
+      batch: swirl_models.BatchType,
+      rng: Array,
+      **kwargs,
+  ) -> swirl_models.ArrayDict:
+    """Eval function for the generator and discriminator.
+
+    Args:
+      variables: Parameters of the different neural networks within the cycle-
+        gan class.
+      batch: Data as a dictionary with keys  ['real_data_a', 'real_data_b',
+      'fake_data_a', 'fake_data_b'].
+      rng: Random seed.
+      **kwargs: Additional keyed arguments.
+
+    Returns:
+      A dictionary with the evaluation metrics.
+    """
+
+    # The variables is a tuple of dicts containing the params and the mutables
+    # we are not using the mutables, so we only extract the parameters.
+    params_gen_a2b = variables[0]["params"]
+    params_gen_b2a = variables[1]["params"]
+    params_dis_a = variables[2]["params"]
+    params_dis_b = variables[3]["params"]
+
+    real_data = (batch["real_data_a"], batch["real_data_b"])
+
+    rng_forward, rng_backward = jax.random.split(rng)
+
+    # Run the model forward.
+    generated_data = self.run_generator_forward(
+        {"dropout": rng_forward},
+        (params_gen_a2b, params_gen_b2a),
+        real_data,
+        is_training=False,
+    )
+
+    backward_params = (
+        params_gen_a2b,
+        params_gen_b2a,
+        jax.lax.stop_gradient(params_dis_a),
+        jax.lax.stop_gradient(params_dis_b),
+    )
+
+    loss_dict = self.run_generator_backward(
+        {"dropout": rng_backward},
+        backward_params,
+        generated_data,
+        real_data,
+        is_training=False,
+    )
+
+    loss = jnp.sum(jnp.array([loss_dict[key] for key in loss_dict.keys()]))
+
+    real_data_a = real_data[0]
+    real_data_b = real_data[1]
+
+    fake_data_a = generated_data[2]
+    fake_data_b = generated_data[0]
+
+    # Loss for the discriminator of A.
+    loss_a = self.cycle_gan.run_discriminator_backward_a(
+        params_dis_a, real_data_a, fake_data_a
+    )
+
+    # Loss for the discriminator of B.
+    loss_b = self.cycle_gan.run_discriminator_backward_b(
+        params_dis_b, real_data_b, fake_data_b
+    )
+
+    return dict(loss=loss,
+                loss_dis_a=loss_a,
+                loss_dis_b=loss_b,
+                u_lf=real_data_a,
+                u_hf=fake_data_b,
+                **loss_dict)
+  # pytype: enable=bad-return-type
