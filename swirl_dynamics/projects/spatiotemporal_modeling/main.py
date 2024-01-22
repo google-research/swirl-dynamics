@@ -184,7 +184,7 @@ def main(argv):
               base_dir=workdir,
               options=ckpt_options,
           ),
-          # TODO(lzepedanunez) add a plot callback.
+          # TODO add a plot callback.
       ),
   )
 

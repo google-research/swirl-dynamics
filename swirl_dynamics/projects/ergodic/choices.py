@@ -67,7 +67,7 @@ class Integrator(enum.Enum):
     Returns:
       ScanOdeSolver | MultiStepScanOdeSolver
     """
-    # TODO(yairschiff): Profile if the moveaxis call required here introduces a
+    # TODO: Profile if the moveaxis call required here introduces a
     # bottleneck
     return {
         "ExplicitEuler": ode.ExplicitEuler(time_axis_pos=1),

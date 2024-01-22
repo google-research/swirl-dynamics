@@ -119,7 +119,7 @@ def main(argv):
   )
 
   model = models.ReFlowModel(
-      # TODO(lzepedanunez): clean this part.
+      # TODO: clean this part.
       input_shape=(
           config.input_shapes[0][1] // config.spatial_downsample_factor[0],
           config.input_shapes[0][2] // config.spatial_downsample_factor[0],
@@ -157,7 +157,7 @@ def main(argv):
               base_dir=workdir,
               options=ckpt_options,
           ),
-          # TODO(lzepedanunez) add a plot callback.
+          # TODO add a plot callback.
       ),
   )
 

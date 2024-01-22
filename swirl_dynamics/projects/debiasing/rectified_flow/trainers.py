@@ -98,7 +98,7 @@ class DistributedReFlowTrainer(
 ):
   """Multi-device trainer for rectified flow models."""
 
-  # TODO(lzepedanunez): Write a test for this trainer.
+  # TODO: Write a test for this trainer.
 
   # MRO: ReFlowTrainer > BasicDistributedTrainer > BasicTrainer
   ...

@@ -28,7 +28,7 @@ def get_config():
   config = ml_collections.ConfigDict()
 
   # Model.
-  # TODO(lzepedanunez) undo all the nested dictionaries.
+  # TODO undo all the nested dictionaries.
   config.model_name = 'ViViT Denoiser'
   config.model = ml_collections.ConfigDict()
   config.model.hidden_size = 192
@@ -45,7 +45,7 @@ def get_config():
   config.save_interval_steps = 1000
   config.max_checkpoints_to_keep = 10
 
-  # TODO(lzepedanunez): create custom data structures.
+  # TODO: create custom data structures.
   config.model.temporal_encoding_config = ml_collections.ConfigDict()
   config.model.temporal_encoding_config.method = '3d_conv'
   # pylint: disable=line-too-long
@@ -54,7 +54,7 @@ def get_config():
   # pylint: enable=line-too-long
   config.model.positional_embedding = 'none'  # 'sinusoidal_3d'
 
-  # TODO(lzepedanunez): patches doesn't need to be a dictionary.
+  # TODO: patches doesn't need to be a dictionary.
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = (4, 4, 4)  # (time, height, width)
 

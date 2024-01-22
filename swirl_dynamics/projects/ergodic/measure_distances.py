@@ -70,7 +70,7 @@ def mmd(x: Array, y: Array) -> Array:
   xx, yy, xy = (jnp.zeros_like(xx), jnp.zeros_like(xx), jnp.zeros_like(xx))
 
   # Multiscale
-  # TODO(yairschiff): We may need to experiment with these bandwidths to have
+  # TODO: We may need to experiment with these bandwidths to have
   # MMD loss better distinguish distributions, especially for high dim data
   bandwidth_range = [0.2, 0.5, 0.9, 1.3]
   for a in bandwidth_range:
@@ -78,7 +78,7 @@ def mmd(x: Array, y: Array) -> Array:
     yy += a**2 * (a**2 + dyy) ** -1
     xy += a**2 * (a**2 + dxy) ** -1
 
-  # TODO(yairschiff): We may want to use jnp.sqrt(...) here; see:
+  # TODO: We may want to use jnp.sqrt(...) here; see:
   # https://arxiv.org/abs/1502.02761
   return jnp.mean(xx + yy - 2.0 * xy)
 

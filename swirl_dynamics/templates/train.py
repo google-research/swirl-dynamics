@@ -27,7 +27,7 @@ from swirl_dynamics.templates import utils
 filesys = epath.backend.tf_backend
 
 
-# TODO(wanzy): package parameters into logical groupings (see cl/497196196)
+# TODO: package parameters into logical groupings (see cl/497196196)
 def run(
     *,
     train_dataloader: Iterable[Any],

@@ -291,7 +291,7 @@ class TransformerEmbeddingBlock(nn.Module):
     dtype = jax.dtypes.canonicalize_dtype(self.dtype)
 
     # Choosing the type of embedding.
-    # TODO(lzepedanunez): add more embeddings in here.
+    # TODO: add more embeddings in here.
     if self.positional_embedding == 'sinusoidal_3d':
       batch, num_tokens, hidden_dim = inputs.shape
       height = width = int(np.sqrt(num_tokens // self.temporal_dims))
@@ -324,7 +324,7 @@ class TransformerEmbeddingBlock(nn.Module):
               self.attention_config.get('attention_kernel_init_method',
                                         'xavier')],  # pytype: disable=attribute-error
           temporal_dims=self.temporal_dims)
-    # TODO(lzepedanunez): implement factorized_dot_product_attention.
+    # TODO: implement factorized_dot_product_attention.
     else:
       raise ValueError(f'Unknown attention type {self.attention_config.type}')  # pytype: disable=attribute-error
 

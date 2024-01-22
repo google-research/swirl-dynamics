@@ -125,7 +125,7 @@ def create_loader_from_hdf5(
                               mean and std stats (if normalize=True, else dict
                               contains NoneType values).
   """
-  # TODO(lzepedanunez): create the data arrays following a similar convention.
+  # TODO: create the data arrays following a similar convention.
   snapshots = hdf5_utils.read_single_array(
       dataset_path,
       f"{split}/u",

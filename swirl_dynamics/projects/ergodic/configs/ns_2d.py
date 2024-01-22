@@ -54,7 +54,7 @@ def get_config():
   config.noise_level = 0.0
 
   # Model params
-  # TODO(yairschiff): Split CNN and FNO into separate configs
+  # TODO: Split CNN and FNO into separate configs
   config.model = 'PeriodicConvNetModel'  # 'Fno' 'Fno2d'
   ########### PeriodicConvNetModel ################
   config.latent_dim = 16
@@ -131,7 +131,7 @@ def skip(
 
 
   # pylint: disable=line-too-long
-# TODO(yairschiff): Refactor sweeps and experiment definition to use gin.
+# TODO: Refactor sweeps and experiment definition to use gin.
 # use option --sweep=False in the command line to avoid sweeping
 def sweep(add):
   """Define param sweep."""

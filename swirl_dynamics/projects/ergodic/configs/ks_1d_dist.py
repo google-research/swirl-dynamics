@@ -113,7 +113,7 @@ def skip(
   return False
 
 
-# TODO(yairschiff): Refactor sweeps and experiment definition to use gin.
+# TODO: Refactor sweeps and experiment definition to use gin.
 # use option --sweep=False in the command line to avoid sweeping
 def sweep(add):
   """Define param sweep."""

@@ -89,7 +89,7 @@ def get_config():
   return config
 
 
-# TODO(yairschiff): Refactor sweeps and experiment definition to use gin.
+# TODO: Refactor sweeps and experiment definition to use gin.
 def sweep(add):
   """Define param sweep."""
   for seed in [42]:

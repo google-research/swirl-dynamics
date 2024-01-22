@@ -96,7 +96,7 @@ def create_loader_from_hdf5(
         data_for_stats = hdf5_utils.read_single_array(dataset_path, "train/u")
       else:
         data_for_stats = snapshots
-      # TODO(lzepedanunez): For the sake of memory perform this in CPU.
+      # TODO: For the sake of memory perform this in CPU.
       if use_time_normalization:
         num_trajs, num_frames, nx, ny, d = data_for_stats.shape
         num_segments = num_frames // num_time_steps

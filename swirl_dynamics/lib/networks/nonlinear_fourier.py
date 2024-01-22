@@ -245,7 +245,7 @@ class NonLinearFourier2D(nn.Module):
     # shape : (2, num_freqs, 2) for sin-cos, \omega, and x-y.
     y = omega * (x_i.reshape((1, 1, 2)) + a)
 
-    # TODO(lzepedanunez): create a funcion that creates the periodic features.
+    # TODO: create a funcion that creates the periodic features.
     # Applying the trigonometric functions, which can be written as:
     # [[1,           1],
     #  [sin(ω₁ x), sin(ω₁ y)],

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 r"""The main entry point for running training loops."""
-# TODO(yairschiff): Consider enabling float64 for Lorenz63 experiment
+# TODO: Consider enabling float64 for Lorenz63 experiment
 
 import json
 from os import path as osp
@@ -82,7 +82,7 @@ def main(argv):
 
   elif experiment == choices.Experiment.NS_2D:
     fig_callback_cls = ns_2d.NS2dPlotFigures
-    # TODO(yairschiff): This state dim is temporary for FNO data, should be 256
+    # TODO: This state dim is temporary for FNO data, should be 256
     state_dims = (
         64 // config.spatial_downsample_factor,
         64 // config.spatial_downsample_factor,

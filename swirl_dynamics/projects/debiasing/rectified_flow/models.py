@@ -99,7 +99,7 @@ class ReFlowModel(models.BaseModel):
   num_eval_time_levels: ClassVar[int] = 10
 
   def initialize(self, rng: Array):
-    # TODO(lzepedanunez): Add a dtype object to ensure consistency of types.
+    # TODO: Add a dtype object to ensure consistency of types.
     x = jnp.ones((1,) + self.input_shape)
 
     return self.flow_model.init(

@@ -29,7 +29,7 @@ import jax.numpy as jnp
 import optax
 from orbax import checkpoint
 
-# TODO(wanzy): use typing.Self after python 3.11 (PEP 673)
+# TODO: use typing.Self after python 3.11 (PEP 673)
 TState = TypeVar("TState", bound="TrainState")
 
 EMPTY_DICT = flax.core.freeze({})

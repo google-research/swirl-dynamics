@@ -96,7 +96,7 @@ def skip(
   return False
 
 
-# TODO(yairschiff): Refactor sweeps and experiment definition to use gin.
+# TODO: Refactor sweeps and experiment definition to use gin.
 def sweep(add):
   """Define param sweep."""
   # pylint: disable=line-too-long

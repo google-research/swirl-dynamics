@@ -373,7 +373,7 @@ class TemporalDecoder(nn.Module):
         name='conv_transpose_temporal_decoder',
     )(x)
 
-    # TODO(lzepedanunez): Use unets.depth_to_space here instead.
+    # TODO: Use unets.depth_to_space here instead.
     x = jnp.reshape(
         x, (batch_size, *self.encoded_shapes, t, h, w, self.features_out)
     )
@@ -665,7 +665,7 @@ class TransformerBlock(nn.Module):
   mlp_dim: int
   num_layers: int
   num_heads: int
-  # TODO(lzepedanunez): encapsulate the configurations in its own container.
+  # TODO: encapsulate the configurations in its own container.
   attention_config: ml_collections.ConfigDict | None = None
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
@@ -682,10 +682,10 @@ class TransformerBlock(nn.Module):
     dtype = jax.dtypes.canonicalize_dtype(self.dtype)
 
     # Computing positional embeddings.
-    # TODO(lzepedanunez): Introduce more types of positional encoding.
+    # TODO: Introduce more types of positional encoding.
     if self.positional_embedding == 'sinusoidal_3d':
       batch, num_tokens, hidden_dim = inputs.shape
-      # TODO(lzepedanunez): change this one to handle non-square domains.
+      # TODO: change this one to handle non-square domains.
       height = width = int(np.sqrt(num_tokens // self.temporal_dims))
       if height * width * self.temporal_dims != num_tokens:
         raise ValueError('Input is assumed to be square for sinusoidal init.')

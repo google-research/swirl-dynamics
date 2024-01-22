@@ -71,7 +71,7 @@ class StableARModel(models.BaseModel):
     self.pred_integrator = functools.partial(
         pred_integrator, ode.nn_module_to_dynamics(self.conf.dynamics_model)
     )
-    # TODO(lzepedanunez): check if this is compatible with distributed training.
+    # TODO: check if this is compatible with distributed training.
     self.vmapped_measure_dist = jax.vmap(self.conf.measure_dist, in_axes=(1, 1))
 
   def initialize(self, rng):
@@ -97,7 +97,7 @@ class StableARModel(models.BaseModel):
     tspan = batch["tspan"].reshape((-1,))
     rollout_weight = batch["rollout_weight"].reshape((-1,))
 
-    # TODO(lzepedanunez): implement the logic in the Neural Markov paper.
+    # TODO: implement the logic in the Neural Markov paper.
     if self.conf.add_noise:
       noise = self.conf.noise_level + jax.random.normal(rng, x0.shape)
       x0 += noise
@@ -131,7 +131,7 @@ class StableARModel(models.BaseModel):
 
       # Compare to true trajectory last step.
       if self.conf.use_sobolev_norm:
-        # TODO(yairschiff): Rollout weighting not implemented for this case!
+        # TODO: Rollout weighting not implemented for this case!
         # The spatial dimension is the length of the shape minus 2,
         # which accounts for the batch, frame, and channel dimensions.
         dim = len(pred.shape) - 2
@@ -163,9 +163,9 @@ class StableARModel(models.BaseModel):
       )
 
       # Compare to full reference trajectory.
-      # TODO(lzepedanunez): this is code is repeated.
+      # TODO: this is code is repeated.
       if self.conf.use_sobolev_norm:
-        # TODO(yairschiff): Rollout weighting not implemented for this case!
+        # TODO: Rollout weighting not implemented for this case!
         dim = len(pred.shape) - 3
         l2 = ergodic_utils.sobolev_norm(
             pred - true[:, 1:, ...],
@@ -221,7 +221,7 @@ class StableARModel(models.BaseModel):
       pred_trajs *= self.conf.normalize_stats["std"]
       pred_trajs += self.conf.normalize_stats["mean"]
 
-    # TODO(lzepedanunez): this only computes the local sinkhorn distance.
+    # TODO: this only computes the local sinkhorn distance.
     sd = measure_distances.sinkhorn_div(
         pred_trajs[:, -1, ...], trajs[:, -1, ...]
     )
@@ -356,7 +356,7 @@ class StableARTrainer(trainers.BasicTrainer):
       num_time_steps += self.conf.num_rollout_steps + 1
     else:
       num_time_steps = self.conf.num_rollout_steps + 1
-    # TODO(yairschiff): Should we remove this random sampling?
+    # TODO: Should we remove this random sampling?
     if self.conf.use_pushfwd and num_time_steps > 2:
       num_time_steps = jax.random.randint(
           rng, (1,), minval=2, maxval=num_time_steps + 1
@@ -478,7 +478,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
       num_time_steps += self.conf.num_rollout_steps + 1
     else:
       num_time_steps = self.conf.num_rollout_steps + 1
-    # TODO(yairschiff): Should we remove this random sampling?
+    # TODO: Should we remove this random sampling?
     if self.conf.use_pushfwd and num_time_steps > 2:
       num_time_steps = jax.random.randint(
           rng, (1,), minval=2, maxval=num_time_steps + 1

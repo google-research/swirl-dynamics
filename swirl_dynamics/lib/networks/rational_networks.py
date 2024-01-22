@@ -162,7 +162,7 @@ class RationalMLP(nn.Module):
   dtype: Any = jnp.float32
   multi_rational: bool = False
   use_bias: bool = True
-  # TODO(lzepedanunez): add precision flag to have more granular control
+  # TODO: add precision flag to have more granular control
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:

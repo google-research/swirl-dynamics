@@ -32,7 +32,7 @@ PyTree = Any
 DynamicsFn = Callable[[Array, Array, PyTree], Array]
 
 
-# TODO(yairschiff): Move this method to swirl_dynamics.data.utils
+# TODO: Move this method to swirl_dynamics.data.utils
 def generate_data_from_known_dynamcics(
     integrator: ode.ScanOdeSolver,
     dynamics: DynamicsFn,
@@ -47,7 +47,7 @@ def generate_data_from_known_dynamcics(
   return integrator(dynamics, x0, tspan, {})[warmup:]
 
 
-# TODO(yairschiff): Move this method to swirl_dynamics.data.utils
+# TODO: Move this method to swirl_dynamics.data.utils
 def create_loader_from_hdf5(
     num_time_steps: int,
     time_stride: int,
@@ -180,7 +180,7 @@ def create_loader_from_tfds(
   """Load pre-computed trajectories dumped to hdf5 file.
 
   This loader has fewer options that the one from hdf5, in particular, it has
-  no normalization. TODO(lzepedanunez): Add normalization.
+  no normalization. TODO: Add normalization.
 
   Arguments:
     num_time_steps: Number of time steps to include in each trajectory.
@@ -241,7 +241,7 @@ def create_loader_from_tfds(
   return loader, {"mean": None, "std": None}
 
 
-# TODO(lzepedanunez): find a better place for this function and refactor with
+# TODO: find a better place for this function and refactor with
 # vmap.
 def sobolev_norm(
     u: Array, s: int = 1, dim: int = 2, length: float = 1.0

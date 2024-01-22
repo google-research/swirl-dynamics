@@ -175,7 +175,7 @@ class CycleGAN(nn.Module):
       A tuple containing the generated samples.
     """
 
-    # TODO(lzepedanunez): perhaps use dictionaries instead of positional tuples.
+    # TODO: perhaps use dictionaries instead of positional tuples.
     params_gen_a2b = params_gen[0]
     params_gen_b2a = params_gen[1]
 
@@ -480,7 +480,7 @@ class CycleGANModel(swirl_models.BaseModel):
     to be real data.
     """
     # Split the States.
-    # TODO(lzepedanunez): specify how to split the parameters.
+    # TODO: specify how to split the parameters.
 
     params_gen_a2b = params[0]
     params_gen_b2a = params[1]

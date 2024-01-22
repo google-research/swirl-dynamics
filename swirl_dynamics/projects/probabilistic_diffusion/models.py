@@ -137,7 +137,7 @@ class DenoisingModel(models.BaseModel):
         sigma=sigma,
         cond=cond,
         is_training=True,
-        rngs={"dropout": rng3},  # TODO(lzepedanunez): refactor this.
+        rngs={"dropout": rng3},  # TODO: refactor this.
     )
     loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))
     metric = dict(loss=loss)

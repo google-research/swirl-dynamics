@@ -199,7 +199,7 @@ class Generator(nn.Module):
   use_skips: bool = True
   use_global_skip: bool = True
   dtype: jnp.dtype = jnp.float32
-  padding: str = "CIRCULAR"  # TODO(lzepedanunez): Add one adapted for ERA5.
+  padding: str = "CIRCULAR"  # TODO: Add one adapted for ERA5.
   padding_transpose: str = "CIRCULAR"
   use_weight_global_skip: bool = False
   weight_skip: bool = False
@@ -288,7 +288,7 @@ class Generator(nn.Module):
       )(x)
 
       # Use a transformer core.
-      # TODO(lzepedanunez) add a conformer model.
+      # TODO add a conformer model.
       if self.use_attention:
         b, *hw, c = x.shape
         # Adding positional encoding.
@@ -339,7 +339,7 @@ class Generator(nn.Module):
         )(x)
 
       elif self.upsample_mode == "deconv":
-        # TODO(lzepedanunez): use channel unrolling for the upsampling.
+        # TODO: use channel unrolling for the upsampling.
         x = nn.ConvTranspose(
             features=(self.ngf * mult) // 2,
             kernel_size=self.kernel_size_upsampling,
