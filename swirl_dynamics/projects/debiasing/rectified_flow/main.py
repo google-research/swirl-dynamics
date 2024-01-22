@@ -23,7 +23,6 @@ import jax
 from ml_collections import config_flags
 import optax
 from orbax import checkpoint
-from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.projects.debiasing.rectified_flow import data_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import models
 from swirl_dynamics.projects.debiasing.rectified_flow import trainers
@@ -106,7 +105,7 @@ def main(argv):
   )
 
   # Setting up the neural network for the flow model.
-  flow_model = unets.PreconditionedDenoiser(
+  flow_model = models.RescaledUnet(
       out_channels=config.out_channels,
       num_channels=config.num_channels,
       downsample_ratio=config.downsample_ratio,
@@ -117,7 +116,6 @@ def main(argv):
       use_attention=config.use_attention,
       use_position_encoding=config.use_position_encoding,
       num_heads=config.num_heads,
-      sigma_data=1.0,  # standard deviation of the entire dataset.
   )
 
   model = models.ReFlowModel(
