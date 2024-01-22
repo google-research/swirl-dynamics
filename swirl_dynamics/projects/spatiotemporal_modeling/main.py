@@ -174,16 +174,11 @@ def main(argv):
       trainer=trainer,
       workdir=workdir,
       total_train_steps=config.optimizer.num_train_steps,
-      metric_aggregation_steps=config.optimizer.metric_aggreration_steps,  # 30
+      metric_aggregation_steps=config.optimizer.metric_aggregation_steps,  # 30
       eval_dataloader=eval_dataloader,
       eval_every_steps=config.optimizer.eval_every_steps,
       num_batches_per_eval=config.optimizer.num_batches_per_eval,
       callbacks=(
-          # This callback displays the training progress in a tqdm bar.
-          callbacks.TqdmProgressBar(
-              total_train_steps=config.optimizer.num_train_steps,
-              train_monitors=("train_loss",),
-          ),
           # This callback saves model checkpoint periodically.
           callbacks.TrainStateCheckpoint(
               base_dir=workdir,

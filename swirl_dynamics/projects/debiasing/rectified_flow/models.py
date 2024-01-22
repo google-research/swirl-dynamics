@@ -143,7 +143,7 @@ class ReFlowModel(models.BaseModel):
         is_training=True,
         rngs={"dropout": dropout_rng},
     )
-    # Eq. (1) in [1]
+    # Eq. (1) in [1].
     loss = jnp.mean(jnp.square((batch["x_1"] - batch["x_0"]) - v_t))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
@@ -197,9 +197,10 @@ class ReFlowModel(models.BaseModel):
         x_t, time_eval
     )
 
-    # Eq. (1) in [1]
+    # Eq. (1) in [1].
     int_losses = jax.vmap(jnp.mean)(jnp.square((x_1 - x_0 - v_t)))
     eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
+
     return eval_losses
 
   @staticmethod
