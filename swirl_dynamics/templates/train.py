@@ -40,6 +40,7 @@ def run(
     eval_dataloader: Iterable[Any] | None = None,
     eval_every_steps: int = 100,
     num_batches_per_eval: int = 10,
+    run_sanity_eval_batch: bool = True,
     # other configs
     metric_writer: metric_writers.MultiWriter | None = None,
     callbacks: Sequence[cb.Callback] = (),
@@ -67,6 +68,10 @@ def run(
       runs. Must be an integer multiple of `metric_aggregation_steps`.
     num_batches_per_eval: The number of batches to step through every time
       evaluation is run (resulting metrics are aggregated).
+    run_sanity_eval_batch: Whether to step through sanity check eval batch
+      before training starts. This helps expose runtime issues early, without
+      having to wait until evaluation is first triggered (i.e. after
+      `eval_every_steps`).
     metric_writer: A metric writer that writes scalar metrics to disc. It is
       also accessible to callbacks for custom writing in other formats.
     callbacks: A sequence of self-contained programs executing non-essential
@@ -86,6 +91,8 @@ def run(
           "`metric_aggregation_steps` ({metric_aggregation_steps})"
       )
     eval_iter = iter(eval_dataloader)
+    if run_sanity_eval_batch:
+      trainer.eval(eval_iter, num_steps=1)
 
   if metric_writer is None:
     metric_writer = metric_writers.create_default_writer(
