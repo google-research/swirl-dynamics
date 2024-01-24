@@ -26,7 +26,22 @@ from swirl_dynamics.templates import trainers
 
 Array = jax.Array
 VariableDict = trainers.VariableDict
-TrainState = train_states.BasicTrainState
+
+
+class ReFlowTrainState(train_states.BasicTrainState):
+  """Train state with an additional field tracking the EMA params."""
+
+  # EMA params is accessed through `ema_state.ema`.
+  ema_state: optax.EmaState | None = None
+
+  @property
+  def ema_variables(self) -> flax.core.FrozenDict:
+    if self.ema_state:
+      return flax.core.FrozenDict({"params": self.ema_state.ema})
+    else:
+      raise ValueError("EMA state is none.")
+
+TrainState = ReFlowTrainState
 
 
 class ReFlowTrainer(
@@ -48,6 +63,11 @@ class ReFlowTrainer(
       }
   )
 
+  def __init__(self, ema_decay: float, *args, **kwargs):
+    """Initializes the trainer along the ema state."""
+    self.ema = optax.ema(ema_decay)
+    super().__init__(*args, **kwargs)
+
   def initialize_train_state(self, rng: Array) -> TrainState:
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
@@ -56,6 +76,7 @@ class ReFlowTrainer(
         params=params,
         opt_state=self.optimizer.init(params),
         flax_mutables=mutables,
+        ema_state=self.ema.init(params),
     )
 
   @property
@@ -73,23 +94,29 @@ class ReFlowTrainer(
           grads, train_state.opt_state, train_state.params
       )
       new_params = optax.apply_updates(train_state.params, updates)
-
+      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)
       return train_state.replace(
           step=train_state.step + 1,
           opt_state=new_opt_state,
           params=new_params,
           flax_mutables=mutables,
+          ema_state=new_ema_state,
       )
 
     return _update_train_state
 
   @staticmethod
   def inference_fn_from_state_dict(
-      state: TrainState, *args, **kwargs
+      state: TrainState, *args, use_ema: bool = True, **kwargs
   ):
-    return models.ReFlowModel.inference_fn(
-        state.model_variables, *args, **kwargs
-    )
+    if use_ema:
+      if isinstance(state.ema_state, dict):
+        variables = flax.core.FrozenDict({"params": state.ema_state["ema"]})
+      else:
+        variables = state.ema_variables
+    else:
+      variables = state.model_variables
+    return models.ReFlowModel.inference_fn(variables, *args, **kwargs)
 
 
 class DistributedReFlowTrainer(

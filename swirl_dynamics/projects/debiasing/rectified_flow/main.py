@@ -133,6 +133,7 @@ def main(argv):
       model=model,
       rng=jax.random.PRNGKey(config.seed),
       optimizer=optimizer,
+      ema_decay=config.ema_decay,
   )
 
   # Setting up checkpointing.
