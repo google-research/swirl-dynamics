@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""U-Net model for denoisers."""
+"""U-Net denoiser models."""
+
+from collections.abc import Sequence
 
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+from swirl_dynamics.lib import layers
 
 Array = jax.Array
 Initializer = nn.initializers.Initializer
@@ -27,16 +30,6 @@ def default_init(scale: float = 1e-10) -> Initializer:
   return nn.initializers.variance_scaling(
       scale=scale, mode="fan_avg", distribution="uniform"
   )
-
-
-class CombineResidualSkip(nn.Module):
-  project_skip: bool = False
-
-  @nn.compact
-  def __call__(self, *, residual: Array, skip: Array) -> Array:
-    if self.project_skip:
-      skip = nn.Dense(residual.shape[-1], kernel_init=default_init(1.0))(skip)
-    return (skip + residual) / np.sqrt(2.0)
 
 
 class AdaptiveScale(nn.Module):
@@ -92,7 +85,7 @@ class AttentionBlock(nn.Module):
         dtype=self.dtype,
         name="dot_attn",
     )(h, h)
-    return CombineResidualSkip()(residual=h, skip=x)
+    return layers.CombineResidualWithSkip()(residual=h, skip=x)
 
 
 class ResConv1x(nn.Module):
@@ -116,93 +109,7 @@ class ResConv1x(nn.Module):
         kernel_size=kernel_size,
         kernel_init=default_init(1.0),
     )(x)
-    return CombineResidualSkip()(residual=x, skip=skip)
-
-
-class LatLonConv(nn.Module):
-  """Convolutional network adapted to lat-lon grids.
-
-  Applies circular padding in longitunidal direction and edge padding in
-  latitudinal direction.
-
-  Attributes:
-    features: The number of output channels.
-    kernel_size: Size of the kernel in the spatial dimension.
-    use_bias: Whether to use bias for the conv operation.
-  """
-
-  features: int
-  kernel_size: tuple[int, ...] | list[int] = (3, 3)
-  use_bias: bool = True
-  kernel_init: Initializer = default_init(1.0)
-  strides: tuple[int, ...] | list[int] = (1, 1)
-  use_local: bool = False
-
-  @nn.compact
-  def __call__(self, x: Array) -> Array:
-    assert x.ndim == 4, f"Input must be 4-D tensor: {x.shape}."
-    assert (
-        self.kernel_size[0] % 2 == 1 and self.kernel_size[1] % 2 == 1
-    ), f"Current kernel size {self.kernel_size} must be odd."
-
-    # Applying periodic padding in the longitunidal direction
-    lat_pad, lon_pad = self.kernel_size[0] // 2, self.kernel_size[1] // 2
-    x_per = jnp.pad(
-        x, ((0, 0), (0, 0), (lat_pad, lat_pad), (0, 0)), mode="wrap"
-    )
-    # Applying edge padding at the poles
-    x_per = jnp.pad(
-        x_per, ((0, 0), (lon_pad, lon_pad), (0, 0), (0, 0)), mode="edge"
-    )
-    # shape: (batch_size, lon, lat, features)
-    conv_fn = nn.ConvLocal if self.use_local else nn.Conv
-
-    return conv_fn(
-        self.features,
-        kernel_size=self.kernel_size,
-        use_bias=self.use_bias,
-        strides=self.strides,
-        kernel_init=self.kernel_init,
-        padding="VALID",
-    )(x_per)
-
-
-class DownsampleConv(nn.Module):
-  """Downsampling convolution."""
-
-  features: int
-  ratio: int
-  use_bias: bool = True
-  kernel_init: Initializer = default_init(1.0)
-
-  @nn.compact
-  def __call__(self, x: Array) -> Array:
-    xdim = x.ndim - 2
-    assert np.all(np.asarray(x.shape[1:-1]) % self.ratio == 0), (
-        f"Input dimensions (spatial) {x.shape[1:-1]} must divide the"
-        f" downsampling ratio {self.ratio}."
-    )
-    x = nn.Conv(
-        self.features,
-        kernel_size=xdim * (self.ratio,),
-        use_bias=self.use_bias,
-        strides=xdim * (self.ratio,),
-        kernel_init=self.kernel_init,
-        padding="VALID",
-    )(x)
-    return x
-
-
-def conv_layer(
-    padding: str | int, use_local: bool = False, **kwargs
-) -> nn.Module:
-  """Wrapper for conv layers with non-standard boundary conditions."""
-  if isinstance(padding, str) and padding.lower() == "latlon":
-    return LatLonConv(use_local=use_local, **kwargs)
-  elif use_local:
-    return nn.ConvLocal(padding=padding, **kwargs)
-  else:
-    return nn.Conv(padding=padding, **kwargs)
+    return layers.CombineResidualWithSkip()(residual=x, skip=skip)
 
 
 class ConvBlock(nn.Module):
@@ -232,7 +139,7 @@ class ConvBlock(nn.Module):
     h = x
     h = nn.GroupNorm(min(h.shape[-1] // 4, 32))(h)
     h = nn.swish(h)
-    h = conv_layer(
+    h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=self.kernel_size,
         padding=self.padding,
@@ -243,56 +150,14 @@ class ConvBlock(nn.Module):
     h = AdaptiveScale()(h, emb)
     h = nn.swish(h)
     h = nn.Dropout(rate=self.dropout, deterministic=not is_training)(h)
-    h = conv_layer(
+    h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=self.kernel_size,
         padding=self.padding,
         kernel_init=default_init(1.0),
         name="conv_1",
     )(h)
-    return CombineResidualSkip(project_skip=True)(residual=h, skip=x)
-
-
-def depth_to_space(x: Array, block_shape: tuple[int, ...]) -> Array:
-  """Rearranges data from the channels to spatial dims as a way to upsample.
-
-  Args:
-    x: The array to reshape.
-    block_shape: The shape of the block that will be formed from the channel
-      dimension. The number of elements (i.e. prod(block_shape) must divide the
-      number of channels).
-
-  Returns:
-    The reshaped array.
-  """
-  if not 3 <= x.ndim <= 5:
-    raise ValueError(
-        f"Ndim of x ({x.ndim}) expected between 3 and 5 following (b, *xyz, c)."
-    )
-
-  if len(block_shape) != x.ndim - 2:
-    raise ValueError(
-        f"Ndim of block shape ({len(block_shape)}) must be that of x ({x.ndim})"
-        " minus 2."
-    )
-
-  if x.shape[-1] % np.prod(block_shape):
-    raise ValueError(
-        f"The number of channels ({x.shape[-1]}) must be divisible by the block"
-        f" size ({np.prod(block_shape)})."
-    )
-
-  old_shape = x.shape
-  cout = old_shape[-1] // np.prod(block_shape)
-  x = jnp.reshape(x, old_shape[:-1] + tuple(block_shape) + (cout,))
-  # interleave old and new spatial axes
-  spatial_axes = np.arange(2 * len(block_shape), dtype=np.int32) + 1
-  new_axes = spatial_axes.reshape(2, -1).ravel(order="F")
-  x = jnp.transpose(x, (0,) + tuple(new_axes) + (len(new_axes) + 1,))
-  # collapse interleaved axes
-  new_shape = np.asarray(old_shape[1:-1]) * np.asarray(block_shape)
-  new_shape = (old_shape[0],) + tuple(new_shape) + (cout,)
-  return jnp.reshape(x, new_shape)
+    return layers.CombineResidualWithSkip(project_skip=True)(residual=h, skip=x)
 
 
 class FourierEmbedding(nn.Module):
@@ -360,51 +225,54 @@ def position_embedding(ndim: int, **kwargs) -> nn.Module:
     raise ValueError("Only 1D or 2D position embeddings are supported.")
 
 
-def process_channelwise_cond(
-    x: Array,
-    cond: dict[str, Array],
-    embed_dim: int,
-    resize_method: str,
-    padding: str,
-):
-  """Merges conditional inputs along the channel dimension.
+class MergeChannelCond(nn.Module):
+  """Merges conditional inputs along the channel dimension."""
 
-  Relevant fields in the conditional input dictionary are first resized and then
-  concatenated with the main input along their last axes.
+  embed_dim: int
+  kernel_size: Sequence[int]
+  resize_method: str = "cubic"
+  padding: str = "CIRCULAR"
 
-  Args:
-    x: The main model input.
-    cond: A dictionary of conditional inputs. Those with keys that start with
-      "channel:" are processed here while all others are omitted.
-    embed_dim: The embedding dimension of the conditional input before the
-      channelwise concatenation takes place.
-    resize_method: The resizing method to use. See `jax.image.resize`.
-    padding: The padding configuration for convolutions.
+  @nn.compact
+  def __call__(self, x: Array, cond: dict[str, Array]):
+    """Merges conditional inputs along the channel dimension.
 
-  Returns:
-    Model input merged with channel conditions.
-  """
-  kernel_dim = x.ndim - 2
-  for key, value in cond.items():
-    if key.startswith("channel:"):
-      if value.ndim != x.ndim:
-        raise ValueError(
-            f"Channel condition `{key}` does not have the same ndim"
-            f" ({value.ndim}) as x ({x.ndim})!"
-        )
-    value = jax.image.resize(
-        value, x.shape[:-1] + (value.shape[-1],), method=resize_method
-    )
-    value = conv_layer(
-        features=embed_dim,
-        kernel_size=kernel_dim * (3,),
-        padding=padding,
-        kernel_init=default_init(),
-        name=f"conv_cond_{key}",
-    )(value)
-    value = nn.swish(nn.GroupNorm(min(value.shape[-1] // 4, 32))(value))
-    x = jnp.concatenate([x, value], axis=-1)
-  return x
+    Relevant fields in the conditional input dictionary are first resized and
+    then
+    concatenated with the main input along their last axes.
+
+    Args:
+      x: The main model input.
+      cond: A dictionary of conditional inputs. Those with keys that start with
+        "channel:" are processed here while all others are omitted.
+
+    Returns:
+      Model input merged with channel conditions.
+    """
+    for key, value in cond.items():
+      if key.startswith("channel:"):
+        if value.ndim != x.ndim:
+          raise ValueError(
+              f"Channel condition `{key}` does not have the same ndim"
+              f" ({value.ndim}) as x ({x.ndim})!"
+          )
+
+      value = layers.FilteredResize(
+          output_size=x.shape[:-1],
+          kernel_size=self.kernel_size,
+          method=self.resize_method,
+          padding=self.padding,
+          name=f"resize_{key}",
+      )(value)
+      value = nn.swish(nn.LayerNorm()(value))
+      value = layers.ConvLayer(
+          features=self.embed_dim,
+          kernel_size=self.kernel_size,
+          padding=self.padding,
+          name=f"conv2d_embed_{key}",
+      )(value)
+      x = jnp.concatenate([x, value], axis=-1)
+    return x
 
 
 class DStack(nn.Module):
@@ -436,7 +304,7 @@ class DStack(nn.Module):
     kernel_dim = x.ndim - 2
     res = np.asarray(x.shape[1:-1])
     skips = []
-    h = conv_layer(
+    h = layers.ConvLayer(
         features=128,
         kernel_size=kernel_dim * (3,),
         padding=self.padding,
@@ -446,9 +314,9 @@ class DStack(nn.Module):
     skips.append(h)
 
     for level, channel in enumerate(self.num_channels):
-      h = DownsampleConv(
+      h = layers.DownsampleConv(
           features=channel,
-          ratio=self.downsample_ratio[level],
+          ratios=(self.downsample_ratio[level],) * kernel_dim,
           kernel_init=default_init(1.0),
           name=f"res{'x'.join(res.astype(str))}.downsample_conv",
       )(h)
@@ -517,7 +385,7 @@ class UStack(nn.Module):
     h = x
     for level, channel in enumerate(self.num_channels):
       for block_id in range(self.num_res_blocks[level]):
-        h = CombineResidualSkip(
+        h = layers.CombineResidualWithSkip(
             project_skip=h.shape[-1] != skips[-1].shape[-1]
         )(residual=h, skip=skips.pop())
         h = ConvBlock(
@@ -542,20 +410,20 @@ class UStack(nn.Module):
 
       # upsampling
       up_ratio = self.upsample_ratio[level]
-      h = conv_layer(
+      h = layers.ConvLayer(
           features=up_ratio**kernel_dim * channel,
           kernel_size=kernel_dim * (3,),
           padding=self.padding,
           kernel_init=default_init(1.0),
           name=f"res{'x'.join(res.astype(str))}.conv_upsample",
       )(h)
-      h = depth_to_space(h, block_shape=kernel_dim * (up_ratio,))
+      h = layers.channel_to_space(h, block_shape=kernel_dim * (up_ratio,))
       res = res * up_ratio
 
-    h = CombineResidualSkip(project_skip=h.shape[-1] != skips[-1].shape[-1])(
-        residual=h, skip=skips.pop()
-    )
-    h = conv_layer(
+    h = layers.CombineResidualWithSkip(
+        project_skip=h.shape[-1] != skips[-1].shape[-1]
+    )(residual=h, skip=skips.pop())
+    h = layers.ConvLayer(
         features=128,
         kernel_size=kernel_dim * (3,),
         padding=self.padding,
@@ -569,6 +437,7 @@ class UNet(nn.Module):
   """UNet model compatible with 1 or 2 spatial dimensions."""
 
   out_channels: int
+  resize_to_shape: tuple[int, ...] | None = None  # spatial dims only
   num_channels: tuple[int, ...] = (128, 256, 256, 256)
   downsample_ratio: tuple[int, ...] = (2, 2, 2, 2)
   num_blocks: int = 4
@@ -614,12 +483,23 @@ class UNet(nn.Module):
           f" ({x.shape[0]})!"
       )
 
-    cond = {} if cond is None else cond
-    x = process_channelwise_cond(
-        x, cond, self.cond_embed_dim, self.cond_resize_method, self.padding
-    )
+    input_size = x.shape[1:-1]
+    if self.resize_to_shape is not None:
+      x = layers.FilteredResize(
+          output_size=self.resize_to_shape,
+          kernel_size=(7, 7),
+          padding=self.padding,
+      )(x)
 
     kernel_dim = x.ndim - 2
+    cond = {} if cond is None else cond
+    x = MergeChannelCond(
+        embed_dim=self.cond_embed_dim,
+        resize_method=self.cond_resize_method,
+        kernel_size=(3,) * kernel_dim,
+        padding=self.padding,
+    )(x, cond)
+
     emb = FourierEmbedding(dims=self.noise_embed_dim)(sigma)
     skips = DStack(
         num_channels=self.num_channels,
@@ -641,13 +521,18 @@ class UNet(nn.Module):
         num_heads=self.num_heads,
     )(skips[-1], emb, skips, is_training=is_training)
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
-    h = conv_layer(
+    h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=kernel_dim * (3,),
         padding=self.padding,
         kernel_init=default_init(),
         name="conv_out",
     )(h)
+
+    if self.resize_to_shape is not None:
+      h = layers.FilteredResize(
+          output_size=input_size, kernel_size=(7, 7), padding=self.padding
+      )(h)
     return h
 
 

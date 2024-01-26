@@ -48,6 +48,31 @@ class NetworksTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, x.shape)
 
+  @parameterized.parameters(
+      ((66,), (64,), "CIRCULAR", (2, 2, 2)),
+      ((73, 140), (72, 144), "LATLON", (2, 2, 3)),
+  )
+  def test_unet_with_reshape(
+      self, input_shape, resize_to_shape, padding, ds_ratio
+  ):
+    batch, channels = 2, 3
+    x = np.random.randn(batch, *input_shape, channels)
+    sigma = np.linspace(0, 1, batch)
+    model = diffusion.unets.UNet(
+        out_channels=channels,
+        resize_to_shape=resize_to_shape,
+        num_channels=(4, 8, 12),
+        downsample_ratio=ds_ratio,
+        num_blocks=2,
+        padding=padding,
+        num_heads=4,
+        use_position_encoding=False,
+    )
+    out, _ = model.init_with_output(
+        jax.random.PRNGKey(42), x=x, sigma=sigma, is_training=True
+    )
+    self.assertEqual(out.shape, x.shape)
+
   @parameterized.parameters(((64,),), ((64, 64),))
   def test_preconditioned_denoiser_output_shape(self, spatial_dims):
     batch, channels = 2, 3
@@ -94,35 +119,16 @@ class NetworksTest(parameterized.TestCase):
     variables = model.init(
         jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
     )
-    self.assertIn("conv_cond_channel:cond1", variables["params"])
+    # Check shape dict so that err message is easier to read when things break.
+    self.assertIn(
+        "MergeChannelCond_0", jax.tree_map(jnp.shape, variables["params"])
+    )
 
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma, cond
     )
     self.assertEqual(out.shape, x.shape)
 
-  @parameterized.parameters(((8, 8),), ((4, 8),))
-  def test_latlon_conv_layer_output_shape_and_equivariance(self, spatial_dims):
-    batch, channels = 2, 1
-    x = np.random.randn(batch, *spatial_dims, channels)
-
-    model = diffusion.unets.conv_layer(
-        features=1,
-        kernel_size=(3, 3),
-        padding="LATLON",
-        use_bias=False,
-    )
-    out, variables = model.init_with_output(
-        jax.random.PRNGKey(42), x
-    )
-    x_roll = np.roll(x, shift=3, axis=2)
-    out_roll = model.apply(variables, x_roll)
-
-    self.assertEqual(out.shape, x.shape)
-    self.assertEqual(out_roll.shape, x_roll.shape)
-    self.assertEqual(
-        jnp.roll(out, shift=3, axis=2).tolist(), out_roll.tolist()
-    )
 
 if __name__ == "__main__":
   absltest.main()

@@ -15,7 +15,9 @@
 """CycleGAN module.
 
 References:
-[1] https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190#issuecomment-358546675  # pylint: disable=line-too-long
+[1]
+https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190#issuecomment-358546675
+# pylint: disable=line-too-long
 """
 
 from collections.abc import Callable
@@ -25,6 +27,7 @@ from typing import Any
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
 
 
@@ -72,13 +75,13 @@ class FilteredInterpolation(nn.Module):
 
     # We add another convolution layers to undo any aliasing that could have
     # been introduced by the interpolation step.
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.output_nc,
         kernel_size=(7, 7),
         strides=[1, 1],
         padding=self.padding,  # this is still a large convolutional layer.
         kernel_init=self.initializer,
-        use_local=self.use_local
+        use_local=self.use_local,
     )(x)
     return x
 
@@ -118,18 +121,18 @@ class ResnetBlock(nn.Module):
     # Skip connection.
     x_skip = x
 
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.features,
         kernel_size=self.kernel_size,
         padding=self.padding,
         kernel_init=self.initializer,
-        use_bias=self.use_bias
+        use_bias=self.use_bias,
     )(x)
     x = self.normalization_layer()(x)
     x = self.act_fun(x)
 
     x = self.dropout_layer()(x)
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.features,
         kernel_size=self.kernel_size,
         padding=self.padding,
@@ -150,33 +153,33 @@ class Generator(nn.Module):
     output_nc: The number of channels in output images.
     ngf: The number of filters in the last conv layer.
     n_res_blocks: The number of ResNet blocks at the core (lowest) level.
-    n_res_blocks_level: The number of ResNet blocks at each skip level (non
-      core level).
+    n_res_blocks_level: The number of ResNet blocks at each skip level (non core
+      level).
     dropout_rate: The rate for dropout sampling.
     upsample_mode: Modality of upsampling: deconvolution or bilinear
-        interpolation.
+      interpolation.
     n_downsample_layers: Number of dowsampling layers.
     act_fun: Activation functions.
     final_act_fun: Final activation function.
     kernel_size_downsampling: Size of the kernel for the downsamplign layers.
     kernel_size_upsampling: Size of the kernel for the upsampling layers.
     n_downsample_layers: Number of downsampling levels, each level produces a
-        downsmapling of factor 2 in each dimension (x, y) while increasing the
-        number of channels by a factor 2.
+      downsmapling of factor 2 in each dimension (x, y) while increasing the
+      number of channels by a factor 2.
     n_upsample_layers: Number of downsampling levels, each level produces a
-        upsampling of factor 2 in each dimension (x, y) while decreasing the
-        number of channels by a factor 2.
+      upsampling of factor 2 in each dimension (x, y) while decreasing the
+      number of channels by a factor 2.
     use_skips: Using skip connections to have a U-net type network.
     use_global_skip: Using a skip connection between input and output.
     padding: Type of padding used in the convolutional layers.
     padding_transpose: Type of padding used for the tranpose convolutional
-        layers when performing the upsampling.
+      layers when performing the upsampling.
     use_weight_global_skip: Use a weight in the global skip.
     weight_skip: To either weight the skip or the output of the network.
     use_local: Use locally connected convolutional layers, i.e., with unshared
-        weights. This only used for the projection to/from tokens.
+      weights. This only used for the projection to/from tokens.
     interpolated_shape: Shapes in the case we need to change the spatial
-        dimensions of the input.
+      dimensions of the input.
     initializer: Function for randomly initializing the parameters.
   """
 
@@ -206,9 +209,7 @@ class Generator(nn.Module):
   use_local: bool = False
   interpolated_shape: tuple[int, int] | None = None
   interpolation_method: str = "bicubic"
-  initializer: Initializer = jax.nn.initializers.normal(
-      stddev=0.02
-  )
+  initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -216,8 +217,7 @@ class Generator(nn.Module):
     # Perfoming sanity check.
     if self.upsample_mode not in ["bilinear", "deconv"]:
       raise NotImplementedError(
-          "Generator upsample_mode [%s] is not recognized"
-          % self.upsample_mode
+          "Generator upsample_mode [%s] is not recognized" % self.upsample_mode
       )
 
     # Saving for a skip connection.
@@ -240,7 +240,7 @@ class Generator(nn.Module):
       )(x)
 
     # Projection layer.
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.ngf,
         kernel_size=(7, 7),
         strides=[1, 1],
@@ -261,8 +261,8 @@ class Generator(nn.Module):
       horizontal_skips.append(x)
 
       # Downsampling layer.
-      mult = 2**(i + 1)
-      x = unets.conv_layer(
+      mult = 2 ** (i + 1)
+      x = layers.ConvLayer(
           features=self.ngf * mult,
           kernel_size=self.kernel_size_downsampling,
           strides=[2, 2],
@@ -295,9 +295,7 @@ class Generator(nn.Module):
         if self.use_position_encoding:
           x = unets.position_embedding(
               ndim=kernel_dim,
-              name=(
-                  f"position_embedding_number_{i}"
-              ),
+              name=f"position_embedding_number_{i}",
           )(x)
         x = unets.AttentionBlock(
             num_heads=self.num_heads,
@@ -330,7 +328,7 @@ class Generator(nn.Module):
             ),
             method="bilinear",
         )(x)
-        x = unets.conv_layer(
+        x = layers.ConvLayer(
             features=(self.ngf * mult) // 2,
             kernel_size=self.kernel_size_upsampling,
             strides=[1, 1],
@@ -372,7 +370,7 @@ class Generator(nn.Module):
           )(y)
 
         x = jnp.concatenate([x, y], axis=-1)
-        x = unets.conv_layer(
+        x = layers.ConvLayer(
             features=(self.ngf * mult) // 2,
             kernel_size=self.kernel_size_upsampling,
             strides=[1, 1],
@@ -383,7 +381,7 @@ class Generator(nn.Module):
         x = self.act_fun(x)
 
     # Last convolution layer to correct the number of output channels.
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.output_nc,
         kernel_size=(7, 7),
         strides=[1, 1],
@@ -411,12 +409,11 @@ class Generator(nn.Module):
         and self.use_global_skip
     ):
       if self.use_weight_global_skip:
-        init_weight_global = jax.nn.initializers.constant(
-            jnp.array([0.001])
-        )
+        init_weight_global = jax.nn.initializers.constant(jnp.array([0.001]))
         # Initializing the weight.
         weight_global_skip = self.param(
-            "weight_global_skip", init_weight_global, (1,), self.dtype)
+            "weight_global_skip", init_weight_global, (1,), self.dtype
+        )
 
         # Applying the weight to either the output or the skip.
         if self.weight_skip:
@@ -458,7 +455,7 @@ class Discriminator(nn.Module):
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.base_features,
         kernel_size=self.kernel_size,
         strides=(2, 2),
@@ -473,7 +470,7 @@ class Discriminator(nn.Module):
       # Gradually increase the number of filters/features as we downsample
       # in space.
       feature_multiplier = min(2**n, 8)
-      x = unets.conv_layer(
+      x = layers.ConvLayer(
           features=self.base_features * feature_multiplier,
           kernel_size=self.kernel_size,
           strides=(2, 2),
@@ -485,7 +482,7 @@ class Discriminator(nn.Module):
       x = nn.PReLU(negative_slope_init=0.2)(x)
 
     feature_multiplier = min(2**self.n_layers, 8)
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=self.base_features * feature_multiplier,
         kernel_size=self.kernel_size,
         strides=(2, 2),
@@ -497,7 +494,7 @@ class Discriminator(nn.Module):
     x = nn.PReLU(negative_slope_init=0.2)(x)
 
     # The output should be just one channel.
-    x = unets.conv_layer(
+    x = layers.ConvLayer(
         features=1,
         kernel_size=self.kernel_size,
         strides=(1, 1),
