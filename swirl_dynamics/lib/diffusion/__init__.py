@@ -48,3 +48,7 @@ from swirl_dynamics.lib.diffusion.unets import (
     PreconditionedDenoiser,
     UNet,
 )
+from swirl_dynamics.lib.diffusion.unets3d import (
+    PreconditionedDenoiser3d,
+    UNet3d,
+)
