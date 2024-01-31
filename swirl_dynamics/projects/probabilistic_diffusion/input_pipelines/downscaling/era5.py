@@ -137,6 +137,9 @@ class AssembleCondDict(pygrain.MapTransform):
     return features
 
 
+DIMS_ORDER = ("time", "level", "longitude", "latitude")
+
+
 class CondZarrDataSource:
   """A Zarr-based data source for training generative models.
 
@@ -190,6 +193,11 @@ class CondZarrDataSource:
         interval,
     )
     self._ds = xrts.open_zarr(path).sel(time=self._date_slice)
+    self._ds = self._ds.transpose(*DIMS_ORDER)
+    self._ds = self._ds.reindex(
+        latitude=np.sort(self._ds.latitude),
+        longitude=np.sort(self._ds.longitude),
+    )
     self._ds = self._ds.isel(isel_indexers) if isel_indexers else self._ds
     self._data_arrays = {v: self._ds[v] for v in variables}
 
@@ -197,6 +205,12 @@ class CondZarrDataSource:
       self._cond_ds = xrts.open_zarr(cond_path, context=None).sel(
           time=self._date_slice
       )
+      self._cond_ds = self._cond_ds.transpose(*DIMS_ORDER)
+      self._cond_ds = self._cond_ds.reindex(
+          latitude=np.sort(self._cond_ds.latitude),
+          longitude=np.sort(self._cond_ds.longitude),
+      )
+
       if cond_isel_indexers:
         self._cond_ds = self._cond_ds.isel(cond_isel_indexers)
 

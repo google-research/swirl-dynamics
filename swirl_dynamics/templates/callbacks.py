@@ -24,7 +24,7 @@ import flax
 import gin
 import jax
 import numpy as np
-from orbax import checkpoint
+import orbax.checkpoint as ocp
 from swirl_dynamics.templates import trainers
 import tqdm.auto as tqdm
 
@@ -103,11 +103,11 @@ class TrainStateCheckpoint(Callback):
       self,
       base_dir: str,
       folder_prefix: str = "checkpoints",
-      options: checkpoint.CheckpointManagerOptions | None = None,
+      options: ocp.CheckpointManagerOptions | None = None,
   ):
     self.save_dir = os.path.join(base_dir, folder_prefix)
-    self.ckpt_manager = checkpoint.CheckpointManager(
-        self.save_dir, checkpoint.PyTreeCheckpointer(), options=options
+    self.ckpt_manager = ocp.CheckpointManager(
+        self.save_dir, ocp.PyTreeCheckpointer(), options=options
     )
 
   def on_train_begin(self, trainer: Trainer) -> None:
@@ -130,13 +130,15 @@ class TrainStateCheckpoint(Callback):
       self, trainer: Trainer, train_metrics: Mapping[str, Array]
   ) -> None:
     assert self.last_eval_metric is not None
-    self.ckpt_manager.save(
-        step=trainer.train_state.int_step,
-        # This always saves the unreplicated train state.
-        # Converting to np array seems necessary for multi-host environments.
-        items=jax.tree_map(np.array, trainer.unreplicated_train_state),
-        metrics=dict(**train_metrics, **self.last_eval_metric),
-    )
+    cur_step = trainer.train_state.int_step
+    if self.ckpt_manager.should_save(cur_step):
+      self.ckpt_manager.save(
+          step=cur_step,
+          # This always saves the unreplicated train state.
+          # Converting to np array seems necessary for multi-host environments.
+          items=jax.tree_map(np.array, trainer.unreplicated_train_state),
+          metrics=dict(**train_metrics, **self.last_eval_metric),
+      )
 
   def on_eval_batches_end(
       self, trainer: Trainer, eval_metrics: Mapping[str, Array]

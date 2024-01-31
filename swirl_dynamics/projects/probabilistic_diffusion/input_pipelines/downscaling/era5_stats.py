@@ -139,8 +139,11 @@ def compute_final_stats(
   new_dataset = xarray.concat(
       [dataset.sel(stats="mean"), std], dim=stats_coords
   )
-  if DIMS_ORDER.value is not None:
-    new_dataset = new_dataset.transpose(*DIMS_ORDER.value)
+  new_dataset = new_dataset.transpose("stats", *DIMS_ORDER.value)
+  new_dataset = new_dataset.reindex(
+      latitude=np.sort(new_dataset.latitude),
+      longitude=np.sort(new_dataset.longitude),
+  )
   return key, new_dataset
 
 
@@ -166,8 +169,11 @@ def main(argv):
   template_ds = source_dataset.isel(time=0, drop=True).expand_dims(
       stats=["mean", "std"], axis=0
   )
-  if DIMS_ORDER.value is not None:
-    template_ds = template_ds.transpose(*DIMS_ORDER.value)
+  template_ds = template_ds.transpose("stats", *DIMS_ORDER.value)
+  template_ds = template_ds.reindex(
+      latitude=np.sort(template_ds.latitude),
+      longitude=np.sort(template_ds.longitude),
+  )
   template = xbeam.make_template(template_ds)
   output_chunks = {k: v for k, v in source_chunks.items() if k != "time"}
   output_chunks["stats"] = 1  # chunk size, not number of chunks
