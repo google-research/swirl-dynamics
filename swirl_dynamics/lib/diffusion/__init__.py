@@ -20,6 +20,8 @@
 from swirl_dynamics.lib.diffusion.diffusion import (
     Diffusion,
     InvertibleSchedule,
+    NoiseLevelSampling,
+    NoiseLossWeighting,
     edm_weighting,
     exponential_noise_schedule,
     inverse_squared_weighting,
@@ -30,6 +32,7 @@ from swirl_dynamics.lib.diffusion.diffusion import (
     time_uniform_sampling,
 )
 from swirl_dynamics.lib.diffusion.guidance import (
+    ClassifierFreeHybrid,
     InfillFromSlices,
     Transform as GuidanceTransform,
 )

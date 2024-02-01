@@ -92,19 +92,19 @@ class SamplersTest(parameterized.TestCase):
     sampler = sampler(
         input_shape=input_shape,
         integrator=solver,
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
         scheme=scheme,
         denoise_fn=lambda x, t, cond: x,
+        guidance_transforms=(),
         apply_denoise_at_end=apply_denoise_at_end,
+        return_full_paths=True,
     )
-    generate = jax.jit(sampler.generate, static_argnums=0)
-    samples, aux = generate(
-        num_samples=num_samples,
-        rng=jax.random.PRNGKey(0),
-        tspan=samplers.exponential_noise_decay(scheme, num_steps),
+    sample_paths = jax.jit(sampler.generate, static_argnums=0)(
+        num_samples=num_samples, rng=jax.random.PRNGKey(0)
     )
-    self.assertEqual(samples.shape, (num_samples,) + input_shape)
     self.assertEqual(
-        aux["trajectories"].shape, (num_steps, num_samples) + input_shape
+        sample_paths.shape,
+        (num_steps + int(apply_denoise_at_end), num_samples) + input_shape,
     )
 
   @parameterized.parameters(
@@ -136,18 +136,17 @@ class SamplersTest(parameterized.TestCase):
     sampler = sampler(
         input_shape=input_shape,
         integrator=solver,
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
         scheme=scheme,
         denoise_fn=denoise_fn,
+        guidance_transforms=(),
+        return_full_paths=True,
     )
-    generate = jax.jit(sampler.generate, static_argnums=0)
-    samples, aux = generate(
-        num_samples=num_samples,
-        rng=jax.random.PRNGKey(0),
-        tspan=samplers.exponential_noise_decay(scheme, num_steps),
+    samples_paths = jax.jit(sampler.generate, static_argnums=0)(
+        num_samples=num_samples, rng=jax.random.PRNGKey(0)
     )
-    self.assertEqual(samples.shape, (num_samples,) + input_shape)
     self.assertEqual(
-        aux["trajectories"].shape, (num_steps, num_samples) + input_shape
+        samples_paths.shape, (num_steps + 1, num_samples) + input_shape
     )
 
   @parameterized.parameters(
@@ -163,15 +162,14 @@ class SamplersTest(parameterized.TestCase):
     sampler = sampler(
         input_shape=input_shape,
         integrator=solver,
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
         scheme=scheme,
         denoise_fn=lambda x, t, cond: x * t,
         guidance_transforms=(TestTransform(),),
     )
-    generate = jax.jit(sampler.generate, static_argnums=0)
-    samples, _ = generate(
+    samples = jax.jit(sampler.generate, static_argnums=0)(
         num_samples=num_samples,
         rng=jax.random.PRNGKey(0),
-        tspan=samplers.exponential_noise_decay(scheme, num_steps),
         guidance_inputs={"const": jnp.ones(input_shape)},
     )
     self.assertEqual(samples.shape, (num_samples,) + input_shape)
@@ -189,14 +187,14 @@ class SamplersTest(parameterized.TestCase):
     sampler = sampler(
         input_shape=input_shape,
         integrator=solver,
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
         scheme=scheme,
         denoise_fn=lambda x, t, cond: x * t + cond["bias"],
+        guidance_transforms=(),
     )
-    generate = jax.jit(sampler.generate, static_argnums=0)
-    samples, _ = generate(
+    samples = jax.jit(sampler.generate, static_argnums=0)(
         num_samples=num_samples,
         rng=jax.random.PRNGKey(0),
-        tspan=samplers.exponential_noise_decay(scheme, num_steps),
         cond={"bias": jnp.ones(input_shape)},
     )
     self.assertEqual(samples.shape, (num_samples,) + input_shape)

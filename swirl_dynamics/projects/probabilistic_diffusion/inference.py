@@ -116,22 +116,6 @@ def get_trained_denoise_fn(
   )
 
 
-def get_inference_fn_from_sampler(
-    sampler: samplers.Sampler, **kwargs
-) -> CondSampler:
-  """Creates a conditional sampling inference function for evaluation."""
-
-  def _gen_cond_sample(
-      num_samples: int, rng: Array, cond: PyTree, guidance_inputs: PyTree
-  ) -> Array:
-    samples, _ = sampler.generate(
-        num_samples, rng, cond=cond, guidance_inputs=guidance_inputs, **kwargs
-    )
-    return samples
-
-  return _gen_cond_sample
-
-
 # ****************
 # Helpers
 # ****************

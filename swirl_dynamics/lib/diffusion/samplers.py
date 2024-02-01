@@ -14,7 +14,7 @@
 
 """Diffusion samplers."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 import flax
@@ -27,8 +27,17 @@ from swirl_dynamics.lib.solvers import sde
 
 Array = jax.Array
 ArrayMapping = Mapping[str, Array]
-DenoiseFn = Callable[[Array, Array, ArrayMapping | None], Array]
 Params = Mapping[str, Any]
+
+
+class DenoiseFn(Protocol):
+
+  def __call__(
+      self, x: Array, sigma: Array, cond: ArrayMapping | None
+  ) -> Array:
+    ...
+
+
 ScoreFn = DenoiseFn
 
 
@@ -122,115 +131,119 @@ def edm_noise_decay(
 # ********************
 
 
-class Sampler(Protocol):
-  """Interface for diffusion samplers."""
-
-  def generate(
-      self, num_samples: int, rng: Array, **kwargs
-  ) -> tuple[Array, Any]:
-    """Generate a specified number of diffusion samples.
-
-    Args:
-      num_samples: The number of samples to generate.
-      rng: The base rng for the generation process.
-      **kwargs: Additional keyword arguments.
-
-    Returns:
-      A tuple of (`samples`, `aux`) where `samples` are the generated samples
-      and `aux` contains the auxiliary output of the generation process.
-    """
-    ...
-
-
-def _apply_guidance_transforms(
-    denoise_fn: DenoiseFn,
-    transforms: Sequence[guidance.Transform],
-    guidance_inputs: Mapping[str, Array],
-) -> DenoiseFn:
-  for transform in transforms:
-    denoise_fn = transform(denoise_fn, guidance_inputs)
-  return denoise_fn
-
-
 @flax.struct.dataclass
-class OdeSampler:
-  """Draw samples by solving an probabilistic flow ODE.
+class Sampler:
+  """Base class for denoising-based diffusion samplers.
 
   Attributes:
-    input_shape: The tensor shape of a sample (excluding the batch dimension).
-    integrator: The ODE solver to use.
-    scheme: The diffusion scheme which contains the scale and noise schedules to
-      follow.
-    denoise_fn: The denoising function; required to work on batched states and
-      noise levels.
+    input_shape: The tensor shape of a sample (excluding any batch dimensions).
+    scheme: The diffusion scheme which contains the scale and noise schedules.
+    denoise_fn: A function to remove noise from input data. Must handle batched
+      inputs and noise levels.
     guidance_transforms: An optional sequence of guidance transforms that
       modifies the denoising function in a post-process fashion.
-    apply_denoise_at_end: Whether to apply the denoise function for another time
-      to the terminal state.
   """
 
   input_shape: tuple[int, ...]
-  integrator: ode.OdeSolver
   scheme: diffusion.Diffusion
   denoise_fn: DenoiseFn
-  guidance_transforms: Sequence[guidance.Transform] = ()
-  apply_denoise_at_end: bool = True
+  guidance_transforms: Sequence[guidance.Transform]
 
   def generate(
       self,
       num_samples: int,
       rng: Array,
-      tspan: Array,
       cond: ArrayMapping | None = None,
       guidance_inputs: ArrayMapping | None = None,
-  ) -> tuple[Array, dict[str, Array]]:
-    """Generate samples by solving the sampling ODE.
+  ) -> Array:
+    """Generates a batch of diffusion samples.
 
     Args:
-      num_samples: The number of distinct samples to generate.
-      rng: The jax random seed to be used for sampling.
-      tspan: The time steps for integrating the ode.
-      cond: The (explicit) conditioning inputs, i.e. those to be directly passed
-        through the denoiser interface. These inputs should not come with a
-        batch dimension - one will be created based on the number of samples (by
-        repeating every leaf of the pytree) to generate.
-      guidance_inputs: The inputs to the (a posteriori) guidance transforms.
-        They will *not* be passed to the denoiser directly but rather used to
-        "construct" a new denoising function. These inputs should also not come
-        with a batch dimension but the exact shapes are handled inside the
-        guidance transforms.
+      num_samples: The number of samples to generate in a single batch.
+      rng: The base rng for the generation process.
+      cond: Explicit conditioning inputs for the denoising function. These
+        should be provided without any batch dimensions (one should be added
+        inside this function based on `num_samples`).
+      guidance_inputs: Inputs used to construct the guided denoising function.
+        These also should in principle not include a batch dimension.
 
     Returns:
-      A tuple of generated samples and auxiliary outputs. The latter currently
-      consists of the entire ode trajectory.
+      The generated samples.
     """
-    if tspan.ndim != 1:
+    raise NotImplementedError
+
+  def get_guided_denoise_fn(
+      self, guidance_inputs: Mapping[str, Array]
+  ) -> DenoiseFn:
+    """Returns a guided denoise function."""
+    denoise_fn = self.denoise_fn
+    for transform in self.guidance_transforms:
+      denoise_fn = transform(denoise_fn, guidance_inputs)
+    return denoise_fn
+
+
+@flax.struct.dataclass
+class OdeSampler(Sampler):
+  """Draw samples by solving an probabilistic flow ODE.
+
+  Attributes:
+    input_shape: The tensor shape of a sample (excluding any batch dimensions).
+    scheme: The diffusion scheme which contains the scale and noise schedules.
+    denoise_fn: A function to remove noise from input data. Must handle batched
+      inputs and noise levels.
+    integrator: The ODE solver for solving the sampling ODE.
+    tspan: The time steps for the ODE solver (decreasing typically from 1 to 0).
+    guidance_transforms: An optional sequence of guidance transforms that
+      modifies the denoising function in a post-process fashion.
+    apply_denoise_at_end: Whether to apply the denoise function for another time
+      to the terminal state.
+    return_full_paths: If `True`, the output will contain the complete sampling
+      paths with axis 0 corresponding to diffusion times specified by `tspan`.
+  """
+
+  input_shape: tuple[int, ...]
+  scheme: diffusion.Diffusion
+  denoise_fn: DenoiseFn
+  integrator: ode.OdeSolver
+  tspan: Array
+  guidance_transforms: Sequence[guidance.Transform]
+  apply_denoise_at_end: bool = True
+  return_full_paths: bool = False
+
+  def generate(
+      self,
+      num_samples: int,
+      rng: Array,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
+  ) -> Array:
+    """Generate a batch of samples by solving the sampling ODE."""
+    if self.tspan.ndim != 1:
       raise ValueError("`tspan` must be a 1-d array.")
 
     x_shape = (num_samples,) + self.input_shape
-    t0, t1 = tspan[0], tspan[-1]
+    t0, t1 = self.tspan[0], self.tspan[-1]
     x1 = jax.random.normal(rng, x_shape)
     x1 *= self.scheme.sigma(t0) * self.scheme.scale(t0)
+
     if cond is not None:
       rep_fn = lambda x: jnp.tile(x[None], (num_samples,) + (1,) * x.ndim)
       cond = jax.tree_map(rep_fn, cond)
 
     params = dict(cond=cond, guidance_inputs=guidance_inputs)
-    trajectories = self.integrator(self.dynamics, x1, tspan, params)
-    samples = trajectories[-1]
+    # Output of integrator must have time at axis 0.
+    paths = self.integrator(self.dynamics, x1, self.tspan, params)
 
     if self.apply_denoise_at_end:
-      denoise_fn = _apply_guidance_transforms(
-          self.denoise_fn,
-          self.guidance_transforms,
-          guidance_inputs=guidance_inputs,
-      )
-      samples = denoise_fn(
-          jnp.divide(samples, self.scheme.scale(t1)),
+      denoise_fn = self.get_guided_denoise_fn(guidance_inputs=guidance_inputs)
+      final = denoise_fn(
+          jnp.divide(paths[-1], self.scheme.scale(t1)),
           self.scheme.sigma(t1),
           cond,
       )
-    return samples, {"trajectories": trajectories}
+      paths = jnp.concatenate([paths, final[None]], axis=0)
+
+    return paths if self.return_full_paths else paths[-1]
 
   @property
   def dynamics(self) -> ode.OdeDynamics:
@@ -249,10 +262,8 @@ class OdeSampler:
 
     def _dynamics(x: Array, t: Array, params: Params) -> Array:
       assert not t.ndim, "`t` must be a scalar."
-      denoise_fn = _apply_guidance_transforms(
-          self.denoise_fn,
-          self.guidance_transforms,
-          guidance_inputs=params["guidance_inputs"],
+      denoise_fn = self.get_guided_denoise_fn(
+          guidance_inputs=params["guidance_inputs"]
       )
       s, sigma = self.scheme.scale(t), self.scheme.sigma(t)
       x_hat = jnp.divide(x, s)
@@ -265,52 +276,51 @@ class OdeSampler:
 
 
 @flax.struct.dataclass
-class SdeSampler:
-  """Draws samples by solving an SDE."""
+class SdeSampler(Sampler):
+  """Draws samples by solving an SDE.
+
+  Attributes:
+    input_shape: The tensor shape of a sample (excluding any batch dimensions).
+    scheme: The diffusion scheme which contains the scale and noise schedules.
+    denoise_fn: A function to remove noise from input data. Must handle batched
+      inputs and noise levels.
+    integrator: The SDE solver for solving the sampling SDE.
+    tspan: The time steps for the SDE solver  (decreasing typically from 1 to
+      0).
+    guidance_transforms: An optional sequence of guidance transforms that
+      modifies the denoising function in a post-process fashion.
+    apply_denoise_at_end: Whether to apply the denoise function for another time
+      to the terminal state.
+    return_full_paths: If `True`, the output will contain the complete sampling
+      paths with axis 0 corresponding to diffusion times specified by `tspan`.
+  """
 
   input_shape: tuple[int, ...]
-  integrator: sde.SdeSolver
   scheme: diffusion.Diffusion
   denoise_fn: DenoiseFn
-  guidance_transforms: Sequence[guidance.Transform] = ()
+  integrator: sde.SdeSolver
+  tspan: Array
+  guidance_transforms: Sequence[guidance.Transform]
   apply_denoise_at_end: bool = True
+  return_full_paths: bool = False
 
   def generate(
       self,
       num_samples: int,
       rng: Array,
-      tspan: Array,
       cond: ArrayMapping | None = None,
       guidance_inputs: ArrayMapping | None = None,
-  ) -> tuple[Array, dict[str, Array]]:
-    """Generate samples by solving an SDE.
-
-    Args:
-      num_samples: The number of distinct samples to generate.
-      rng: The jax random seed to be used for sampling.
-      tspan: The time steps for integrating the sde.
-      cond: The (explicit) conditioning inputs, i.e. those to be directly passed
-        through the denoiser interface. These inputs *should not come with a
-        batch dimension* - one will be created based on the number of samples
-        (by repeating every leaf of the pytree).
-      guidance_inputs: The inputs to the (a posteriori) guidance transforms.
-        They will *not* be passed to the denoiser directly but rather used to
-        "construct" a new denoising function. Like `cond`, these inputs should
-        not come with a batch dimension in principle, but the shape handling
-        logic may be customized inside the specific guidance transforms.
-
-    Returns:
-      A tuple of generated samples and auxiliary outputs. The latter currently
-      consists of the entire sde trajectory.
-    """
-    if tspan.ndim != 1:
+  ) -> Array:
+    """Generate a batch of samples by solving an SDE."""
+    if self.tspan.ndim != 1:
       raise ValueError("`tspan` must be a 1-d array.")
 
     init_rng, solver_rng = jax.random.split(rng)
     x_shape = (num_samples,) + self.input_shape
-    t0, t1 = tspan[0], tspan[-1]
+    t0, t1 = self.tspan[0], self.tspan[-1]
     x1 = jax.random.normal(init_rng, x_shape)
     x1 *= self.scheme.sigma(t0) * self.scheme.scale(t0)
+
     if cond is not None:
       rep_fn = lambda x: jnp.tile(x[None], (num_samples,) + (1,) * x.ndim)
       cond = jax.tree_map(rep_fn, cond)
@@ -318,25 +328,23 @@ class SdeSampler:
     params = dict(
         drift=dict(guidance_inputs=guidance_inputs, cond=cond), diffusion={}
     )
-    trajectories = self.integrator(self.dynamics, x1, tspan, solver_rng, params)
-    samples = trajectories[-1]
+    # Output of integrator must have time at axis 0.
+    paths = self.integrator(self.dynamics, x1, self.tspan, solver_rng, params)
 
     if self.apply_denoise_at_end:
-      denoise_fn = _apply_guidance_transforms(
-          self.denoise_fn,
-          self.guidance_transforms,
-          guidance_inputs=guidance_inputs,
-      )
-      samples = denoise_fn(
-          jnp.divide(samples, self.scheme.scale(t1)),
+      denoise_fn = self.get_guided_denoise_fn(guidance_inputs=guidance_inputs)
+      final = denoise_fn(
+          jnp.divide(paths[-1], self.scheme.scale(t1)),
           self.scheme.sigma(t1),
           cond,
       )
-    return samples, {"trajectories": trajectories}
+      paths = jnp.concatenate([paths, final[None]], axis=0)
+
+    return paths if self.return_full_paths else paths[-1]
 
   @property
   def dynamics(self) -> sde.SdeDynamics:
-    """Terms of the sampling SDE.
+    """Drift and diffusion terms of the sampling SDE.
 
     In score function:
 
@@ -357,10 +365,8 @@ class SdeSampler:
 
     def _drift(x: Array, t: Array, params: Params) -> Array:
       assert not t.ndim, "`t` must be a scalar."
-      denoise_fn = _apply_guidance_transforms(
-          self.denoise_fn,
-          self.guidance_transforms,
-          guidance_inputs=params["guidance_inputs"],
+      denoise_fn = self.get_guided_denoise_fn(
+          guidance_inputs=params["guidance_inputs"]
       )
       s, sigma = self.scheme.scale(t), self.scheme.sigma(t)
       x_hat = jnp.divide(x, s)

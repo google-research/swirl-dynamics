@@ -30,7 +30,6 @@ from swirl_dynamics.projects.probabilistic_diffusion.inference import (
     RescaleSamples,
     StandardizeCondField,
     chain,
-    get_inference_fn_from_sampler,
     get_trained_denoise_fn,
 )
 from swirl_dynamics.projects.probabilistic_diffusion.models import DenoisingModel
