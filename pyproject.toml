@@ -36,6 +36,7 @@ dependencies = [
   "orbax-checkpoint",
   "tensorflow",
   "tqdm",
+  "xarray_tensorstore",
 ]
 
 # `version` is automatically set by flit to use `swirl_dynamics.__version__`
