@@ -15,6 +15,8 @@
 """Trainers for denoising models."""
 
 from collections.abc import Callable
+import functools
+from typing import TypeVar
 
 from clu import metrics as clu_metrics
 import flax
@@ -42,12 +44,11 @@ class DenoisingModelTrainState(train_states.BasicTrainState):
       raise ValueError("EMA state is none.")
 
 
-TrainState = DenoisingModelTrainState
+TrainState = TypeVar("TrainState", bound=DenoisingModelTrainState)
+DenoisingModel = TypeVar("DenoisingModel", bound=models.DenoisingModel)
 
 
-class DenoisingTrainer(
-    trainers.BasicTrainer[models.DenoisingModel, TrainState]
-):
+class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
   """Single-device trainer for denoising models."""
 
   @flax.struct.dataclass
@@ -55,14 +56,13 @@ class DenoisingTrainer(
     train_loss: clu_metrics.Average.from_output("loss")
     train_loss_std: clu_metrics.Std.from_output("loss")
 
-  EvalMetrics = clu_metrics.Collection.create(  # pylint: disable=invalid-name
-      **{
-          f"eval_denoise_lvl{i}": clu_metrics.Average.from_output(
-              f"sigma_lvl{i}"
-          )
-          for i in range(models.DenoisingModel.num_eval_noise_levels)
-      }
-  )
+  @functools.cached_property
+  def EvalMetrics(self):
+    denoising_metrics = {
+        f"eval_denoise_lvl{i}": clu_metrics.Average.from_output(f"sigma_lvl{i}")
+        for i in range(self.model.num_eval_noise_levels)
+    }
+    return clu_metrics.Collection.create(**denoising_metrics)
 
   def __init__(self, ema_decay: float, *args, **kwargs):
     self.ema = optax.ema(ema_decay)
@@ -71,7 +71,7 @@ class DenoisingTrainer(
   def initialize_train_state(self, rng: Array) -> TrainState:
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
-    return TrainState.create(
+    return DenoisingModelTrainState.create(
         replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
@@ -120,8 +120,8 @@ class DenoisingTrainer(
 
 
 class DistributedDenoisingTrainer(
-    DenoisingTrainer,
-    trainers.BasicDistributedTrainer[models.DenoisingModel, TrainState],
+    DenoisingTrainer[DenoisingModel, TrainState],
+    trainers.BasicDistributedTrainer[DenoisingModel, TrainState],
 ):
   """Multi-device trainer for denoising models."""
 
