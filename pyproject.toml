@@ -33,9 +33,10 @@ dependencies = [
   "jax",
   "numpy",
   "optax",
-  "orbax-checkpoint",
+  "orbax-checkpoint==0.5.0",
   "tensorflow",
   "tqdm",
+  "xarray",
   "xarray_tensorstore",
 ]
 

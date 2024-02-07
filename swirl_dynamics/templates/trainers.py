@@ -484,4 +484,4 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
   ) -> BatchType:
     del step, rng
     # Preprocessed batch should always be reshaped for distributed training
-    return jax.jit(reshape_for_pmap)(batch_data)
+    return reshape_for_pmap(batch_data)
