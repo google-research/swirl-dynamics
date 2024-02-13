@@ -19,7 +19,7 @@ References:
     neural networks, arXiv preprint, arXiv:2004.01902 (2020).
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from flax import linen as nn
 import jax
@@ -28,6 +28,25 @@ import jax.numpy as jnp
 Scalar = Any
 Array = Any
 ModuleDef = Any
+
+
+def hard_thresholding(x: jnp.float64, cutoff: jnp.float64) -> jnp.float64:
+  """Simple implementation of hard thresholding.
+
+  Args:
+    x: Number to be thresholded.
+    cutoff: Shift for the thresholding.
+
+  Returns:
+    The input, which we assume is a scalar, hard-thresholded by cutoff. Namely
+    x if x > cutoff, 0.0 otherwise.
+  """
+  return jax.lax.cond(
+      jnp.abs(x) < cutoff,
+      lambda x: cutoff * jnp.sign(x),
+      lambda x: x,
+      x,
+  )
 
 
 class RationalLayer(nn.Module):
@@ -50,12 +69,12 @@ class RationalLayer(nn.Module):
       degree of each of the polynomials to the used. If the rational function is
       p/q, then: deg_pols[0] = degree of p, and deg_pols[1] = degree of q. By
       default we use deg_pols = (3, 2).
-    p_params: the coefficients for the numerator polynomial
-    q_params: the coefficients for the denominator polynomial
+    cutoff: Shift for the thresholding.
   """
 
   deg_pols: tuple[int, int] = (3, 2)
   dtype: jnp.dtype = jnp.float32
+  cutoff: Optional[jnp.float32 | jnp.float64 | None] = None
 
   def setup(self):
     """Initializes the parameters for a type (3,2) rational activation."""
@@ -96,6 +115,9 @@ class RationalLayer(nn.Module):
     p = jnp.polyval(self.p_params, x)
     q = jnp.polyval(self.q_params, x)
 
+    if self.cutoff:
+      q = jax.vmap(hard_thresholding, in_axes=(0, None))(q, self.cutoff)
+
     return p / q
 
 
@@ -110,9 +132,11 @@ class UnsharedRationalLayer(nn.Module):
 
   Attributes:
     dtype: the dtype of the computation (default: float32).
+    cutoff: Shift for the thresholding.
   """
 
   dtype: jnp.dtype = jnp.float32
+  cutoff: Optional[jnp.float32 | jnp.float64 | None] = None
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -145,6 +169,9 @@ class UnsharedRationalLayer(nn.Module):
 
     p = pol_fun(p_params, x_i)
     q = pol_fun(q_params, x_i)
+
+    if self.cutoff:
+      q = jax.vmap(hard_thresholding, in_axes=(0, None))(q, self.cutoff)
 
     return p / q
 
