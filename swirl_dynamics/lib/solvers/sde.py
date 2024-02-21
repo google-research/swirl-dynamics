@@ -15,7 +15,9 @@
 """Solvers for stochastic differential equations (SDEs)."""
 
 from collections.abc import Mapping
-from typing import Any, NamedTuple, Protocol
+import functools
+from typing import Any, ClassVar, Literal, NamedTuple, Protocol
+import warnings
 
 import flax
 import jax
@@ -35,7 +37,7 @@ class SdeCoefficientFn(Protocol):
 
 
 class SdeDynamics(NamedTuple):
-  """A pair of drift and diffusion functions that represent the SDE dynamics."""
+  """The drift and diffusion functions that represent the SDE dynamics."""
 
   drift: SdeCoefficientFn
   diffusion: SdeCoefficientFn
@@ -49,7 +51,15 @@ def _check_sde_params_fields(params: SdeParams) -> None:
 
 
 class SdeSolver(Protocol):
-  """A callable type implementing a SDE solver."""
+  """A callable type implementing a SDE solver.
+
+  Attributes:
+    terminal_only: If `True`, the solver only returns the terminal state, i.e.
+      corresponding to the last time stamp in `tspan`. If `False`, returns the
+      full path containing all steps.
+  """
+
+  terminal_only: bool
 
   def __call__(
       self,
@@ -62,14 +72,14 @@ class SdeSolver(Protocol):
     """Solves a SDE at given time stamps.
 
     Args:
-      dynamics: The SDE dynamics object that evaluates the drift and diffusion
+      dynamics: The SDE dynamics that evaluates the drift and diffusion
         coefficients.
-      x0: The initial condition.
-      tspan: The sequence of time points for which to solve the SDE. The first
-        entry is assumed to correspond to the time for x0.
+      x0: Initial condition.
+      tspan: The sequence of time points on which the approximate solution of
+        the SDE are evaluated. The first entry corresponds to the time for x0.
       rng: The root Jax random key used to draw realizations of the Wiener
         processes for the SDE.
-      params: The parameters for the dynamics; must contain both a "drift" and a
+      params: Parameters for the dynamics. Must contain both a "drift" and a
         "diffusion" field.
 
     Returns:
@@ -83,11 +93,12 @@ class ScanSdeSolver:
   """A SDE solver based on `jax.lax.scan`.
 
   Attributes:
-    time_axis_pos: move the time axis to the specified position in the output
-      tensor (by default it is at the 0th position).
+    time_axis_pos: The index where the time axis should be placed. Defaults to
+      the lead axis (index 0).
   """
 
   time_axis_pos: int = 0
+  terminal_only: ClassVar[bool] = False
 
   def step(
       self,
@@ -129,7 +140,56 @@ class ScanSdeSolver:
     return out
 
 
-class EulerMaruyama(ScanSdeSolver):
+class LoopSdeSolver:
+  """A SDE solver based on `jax.lax.while_loop`.
+
+  Compared to the `scan` based version, the while-loop-based solver is more
+  memory friendly. As a tradeoff, this implementation is not reverse-mode
+  differentiable.
+  """
+
+  terminal_only: bool = True
+
+  def step(
+      self,
+      dynamics: SdeDynamics,
+      x0: Array,
+      t0: Array,
+      dt: Array,
+      rng: Array,
+      params: SdeParams,
+  ) -> Array:
+    """Advances the current state one step forward in time."""
+    raise NotImplementedError
+
+  def __call__(
+      self,
+      dynamics: SdeDynamics,
+      x0: Array,
+      tspan: Array,
+      rng: Array,
+      params: SdeParams,
+  ) -> Array:
+    """Solves a SDE by integrating the step function with `lax.while_loop`."""
+    # Rng splits based on the length of `tspan` so that the results are
+    # identical to that of the scan verson.
+    rngs = jax.random.split(rng, num=len(tspan))
+    step_fn = functools.partial(self.step, dynamics)
+
+    def cond_fn(loop_state: tuple[int, Array]) -> bool:
+      return loop_state[0] < len(tspan) - 1
+
+    def body_fn(loop_state: tuple[int, Array]) -> tuple[int, Array]:
+      i, xi = loop_state
+      dt = tspan[i + 1] - tspan[i]
+      x_next = step_fn(x0=xi, t0=tspan[i], dt=dt, rng=rngs[i], params=params)
+      return i + 1, x_next
+
+    _, out = jax.lax.while_loop(cond_fn, body_fn, (0, x0))
+    return out
+
+
+class EulerMaruyamaStep:
   """The Euler-Maruyama scheme for integrating the Ito SDE."""
 
   def step(
@@ -152,3 +212,27 @@ class EulerMaruyama(ScanSdeSolver):
         # `abs` to enable integration backward in time
         + diffusion_coeffs * noise * jnp.sqrt(jnp.abs(dt))
     )
+
+
+class ScanBasedEulerMaruyama(EulerMaruyamaStep, ScanSdeSolver):
+  ...
+
+
+class LoopBasedEulerMaruyama(EulerMaruyamaStep, LoopSdeSolver):
+  ...
+
+
+def EulerMaruyama(  # pylint: disable=invalid-name
+    iter_type: Literal["scan", "loop"] = "scan",
+    time_axis_pos: int | None = None,
+) -> SdeSolver:
+  match iter_type:
+    case "scan":
+      time_axis_pos = time_axis_pos or 0
+      return ScanBasedEulerMaruyama(time_axis_pos=time_axis_pos)
+    case "loop":
+      if time_axis_pos is not None:
+        warnings.warn(
+            "`time_axis_pos` is set but does not apply to loop-based solver."
+        )
+      return LoopBasedEulerMaruyama()

@@ -22,11 +22,14 @@ from swirl_dynamics.lib.solvers import sde
 
 class SdeSolversTest(parameterized.TestCase):
 
-  @parameterized.product(solver=(sde.EulerMaruyama(),), tspan_length=(1, 10))
-  def test_constant_drift_no_diffusion(self, solver, tspan_length):
+  @parameterized.product(iter_type=("scan", "loop"), tspan_length=(1, 10))
+  def test_euler_maruyama_constant_drift_no_diffusion(
+      self, iter_type, tspan_length
+  ):
     dt = 0.1
     x_dim = 5
     tspan = jnp.arange(tspan_length) * dt
+    solver = sde.EulerMaruyama(iter_type=iter_type)
     out = solver(
         dynamics=sde.SdeDynamics(
             drift=lambda x, t, params: jnp.ones_like(x),
@@ -37,8 +40,30 @@ class SdeSolversTest(parameterized.TestCase):
         rng=jax.random.PRNGKey(0),
         params={"drift": {}, "diffusion": {}},
     )
+    final = out[-1] if iter_type == "scan" else out
     expected = jnp.ones(x_dim) * tspan[-1]
-    np.testing.assert_allclose(out[-1], expected, rtol=1e-5)
+    np.testing.assert_allclose(final, expected, rtol=1e-5)
+
+  def test_euler_maruyama_scan_loop_equivalence(self):
+    dt = 0.1
+    x_dim = 5
+    tspan = jnp.arange(1, 10) * dt
+
+    def solve(solver):
+      return solver(
+          dynamics=sde.SdeDynamics(
+              drift=lambda x, t, params: params * x,
+              diffusion=lambda x, t, params: params + x,
+          ),
+          x0=jnp.ones((x_dim,)),
+          tspan=tspan,
+          rng=jax.random.PRNGKey(12),
+          params={"drift": 2, "diffusion": 1},
+      )
+
+    out_scan = solve(sde.EulerMaruyama(iter_type="scan"))
+    out_loop = solve(sde.EulerMaruyama(iter_type="loop"))
+    np.testing.assert_allclose(out_scan[-1], out_loop, rtol=1e-5)
 
   @parameterized.product(
       solver=(sde.EulerMaruyama(),),
