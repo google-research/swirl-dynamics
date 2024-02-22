@@ -198,6 +198,36 @@ class SamplersTest(parameterized.TestCase):
     )
     self.assertEqual(samples.shape, (num_samples,) + input_shape)
 
+  @parameterized.parameters((True,), (False,))
+  def test_ode_log_likelihood_output_shape(self, use_approximate):
+    input_shape = (8, 8, 3)
+    batch_size = 4
+    num_steps = 8
+    sigma_schedule = diffusion.tangent_noise_schedule()
+    scheme = diffusion.Diffusion.create_variance_exploding(sigma_schedule)
+    sampler = samplers.OdeSampler(
+        input_shape=input_shape,
+        integrator=ode.HeunsMethod(),
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
+        scheme=scheme,
+        denoise_fn=lambda x, t, cond: x + cond["bias"],
+        guidance_transforms=(),
+    )
+
+    if use_approximate:
+      eps = jax.random.normal(
+          jax.random.PRNGKey(0), shape=(batch_size, 5, *input_shape)
+      )
+    else:
+      eps = None
+
+    log_likelihoods = sampler.compute_log_likelihood(
+        inputs=jnp.ones((batch_size, *input_shape)),
+        cond={"bias": jnp.ones((batch_size, *input_shape)) * 2.0},
+        eps=eps,
+    )
+    self.assertEqual(log_likelihoods.shape, (batch_size,))
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -20,6 +20,7 @@ from typing import Any, Protocol
 import flax
 import jax
 import jax.numpy as jnp
+import numpy as np
 from swirl_dynamics.lib.diffusion import diffusion
 from swirl_dynamics.lib.diffusion import guidance
 from swirl_dynamics.lib.solvers import ode
@@ -57,7 +58,7 @@ def denoiser2score(
   """Converts a denoiser to the corresponding score function."""
 
   def _score(x: Array, sigma: Array, cond: ArrayMapping | None = None) -> Array:
-    # reference: eq. 74 in Karras et al. (https://arxiv.org/abs/2206.00364).
+    # Reference: eq. 74 in Karras et al. (https://arxiv.org/abs/2206.00364).
     scale = scheme.scale(scheme.sigma.inverse(sigma))
     x_hat = jnp.divide(x, scale)
     target = denoise_fn(x_hat, sigma, cond)
@@ -245,7 +246,7 @@ class Sampler:
 
 @flax.struct.dataclass
 class OdeSampler(Sampler):
-  """Draw samples by solving an probabilistic flow ODE.
+  """Draw samples by solving an probability flow ODE.
 
   Attributes:
     integrator: The ODE solver for solving the sampling ODE.
@@ -297,6 +298,137 @@ class OdeSampler(Sampler):
       return (dlog_sigma_dt + dlog_s_dt) * x - dlog_sigma_dt * s * target
 
     return _dynamics
+
+  def compute_log_likelihood(
+      self,
+      inputs: Array,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
+      eps: Array | None = None,
+  ) -> Array:
+    """Computes the log likelihood of given data using the probability flow.
+
+    This is done by integrating the probability flow ODE forward (from zero to
+    max noise), using `inputs` as the initial condition. The log likelihood is
+    then calculated from that of the terminal state using the change of variable
+    formula. This formula involves computing the trace of the Jacobian of the
+    dynamics, which can be done either exactly or approximately via Hutchinson's
+    trace estimator.
+
+    Args:
+      inputs: Data whose log likelihood is computed. Expected to have shape
+        `(batch, *input_shape)`.
+      cond: Conditioning inputs for the denoise function. The batch dimension
+        should match that of `data`.
+      guidance_inputs: Inputs for constructing the guided denoising function.
+      eps: The 'probes' to use for Hutchinson's trace estimator (see
+        `.log_likelihood_augmented_dynamics_approximate`). Expected to have
+        shape (batch, num_probes, *input_shape). If `None`, the trace is
+        computed exactly (see `.log_likelihood_augmented_dynamics_exact`).
+
+    Returns:
+      The computed log likelihood.
+    """
+    if inputs.shape[1:] != self.input_shape:
+      raise ValueError(
+          "`inputs` is expected to have shape (batch_size,) +"
+          f" {self.input_shape}, but has shape {inputs.shape} instead."
+      )
+
+    if eps is not None and (
+        eps.shape[2:] != self.input_shape or eps.shape[0] != inputs.shape[0]
+    ):
+      raise ValueError(
+          "`eps` is expected to have shape (batch_size, num_probes,"
+          f" *input_shape) but has shape {eps.shape} instead."
+      )
+
+    batch_size = inputs.shape[0]
+    dim = np.prod(self.input_shape)
+    params = dict(cond=cond, guidance_inputs=guidance_inputs)
+
+    if eps is not None:
+      params["eps"] = jnp.reshape(eps, (*eps.shape[:2], dim))
+      dynamics_fn = self.log_likelihood_augmented_dynamics_approximate
+    else:
+      dynamics_fn = self.log_likelihood_augmented_dynamics_exact
+
+    q0 = jnp.concatenate(
+        [jnp.reshape(inputs, (batch_size, -1)), jnp.zeros((batch_size, 1))],
+        axis=-1,
+    )
+    q_paths = self.integrator(
+        func=dynamics_fn, x0=q0, tspan=self.tspan[::-1], params=params
+    )
+    x1, dlogp01 = q_paths[-1, :, :-1], q_paths[-1, :, -1]
+
+    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.sigma(self.tspan[0])
+    log_p1 = (
+        -dim / 2 * jnp.log(2 * jnp.pi)
+        - dim * jnp.log(sigma1)
+        - 0.5 * jnp.einsum("nd,nd->n", x1, x1) / jnp.square(sigma1)
+    )
+    # The sign before `dlogp01` is minus because the integration limits are
+    # reversed compared to eq. 3 in https://arxiv.org/abs/1810.01367
+    return log_p1 - dlogp01
+
+  @property
+  def log_likelihood_augmented_dynamics_exact(self) -> ode.OdeDynamics:
+    """Exact augmented dynamics for computing the log likelihood.
+
+    The probability flow ODE dynamics is augmented with the dynamics of the log
+    density, described by the instantaneous change of variable formula (see
+    Grathwohl et al. https://arxiv.org/abs/1810.01367, eq. 2):
+
+      d(log p(x))/dt = - Trace(dF/dx),
+
+    where F denotes RHS of the probability flow. The trace is evaluated exactly
+    using vector-Jacobian products vmapped over rows of an identity matrix.
+    The cost is proportional to the number of sample dimensions, which can be
+    expensive.
+    """
+
+    def _exact_dynamics(x: Array, t: Array, params: Params) -> Array:
+      x = x[:, :-1]
+      fn = lambda x: self.dynamics(
+          x.reshape(x.shape[0], *self.input_shape), t, params
+      ).reshape(x.shape[0], -1)
+      dxdt, vjp_fn = jax.vjp(fn, x)
+      eye = jnp.stack([jnp.eye(x.shape[-1])] * x.shape[0], axis=0)
+      (dfndx,) = jax.vmap(vjp_fn, in_axes=1, out_axes=1)(eye)
+      dlogp = -jnp.trace(dfndx, axis1=1, axis2=2)
+      return jnp.concatenate([dxdt, dlogp[:, None]], axis=-1)
+
+    return _exact_dynamics
+
+  @property
+  def log_likelihood_augmented_dynamics_approximate(self) -> ode.OdeDynamics:
+    """Approximate augmented dynamics for computing the log likelihood.
+
+    The trace in the augmented log density dynamics (see
+    `.log_likelihood_augmented_dynamics_exact`) is approximated with
+    Hutchinson's trace estimator (eq. 7, https://arxiv.org/abs/1810.01367):
+
+      Trace(dF/dx) = E [εᵀ(dF/dx)ε],
+
+    where E denotes expection over ε, which are typically sampled from standard
+    Gaussian distributions. The cost of this estimator is proportional to the
+    number of probes (i.e. ε samples) instead of the sample dimension.
+    """
+
+    def _approximate_dynamics(x: Array, t: Array, params: Params) -> Array:
+      x = x[:, :-1]
+      fn = lambda x: self.dynamics(
+          x.reshape(x.shape[0], *self.input_shape), t, params
+      ).reshape(x.shape[0], -1)
+      dxdt, vjp_fn = jax.vjp(fn, x)
+      (eps_vjp,) = jax.vmap(vjp_fn, in_axes=1, out_axes=1)(params["eps"])
+      dlogp = -jnp.mean(
+          jnp.einsum("bnd,bnd->bn", eps_vjp, params["eps"]), axis=1
+      )
+      return jnp.concatenate([dxdt, dlogp[:, None]], axis=-1)
+
+    return _approximate_dynamics
 
 
 @flax.struct.dataclass
