@@ -78,12 +78,10 @@ class SamplersTest(parameterized.TestCase):
   @parameterized.parameters(
       (samplers.OdeSampler, ode.ExplicitEuler(), True),
       (samplers.OdeSampler, ode.ExplicitEuler(), False),
-      (samplers.SdeSampler, sde.EulerMaruyama(), True),
-      (samplers.SdeSampler, sde.EulerMaruyama(), False),
+      (samplers.SdeSampler, sde.EulerMaruyama(iter_type="scan"), True),
+      (samplers.SdeSampler, sde.EulerMaruyama(iter_type="scan"), False),
   )
-  def test_ode_sampler_output_shape(
-      self, sampler, solver, apply_denoise_at_end
-  ):
+  def test_sampler_output_shape(self, sampler, solver, apply_denoise_at_end):
     input_shape = (5, 1)
     num_samples = 4
     num_steps = 8
@@ -109,7 +107,7 @@ class SamplersTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (samplers.OdeSampler, ode.ExplicitEuler()),
-      (samplers.SdeSampler, sde.EulerMaruyama()),
+      (samplers.SdeSampler, sde.EulerMaruyama(iter_type="scan")),
   )
   def test_unet_denoiser(self, sampler, solver):
     input_shape = (64, 64, 3)
@@ -151,7 +149,8 @@ class SamplersTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (samplers.OdeSampler, ode.HeunsMethod()),
-      (samplers.SdeSampler, sde.EulerMaruyama()),
+      (samplers.SdeSampler, sde.EulerMaruyama(iter_type="scan")),
+      (samplers.SdeSampler, sde.EulerMaruyama(iter_type="loop")),
   )
   def test_output_shape_with_guidance(self, sampler, solver):
     input_shape = (5, 1)
@@ -167,8 +166,8 @@ class SamplersTest(parameterized.TestCase):
         denoise_fn=lambda x, t, cond: x * t,
         guidance_transforms=(TestTransform(),),
     )
-    samples = jax.jit(sampler.generate, static_argnums=0)(
-        num_samples=num_samples,
+    generate_fn = jax.jit(functools.partial(sampler.generate, num_samples))
+    samples = generate_fn(
         rng=jax.random.PRNGKey(0),
         guidance_inputs={"const": jnp.ones(input_shape)},
     )
@@ -176,7 +175,7 @@ class SamplersTest(parameterized.TestCase):
 
   @parameterized.parameters(
       (samplers.OdeSampler, ode.HeunsMethod()),
-      (samplers.SdeSampler, sde.EulerMaruyama()),
+      (samplers.SdeSampler, sde.EulerMaruyama(iter_type="scan")),
   )
   def test_output_shape_with_cond(self, sampler, solver):
     input_shape = (5, 1)
