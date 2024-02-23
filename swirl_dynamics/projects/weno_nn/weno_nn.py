@@ -351,16 +351,3 @@ class OmegaNN(nn.Module):
       omega_out = eno_layer(omega_out, self.eno_layer_cutoff)
 
     return omega_out
-
-
-def flat_dim(params: PyTree) -> int:
-  """Computing the total number of scalar elements in a PyTree.
-
-  Args:
-    params: PyTree containing the parameters/scalar values.
-
-  Returns:
-    Total number of scalars within all the leaves of the PyTree.
-  """
-  flat_params, _ = jax.tree_util.tree_flatten(params)
-  return sum([p.size for p in flat_params])
