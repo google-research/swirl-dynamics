@@ -286,7 +286,9 @@ class OmegaNN(nn.Module):
   Attributes:
     features: Number of neurons for the hidden layers.
     order: Order of the weno scheme. Default to 3.
-    act_fun_features: Activation functions for the input features.
+    features_fun: Function that computes the input features to the MLP based
+      on the input to the network. Options are the delta layer in [1], and
+      features created using rational networks.
     act_fun: Activation function for the hidden layers.
     act_fun_out: Activation function for the last (output) layer.
     dtype: Type of input/outputs and parameters.
