@@ -26,6 +26,31 @@ from swirl_dynamics.projects.weno_nn import weno_nn
 PyTree = Any
 Array = jax.Array
 
+# List of feature functions.
+_FEATURES_FUNCTIONS = {
+    'delta_layer': weno_nn.delta_layer,
+    'rational': weno_nn.FeaturesRationalLayer(),
+    'rational_descentered': weno_nn.FeaturesRationalLayerDescentered(),
+    'z_layer': weno_nn.weno_z_layer,
+}
+
+# List of activation functions.
+_ACTIVATION_FUNCTIONS = {
+    'gelu': nn.gelu,
+    'relu': nn.relu,
+    'rational': rational_networks.RationalLayer(),
+    'rational_unshared': rational_networks.UnsharedRationalLayer(),
+    'selu': nn.selu,
+    'swish': nn.swish,
+}
+
+# List of activation functions that are trainable and different at each layer.
+_UNSHARED_ACTIVATION_FUNCTIONS = {
+    'GeGLU': nn.GeGLU,
+    'rational_act_fun': rational_networks.RationalLayer,
+    'unshared_rational_act_fun': rational_networks.UnsharedRationalLayer,
+}
+
 
 def flat_dim(params: PyTree) -> int:
   """Computes the total number of scalar elements in a `PyTree`.
@@ -54,18 +79,10 @@ def get_feature_func(
     The feature function for the given function name.
   """
 
-  if func_name == 'z_layer':
-    func = weno_nn.weno_z_layer
-  elif func_name == 'rational':
-    func = weno_nn.FeaturesRationalLayer()
-  elif func_name == 'rational_descentered':
-    func = weno_nn.FeaturesRationalLayerDescentered()
-  elif func_name == 'delta_layer':
-    func = weno_nn.delta_layer
+  if func_name in _FEATURES_FUNCTIONS:
+    return _FEATURES_FUNCTIONS[func_name]
   else:
-    func = None
-
-  return func
+    return None
 
 
 def get_act_func(
@@ -88,28 +105,12 @@ def get_act_func(
 
   Returns:
     The activation function for the given function name, or the string for
-    defining the model inside the OmegaNN models.
+    defining the associated nn.Module inside the OmegaNN models.
   """
 
-  if func_name == 'relu':
-    func = nn.relu
-  elif func_name == 'gelu':
-    func = nn.gelu
-  elif func_name == 'selu':
-    func = nn.selu
-  elif func_name == 'rational':
-    func = rational_networks.RationalLayer()
-  elif func_name == 'rational_unshared':
-    func = rational_networks.UnsharedRationalLayer()
-  elif func_name == 'swish':
-    func = nn.swish
-  elif func_name == 'rational_act_fun':
-    func = 'rational_act_fun'
-  elif func_name == 'unshared_rational_act_fun':
-    func = 'unshared_rational_act_fun'
-  elif func_name == 'GeGLU':
-    func = 'GeGLU'
+  if func_name in _ACTIVATION_FUNCTIONS:
+    return _ACTIVATION_FUNCTIONS[func_name]
+  elif func_name in _UNSHARED_ACTIVATION_FUNCTIONS:
+    return func_name
   else:
-    func = None
-
-  return func
+    return None
