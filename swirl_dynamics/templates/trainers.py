@@ -348,7 +348,7 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
           train_state.params, batch, rng, train_state.flax_mutables
       )
       # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
-      new_state = self.update_train_state(
+      new_state = self.update_train_state(  # pytype: disable=wrong-keyword-args  # always-use-property-annotation
           train_state=train_state, grads=grads, mutables=mutables
       )
       # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
@@ -449,7 +449,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
       # No need to modify `update_state` here because pmapped version should
       # just work
       # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
-      new_state = self.update_train_state(
+      new_state = self.update_train_state(  # pytype: disable=wrong-keyword-args  # always-use-property-annotation
           train_state=train_state, grads=grads, mutables=mutables
       )
       # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
