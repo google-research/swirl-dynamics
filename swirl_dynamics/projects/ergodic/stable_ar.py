@@ -58,6 +58,7 @@ class StableARModelConfig:
   use_sobolev_norm: bool = False
   order_sobolev_norm: int = 1
   normalize_stats: dict[str, Array | None] | None = None
+  mmd_bandwidth: tuple[float, ...] = (0.2, 0.5, 0.9, 1.3)
 
 
 @dataclasses.dataclass(kw_only=True)

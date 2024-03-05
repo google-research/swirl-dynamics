@@ -15,6 +15,7 @@
 r"""The main entry point for running training loops."""
 # TODO: Consider enabling float64 for Lorenz63 experiment
 
+import functools
 import json
 from os import path as osp
 from typing import Iterable, Tuple
@@ -150,7 +151,18 @@ def main(argv):
     )
 
   # Model
-  measure_dist_fn = choices.MeasureDistance(config.measure_dist_type).dispatch()
+  measure_dist_fn_raw = choices.MeasureDistance(
+      config.measure_dist_type
+  ).dispatch()
+
+  # We modify the bandwith in this case.
+  if config.measure_dist_type == "MMD":
+    measure_dist_fn = functools.partial(
+        measure_dist_fn_raw, bandwidth=config.mmd_bandwidth
+    )
+  else:
+    measure_dist_fn = measure_dist_fn_raw
+
   model_config = stable_ar.StableARModelConfig(
       state_dimension=state_dims,
       dynamics_model=choices.Model(config.model).dispatch(config),
