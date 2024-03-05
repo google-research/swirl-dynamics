@@ -28,6 +28,7 @@ import ml_collections
 from swirl_dynamics.lib.networks import convnets
 from swirl_dynamics.lib.networks import fno
 from swirl_dynamics.lib.networks import nonlinear_fourier
+from swirl_dynamics.lib.networks import unets
 from swirl_dynamics.lib.solvers import ode
 from swirl_dynamics.projects.ergodic import measure_distances
 from swirl_dynamics.projects.ergodic import rollout_weighting
@@ -117,6 +118,7 @@ class Model(enum.Enum):
   FNO_2D = "Fno2d"
   MLP = "MLP"
   PERIODIC_CONV_NET_MODEL = "PeriodicConvNetModel"
+  UNET = "UNet"
 
   def dispatch(self, conf: ml_collections.ConfigDict) -> nn.Module:
     """Dispatch model.
@@ -159,6 +161,17 @@ class Model(enum.Enum):
           num_modes=conf.num_modes,
           width=conf.width,
           fft_norm=conf.fft_norm,
+      )
+    if self.value == Model.UNET.value:
+      return unets.UNet(
+          out_channels=conf.out_channels,
+          num_channels=conf.num_channels,
+          downsample_ratio=conf.downsample_ratio,
+          num_blocks=conf.num_blocks,
+          padding=conf.padding,
+          use_attention=conf.use_attention,
+          use_position_encoding=conf.use_position_encoding,
+          num_heads=conf.num_heads,
       )
     raise ValueError()
 

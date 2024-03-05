@@ -48,7 +48,7 @@ class AttentionBlock(nn.Module):
   dtype: jnp.dtype = jnp.float32
 
   @nn.compact
-  def __call__(self, x: Array, is_training: bool) -> Array:
+  def __call__(self, x: Array, *, is_training: bool) -> Array:
     h = nn.GroupNorm(min(x.shape[-1] // 4, 32), name="norm")(x)
     h = nn.MultiHeadDotProductAttention(
         num_heads=self.num_heads,
@@ -185,9 +185,13 @@ class Add2dPosEmbedding(nn.Module):
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
-    assert x.ndim == 4
+    if x.ndim != 4:
+      raise ValueError("Only 4D inputs are supported for the two ",
+                       "dimensional positional embeddings. Instead the ",
+                       "dimension of the input is {x.ndim}.")
     _, h, w, c = x.shape
-    assert c % 2, "Number of channels must be even."
+    if c % 2 == 1:
+      raise ValueError(f"Number of channels must be even, instead we had {c}")
 
     row_embed = self.param("pos_emb_row", self.emb_init, (w, c // 2))
     col_embed = self.param("pos_emb_col", self.emb_init, (h, c // 2))
@@ -373,7 +377,8 @@ class UNet(nn.Module):
   num_heads: int = 8
 
   @nn.compact
-  def __call__(self, x: Array, *, is_training: bool) -> Array:
+  # def __call__(self, x: Array, *, is_training: bool) -> Array:
+  def __call__(self, x: Array) -> Array:  # bandaid to avoid dropout.
     kernel_dim = x.ndim - 2
     skips = DStack(
         num_channels=self.num_channels,
@@ -383,7 +388,8 @@ class UNet(nn.Module):
         use_attention=self.use_attention,
         num_heads=self.num_heads,
         use_position_encoding=self.use_position_encoding,
-    )(x, is_training=is_training)
+    )(x, is_training=False)  # this is a bandaid to avoid dropout.
+    # )(x, is_training=is_training)
     h = UStack(
         num_channels=self.num_channels[::-1],
         num_res_blocks=len(self.num_channels) * (self.num_blocks,),
@@ -391,7 +397,8 @@ class UNet(nn.Module):
         padding=self.padding,
         use_attention=self.use_attention,
         num_heads=self.num_heads,
-    )(skips[-1], skips, is_training=is_training)
+    )(skips[-1], skips, is_training=False)  # bandaid too.
+    # )(skips[-1], skips, is_training=is_training)
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
     h = conv_lib.ConvLayer(
         features=self.out_channels,

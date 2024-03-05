@@ -22,12 +22,14 @@ from swirl_dynamics.lib.networks import unets
 class NetworksTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      ((64,), "CIRCULAR", (2, 2, 2)),
-      ((64, 64), "CIRCULAR", (2, 2, 2)),
-      ((64, 64), "LATLON", (2, 2, 2)),
-      ((72, 144), "LATLON", (2, 2, 3)),
+      ((64,), "CIRCULAR", (2, 2, 2), False),
+      ((64, 64), "CIRCULAR", (2, 2, 2), True),
+      ((64, 64), "LATLON", (2, 2, 2), False),
+      ((72, 144), "LATLON", (2, 2, 3), True),
   )
-  def test_unet_output_shape(self, spatial_dims, padding, ds_ratio):
+  def test_unet_output_shape(
+      self, spatial_dims, padding, ds_ratio, use_pos_enc
+  ):
     batch, channels = 2, 3
     x = np.random.randn(batch, *spatial_dims, channels)
     model = unets.UNet(
@@ -37,10 +39,10 @@ class NetworksTest(parameterized.TestCase):
         num_blocks=2,
         padding=padding,
         num_heads=4,
-        use_position_encoding=False,
+        use_position_encoding=use_pos_enc,
     )
     out, _ = model.init_with_output(
-        jax.random.PRNGKey(42), x=x, is_training=True
+        jax.random.PRNGKey(42), x=x,  # is_training=True
     )
     self.assertEqual(out.shape, x.shape)
 
