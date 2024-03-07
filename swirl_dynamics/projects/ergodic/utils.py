@@ -21,6 +21,7 @@ import grain.tensorflow as tfgrain
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.data import tfgrain_transforms as transforms
 from swirl_dynamics.lib.solvers import ode
@@ -45,6 +46,128 @@ def generate_data_from_known_dynamcics(
   num_steps += warmup
   tspan = jnp.arange(num_steps) * dt
   return integrator(dynamics, x0, tspan, {})[warmup:]
+
+
+def create_loader_from_hdf5_reshaped(
+    num_time_steps: int,
+    time_stride: int,
+    batch_size: int,
+    dataset_path: str,
+    seed: int,
+    split: str | None = None,
+    spatial_downsample_factor: int = 1,
+    normalize: bool = False,
+    normalize_stats: dict[str, Array] | None = None,
+    tf_lookup_batch_size: int = 1024,
+    tf_lookup_num_parallel_calls: int = -1,
+    tf_interleaved_shuffle: bool = False,
+) -> tuple[tfgrain.TfDataLoader, dict[str, Array | None]]:
+  """Load pre-computed trajectories dumped to hdf5 file.
+
+  If normalize flag is set, method will also return the mean and std used in
+  normalization (which are calculated from train split).
+
+  Arguments:
+    num_time_steps: Number of time steps to include in each trajectory. If set
+      to -1, use entire trajectory lengths.
+    time_stride: Stride of trajectory sampling (downsampling by that factor).
+    batch_size: Batch size returned by dataloader. If set to -1, use entire
+      dataset size as batch_size.
+    dataset_path: Absolute path to dataset file.
+    seed: Random seed to be used in data sampling.
+    split: Data split - train, eval, test, or None.
+    spatial_downsample_factor: reduce spatial resolution by factor of x.
+    normalize: Flag for adding data normalization (subtact mean divide by std.).
+    normalize_stats: Dictionary with mean and std stats to avoid recomputing.
+    tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
+    tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
+      dataset. -1 is set to let grain optimize tha number of calls.
+    tf_interleaved_shuffle: Using a more localized shuffle instead of a global
+      suffle of the data.
+
+  Returns:
+    loader, stats (optional): tuple of dataloader and dictionary containing
+                              mean and std stats (if normalize=True, else dict
+                              contains NoneType values).
+  """
+  snapshots, tspan = hdf5_utils.read_arrays_as_tuple(
+      dataset_path, (f"{split}/u", f"{split}/t")
+  )
+  if spatial_downsample_factor > 1:
+    if snapshots.ndim == 3:
+      snapshots = snapshots[:, :, ::spatial_downsample_factor]
+    elif snapshots.ndim == 4:
+      snapshots = snapshots[:, :, ::spatial_downsample_factor, :]
+    elif snapshots.ndim == 5:
+      snapshots = snapshots[
+          :, :, ::spatial_downsample_factor, ::spatial_downsample_factor, :
+      ]
+    else:
+      raise NotImplementedError(
+          f"Number of dimensions {snapshots.ndim} not "
+          "supported for spatial downsampling."
+      )
+  # grid_points = np.tile(grid, (len(snapshots),) + grid.ndim * (1,))
+  if normalize:
+    if normalize_stats is not None:
+      mean = normalize_stats["mean"]
+      std = normalize_stats["std"]
+    else:
+      if split != "train":
+        data_for_stats = hdf5_utils.read_single_array(dataset_path, "train/u")
+      else:
+        data_for_stats = snapshots
+      mean = np.mean(data_for_stats, axis=(0, 1))
+      std = np.std(data_for_stats, axis=(0, 1))
+    snapshots -= mean
+    snapshots /= std
+  else:
+    mean, std = None, None
+
+  if num_time_steps == -1:  # Use full (downsampled) trajectories
+    num_time_steps = tspan.shape[1] // time_stride
+
+  # Downsampling the number of snapshots in time.
+  snapshots = snapshots[:, ::time_stride]
+  tspan = tspan[:, ::time_stride]
+
+  num_segments_per_traj = snapshots.shape[1] // num_time_steps
+  snapshots = snapshots[:, :(num_segments_per_traj * num_time_steps)]
+  snapshots = np.reshape(snapshots, (-1, num_time_steps, *snapshots.shape[2:]))
+
+  tspan = tspan[:, :(num_segments_per_traj * num_time_steps)]
+  tspan = np.reshape(tspan, (-1, num_time_steps, *tspan.shape[2:]))
+
+  source = tfgrain.TfInMemoryDataSource.from_dataset(
+      tf.data.Dataset.from_tensor_slices({
+          "u": snapshots,  # states
+          "t": tspan,  # time stamps
+      })
+  )
+  # This transform randomly takes a random section from the trajectory with the
+  # desired length and stride
+
+  # Grain fine-tuning.
+  tfgrain.config.update(
+      "tf_lookup_num_parallel_calls", tf_lookup_num_parallel_calls
+  )
+  tfgrain.config.update("tf_interleaved_shuffle", tf_interleaved_shuffle)
+  tfgrain.config.update("tf_lookup_batch_size", tf_lookup_batch_size)
+
+  if batch_size == -1:  # Use full dataset as batch
+    batch_size = len(source)
+  loader = tfgrain.TfDataLoader(
+      source=source,
+      sampler=tfgrain.TfDefaultIndexSampler(
+          num_records=len(source),
+          seed=seed,
+          num_epochs=None,  # loads indefnitely
+          shuffle=True,
+          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
+      ),
+      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+  )
+  return loader, {"mean": mean, "std": std}
 
 
 # TODO: Move this method to swirl_dynamics.data.utils
@@ -117,8 +240,8 @@ def create_loader_from_hdf5(
         data_for_stats = hdf5_utils.read_single_array(dataset_path, "train/u")
       else:
         data_for_stats = snapshots
-      mean = jnp.mean(data_for_stats, axis=(0, 1))
-      std = jnp.std(data_for_stats, axis=(0, 1))
+      mean = np.mean(data_for_stats, axis=(0, 1))
+      std = np.std(data_for_stats, axis=(0, 1))
     snapshots -= mean
     snapshots /= std
   else:

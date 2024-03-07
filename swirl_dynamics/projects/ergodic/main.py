@@ -115,6 +115,9 @@ def main(argv):
         seed=config.seed,
         normalize=config.normalize,
         split="train",
+        tf_lookup_batch_size=config.tf_lookup_batch_size,
+        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
+        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
     eval_loader, _ = utils.create_loader_from_tfds(
         num_time_steps=config.num_time_steps_eval,
@@ -125,7 +128,40 @@ def main(argv):
         dataset_name=config.dataset_name,
         normalize=config.normalize,
         split="eval",
+        tf_lookup_batch_size=config.tf_lookup_batch_size,
+        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
+        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
+  elif "use_hdf5_reshaped" in config and config.use_hdf5_reshaped:
+    train_loader, normalize_stats = utils.create_loader_from_hdf5_reshaped(
+        num_time_steps=config.num_time_steps,
+        time_stride=config.time_stride,
+        batch_size=config.batch_size,
+        seed=config.seed,
+        dataset_path=config.dataset_path,
+        split="train",
+        normalize=config.normalize,
+        normalize_stats=None,
+        spatial_downsample_factor=config.spatial_downsample_factor,
+        tf_lookup_batch_size=config.tf_lookup_batch_size,
+        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
+        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
+    )
+    eval_loader, _ = utils.create_loader_from_hdf5_reshaped(
+        num_time_steps=-1,
+        time_stride=config.time_stride,
+        batch_size=-1,
+        seed=config.seed,
+        dataset_path=config.dataset_path,
+        split="eval",
+        normalize=config.normalize,
+        normalize_stats=normalize_stats,
+        spatial_downsample_factor=config.spatial_downsample_factor,
+        tf_lookup_batch_size=config.tf_lookup_batch_size,
+        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
+        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
+    )
+
   else:
     train_loader, normalize_stats = utils.create_loader_from_hdf5(
         num_time_steps=config.num_time_steps,
@@ -137,6 +173,9 @@ def main(argv):
         normalize=config.normalize,
         normalize_stats=None,
         spatial_downsample_factor=config.spatial_downsample_factor,
+        tf_lookup_batch_size=config.tf_lookup_batch_size,
+        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
+        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
     eval_loader, _ = utils.create_loader_from_hdf5(
         num_time_steps=-1,
@@ -148,6 +187,9 @@ def main(argv):
         normalize=config.normalize,
         normalize_stats=normalize_stats,
         spatial_downsample_factor=config.spatial_downsample_factor,
+        tf_lookup_batch_size=config.tf_lookup_batch_size,
+        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
+        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
 
   # Model
