@@ -30,7 +30,7 @@ should yield $X_1 = X_0 + \Delta t v_t$ for $t \in [0, 1]$, which is exactly the
 expression that the loss is pursuing.
 
 References:
-[1]: Xingchao Liu, Chengyue Gong and Qiang Liu. "Flow Straight and Fast:
+[1] Xingchao Liu, Chengyue Gong and Qiang Liu. "Flow Straight and Fast:
   Learning to Generate and Transfer Data with Rectified Flow" NeurIPS 2022,
   Workshop on Score-Based Methods.
 """
@@ -89,7 +89,7 @@ class ReFlowModel(models.BaseModel):
 
   input_shape: tuple[int, ...]
   flow_model: nn.Module
-  time_sampling: Callable[[Array, tuple[int]], Array] = functools.partial(
+  time_sampling: Callable[[Array, tuple[int, ...]], Array] = functools.partial(
       jax.random.uniform, dtype=jnp.float32
   )
 

@@ -529,7 +529,7 @@ class UNet(nn.Module):
         name="conv_out",
     )(h)
 
-    if self.resize_to_shape is not None:
+    if self.resize_to_shape:
       h = layers.FilteredResize(
           output_size=input_size, kernel_size=(7, 7), padding=self.padding
       )(h)
