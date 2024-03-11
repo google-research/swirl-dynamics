@@ -195,10 +195,10 @@ def interpolants_minus(u_bar: Array, order: int = 3) -> Array:
   eno_polynomials = jnp.array([0., 0.])
 
   if order == 3:
-    # u^1_{i-1/2} = 0.5(u_{i-1} + u_{i}).
-    u_minus_0 = 0.5 * (u_bar[0] + u_bar[1])
     # u^0_{i-1/2} = 0.5( -u_{i+1} + 3 u_{i}).
-    u_minus_1 = 0.5 * (3 * u_bar[1] - u_bar[2])
+    u_minus_0 = 0.5 * (3 * u_bar[1] - u_bar[2])
+    # u^1_{i-1/2} = 0.5(u_{i-1} + u_{i}).
+    u_minus_1 = 0.5 * (u_bar[0] + u_bar[1])
 
     eno_polynomials = jnp.array([u_minus_0, u_minus_1])
 
@@ -266,14 +266,15 @@ def weno_interpolation(
                      f"({order}) do not match.")
 
   # Computing ω.
-  omega = omega_fun(u_bar, order)
+  omega_p = omega_fun(u_bar, order)
+  omega_m = omega_fun(u_bar[::-1], order)
 
   # Computing the interpolants (3rd order in  Eq. (7) in [1]).
   u_inter_p = interpolants_plus(u_bar, order)
   u_inter_m = interpolants_minus(u_bar, order)
 
   # Computing the interpolant following Eq. (6) in [1] using dot product.
-  u_plus = jnp.dot(omega, u_inter_p)
-  u_minus = jnp.dot(omega[::-1], u_inter_m)
+  u_plus = jnp.dot(omega_p, u_inter_p)
+  u_minus = jnp.dot(omega_m, u_inter_m)
 
   return jnp.array([u_minus, u_plus])
