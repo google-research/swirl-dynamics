@@ -19,7 +19,6 @@ r"""Default Hyperparameter configuration for Navier Stokes 2D.
 import ml_collections
 
 # pylint: disable=line-too-long
-# DATA_PATH = '/datasets/hdf5/pde/2d/ns/ns_trajectories_from_caltech.hdf5'
 DATA_PATH = '/datasets/hdf5/pde/2d/ns/attractor_spectral_grid_256_spatial_downsample_4_dt_0.001_v0_3_warmup_40.0_t_final_200.0_nu_0.001_n_samples_2000_ntraj_train_256_ntraj_eval_32_ntraj_test_32_drag_0.1_wave_number_4_random_seeds_combined_4.hdf5'
 # pylint: enable=line-too-long
 
@@ -39,7 +38,7 @@ def get_config():
   config.order_sobolev_norm = 1
 
   # Data params
-  config.batch_size = 50
+  config.batch_size = 1024
   # num_time_steps is length of ground truth trajectories in each batch from
   # dataloader (this differs from num_time_steps in Trainer.preprocess_batch
   # functions that corresponds to the len of ground truth trajectories to
@@ -51,6 +50,9 @@ def get_config():
   config.normalize = True
   config.add_noise = False
   config.noise_level = 0.0
+  config.tf_lookup_batch_size = 512
+  config.tf_lookup_num_parallel_calls = -1
+  config.tf_interleaved_shuffle = False
 
   # Model params
   ########### PeriodicConvNetModel ################
@@ -63,27 +65,6 @@ def get_config():
   config.processor_kernel_size = (3, 3)
   config.padding = 'CIRCULAR'
   config.is_input_residual = True
-
-  # ########### FNO ################
-  # config.num_lookback_steps = 1
-  # config.model = 'Fno'
-  # config.out_channels = 1
-  # config.hidden_channels = 64
-  # config.num_modes = (20, 20)
-  # config.lifting_channels = 256
-  # config.projection_channels = 256
-  # config.num_blocks = 4
-  # config.layers_per_block = 2
-  # config.block_skip_type = 'identity'
-  # config.fft_norm = 'forward'
-  # config.separable = False
-
-  ########### FNO 2D ###############
-  # config.model = 'Fno2d'
-  # config.out_channels = 1
-  # config.num_modes = (20, 20)
-  # config.width = 128
-  # config.fft_norm = 'ortho'
 
   config.num_lookback_steps = 1
   # Update num_time_steps and integrator based on num_lookback_steps setting

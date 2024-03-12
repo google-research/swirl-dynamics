@@ -37,9 +37,12 @@ def get_config():
   config.max_checkpoints_to_keep = 10
   config.use_sobolev_norm = False
   config.order_sobolev_norm = 0
-  config.tf_lookup_batch_size = 8192
+  config.mmd_bandwidth = (0.2, 0.5, 0.9, 1.3, 2., 5.,
+                          9., 13., 20., 50., 90., 130.)
+  config.tf_lookup_batch_size = 4096
   config.tf_lookup_num_parallel_calls = -1
   config.tf_interleaved_shuffle = False
+  config.use_hdf5_reshaped = True
 
   # Data params
   config.batch_size = 2048
@@ -74,6 +77,7 @@ def get_config():
   config.measure_dist_downsample = 1
   config.measure_dist_lambda = 0.0  # Sweepable
   config.measure_dist_k_lambda = 0.0  # Sweepable
+
   return config
 
 
@@ -103,42 +107,55 @@ def skip(
 def sweep(add):
   """Define param sweep."""
   # pylint: disable=line-too-long
-  for seed in [1, 11, 21, 31, 42]:
+  for seed in [1, 11, 21, 31]:
     for batch_size in [2048]:
       for lr in [1e-4]:
         for time_stride in [40]:
           for normalize in [True]:
-            for measure_dist_type in  ['MMD', 'SD']:
-              for use_curriculum in [True]:
+            for measure_dist_type in  ['MMD']:
+              for use_curriculum in [False, True]:
                 for use_pushfwd in [False, True]:
                   for measure_dist_lambda in [0.0, 1.0]:
                     for measure_dist_k_lambda in [0.0, 1.0, 10.0, 100.0, 1000.0]:
-                      if use_curriculum:
-                        train_steps_per_cycle = 50_000
-                        time_steps_increase_per_cycle = 1
-                      else:
-                        train_steps_per_cycle = 0
-                        time_steps_increase_per_cycle = 0
-                      if skip(
-                          use_curriculum,
-                          use_pushfwd,
-                          measure_dist_lambda,
-                          measure_dist_k_lambda,
-                          measure_dist_type,
-                      ):
-                        continue
-                      add(
-                          seed=seed,
-                          batch_size=batch_size,
-                          lr=lr,
-                          time_stride=time_stride,
-                          normalize=normalize,
-                          measure_dist_type=measure_dist_type,
-                          train_steps_per_cycle=train_steps_per_cycle,
-                          time_steps_increase_per_cycle=time_steps_increase_per_cycle,
-                          use_curriculum=use_curriculum,
-                          use_pushfwd=use_pushfwd,
-                          measure_dist_lambda=measure_dist_lambda,
-                          measure_dist_k_lambda=measure_dist_k_lambda,
-                      )
+                      for mmd_bandwidth in [
+                          (0.0125, 0.025,),
+                          (0.0125, 0.025, 0.025, 0.05,),
+                          (0.025, 0.05,),
+                          (0.025, 0.05, 0.1, 0.2,),
+                          (0.025, 0.05, 0.1, 0.2, 0.4, 0.8),
+                          (0.025, 0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2),
+                          (0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8),
+                          (0.4, 0.8, 1.6, 3.2, 6.4, 12.8),
+                          (1.6, 3.2, 6.4, 12.8),
+                          (6.4, 12.8),
+                      ]:
+                        if use_curriculum:
+                          train_steps_per_cycle = 50_000
+                          time_steps_increase_per_cycle = 1
+                        else:
+                          train_steps_per_cycle = 0
+                          time_steps_increase_per_cycle = 0
+                        if skip(
+                            use_curriculum,
+                            use_pushfwd,
+                            measure_dist_lambda,
+                            measure_dist_k_lambda,
+                            measure_dist_type,
+                        ):
+                          continue
+                        add(
+                            seed=seed,
+                            batch_size=batch_size,
+                            lr=lr,
+                            time_stride=time_stride,
+                            normalize=normalize,
+                            mmd_bandwidth=mmd_bandwidth,
+                            measure_dist_type=measure_dist_type,
+                            train_steps_per_cycle=train_steps_per_cycle,
+                            time_steps_increase_per_cycle=time_steps_increase_per_cycle,
+                            use_curriculum=use_curriculum,
+                            use_pushfwd=use_pushfwd,
+                            measure_dist_lambda=measure_dist_lambda,
+                            measure_dist_k_lambda=measure_dist_k_lambda,
+                        )
   # pylint: enable=line-too-long

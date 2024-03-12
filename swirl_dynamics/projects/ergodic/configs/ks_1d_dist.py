@@ -47,6 +47,9 @@ def get_config():
   config.noise_level = 0.0
   config.num_time_steps_eval = 600
   config.batch_size_eval = 512
+  config.tf_lookup_batch_size = 8192
+  config.tf_lookup_num_parallel_calls = -1
+  config.tf_interleaved_shuffle = False
 
   # Model params
   # ######## Dilated Convolutions ########
@@ -62,22 +65,6 @@ def get_config():
   config.padding = 'CIRCULAR'
   config.is_input_residual = True
 
-  # ########### FNO ################
-  # config.num_lookback_steps = 2
-  # config.integrator = 'MultiStepDirect'
-  # config.model = 'FNO'
-  # config.out_channels = 1
-  # config.hidden_channels = 64
-  # config.num_modes = (512,)
-  # config.lifting_channels = 256
-  # config.projection_channels = 256
-  # config.num_blocks = 4
-  # config.layers_per_block = 2
-  # config.block_skip_type = 'soft-gate'
-  # config.fft_norm = 'forward'
-  # config.separable = False
-  # # Update num_time_steps based on num_lookback_steps setting
-  # config.num_time_steps += config.num_lookback_steps - 1
   # Trainer params
   config.num_rollout_steps = 1
   config.train_steps_per_cycle = 50_000
@@ -113,7 +100,6 @@ def skip(
   return False
 
 
-# TODO: Refactor sweeps and experiment definition to use gin.
 # use option --sweep=False in the command line to avoid sweeping
 def sweep(add):
   """Define param sweep."""
