@@ -721,7 +721,6 @@ class TransformerBlock(nn.Module):
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
               self.attention_config.get('attention_kernel_init_method',  # pytype: disable=attribute-error
                                         'xavier')],
-          temporal_dims=self.temporal_dims,
           three_dim_shape=self.encoded_shape)
     else:
       raise ValueError(f'Unknown attention type {self.attention_config.type}')  # pytype: disable=attribute-error

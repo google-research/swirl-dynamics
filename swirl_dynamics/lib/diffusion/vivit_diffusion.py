@@ -373,7 +373,9 @@ class ViViTDiffusion(nn.Module):
     stochastic_droplayer_rate: Probability of dropping a layer. Linearly
       increases from 0 to the provided value..
     positional_embedding: Type of positional encoding.
-    dtype: JAX data type for activations.
+    cond_resize_method: Resize method for channel-wise conditioning.
+    cond_embed_dim: Embedding dimension for channel-wise conditioning.
+    dtype: JAX data type.
   """
 
   mlp_dim: int
@@ -389,6 +391,10 @@ class ViViTDiffusion(nn.Module):
   attention_dropout_rate: float = 0.1
   stochastic_droplayer_rate: float = 0.0
   positional_embedding: str = 'sinusoidal_3d'
+  cond_resize_method: str = 'cubic'
+  cond_embed_dim: int = 128
+  cond_padding: str = 'SAME'
+  cond_kernel_size: Sequence[int] = (3, 3)
   dtype: jnp.dtype = jnp.float32
 
   @nn.compact
@@ -401,6 +407,14 @@ class ViViTDiffusion(nn.Module):
       is_training: bool = False
   ) -> Array:
     batch_size_input, num_frames, height, width, _ = x.shape
+
+    cond = {} if cond is None else cond
+    x = unets.MergeChannelCond(
+        embed_dim=self.cond_embed_dim,
+        resize_method=self.cond_resize_method,
+        kernel_size=self.cond_kernel_size,
+        padding=self.cond_padding,
+    )(x, cond)
 
     # Computing the embedding for modulation.
     emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)

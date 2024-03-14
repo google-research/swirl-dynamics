@@ -40,13 +40,13 @@ class VivitDiffusionTest(parameterized.TestCase):
     config_patches.size = patch_size
 
     temporal_encoding_config = ml_collections.ConfigDict()
-    temporal_encoding_config.method = "3d_conv"
-    temporal_encoding_config.kernel_init_method = "central_frame_initializer"
+    temporal_encoding_config.method = '3d_conv'
+    temporal_encoding_config.kernel_init_method = 'central_frame_initializer'
 
     attention_config = ml_collections.ConfigDict()
-    attention_config.type = "factorized_self_attention_block"
-    attention_config.attention_order = "time_space"
-    attention_config.attention_kernel_init_method = "xavier"
+    attention_config.type = 'factorized_self_attention_block'
+    attention_config.attention_order = 'time_space'
+    attention_config.attention_kernel_init_method = 'xavier'
 
     vivit_model = vivit_diffusion.ViViTDiffusion(
         mlp_dim=4,
@@ -57,6 +57,7 @@ class VivitDiffusionTest(parameterized.TestCase):
         hidden_size=6,
         temporal_encoding_config=temporal_encoding_config,
         attention_config=attention_config,
+        positional_embedding='none'
     )
 
     out, _ = vivit_model.init_with_output(
@@ -67,6 +68,52 @@ class VivitDiffusionTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, (batch, *spatial_dims, output_features))
 
+  def test_vivit_with_channelwise_cond_output_shape(self):
 
-if __name__ == "__main__":
+    batch = 2
+    channels = 4
+    channels_cond = 3
+    patch_size = (1, 2, 2)
+
+    x = np.ones((batch, 2, 16, 16, channels))
+    cond = {
+        'channel:cond1': jax.random.normal(
+            jax.random.PRNGKey(42), (batch, 2, 16, 8, channels_cond)
+        )
+    }
+
+    sigma = np.linspace(0, 1, batch)
+
+    config_patches = ml_collections.ConfigDict()
+    config_patches.size = patch_size
+
+    temporal_encoding_config = ml_collections.ConfigDict()
+    temporal_encoding_config.method = '3d_conv'
+    temporal_encoding_config.kernel_init_method = 'central_frame_initializer'
+
+    attention_config = ml_collections.ConfigDict()
+    attention_config.type = 'factorized_self_attention_block'
+    attention_config.attention_order = 'time_space'
+    attention_config.attention_kernel_init_method = 'xavier'
+
+    vivit_model = vivit_diffusion.ViViTDiffusion(
+        mlp_dim=4,
+        num_layers=1,
+        num_heads=1,
+        output_features=channels,
+        patches=config_patches,
+        hidden_size=6,
+        temporal_encoding_config=temporal_encoding_config,
+        attention_config=attention_config,
+    )
+    out, _ = vivit_model.init_with_output(
+        jax.random.PRNGKey(0),
+        x,
+        sigma=sigma,
+        cond=cond,
+        is_training=True,
+    )
+    self.assertEqual(out.shape, x.shape)
+
+if __name__ == '__main__':
   absltest.main()
