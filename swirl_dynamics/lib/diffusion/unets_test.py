@@ -96,14 +96,16 @@ class NetworksTest(parameterized.TestCase):
     self.assertEqual(out.shape, x.shape)
 
   @parameterized.parameters(
-      {"x_dims": (1, 16, 3), "c_dims": (1, 16, 3)},
       {"x_dims": (1, 16, 3), "c_dims": (1, 12, 5)},
-      {"x_dims": (1, 16, 16, 3), "c_dims": (1, 16, 16, 3)},
       {"x_dims": (1, 16, 16, 3), "c_dims": (1, 32, 32, 6)},
+      {"x_dims": (1, 16, 16, 3), "c_dims": (1, 4, 8, 6)},
   )
   def test_channelwise_conditioning_output_shape(self, x_dims, c_dims):
     x = jax.random.normal(jax.random.PRNGKey(42), x_dims)
-    cond = {"channel:cond1": jax.random.normal(jax.random.PRNGKey(42), c_dims)}
+    cond = {
+        "channel:cond1": jax.random.normal(jax.random.PRNGKey(42), c_dims),
+        "channel:cond2": jax.random.normal(jax.random.PRNGKey(42), x_dims),
+    }
     sigma = jnp.array(0.5)
     model = diffusion.unets.PreconditionedDenoiser(
         out_channels=x_dims[-1],
@@ -120,8 +122,14 @@ class NetworksTest(parameterized.TestCase):
         jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
     )
     # Check shape dict so that err message is easier to read when things break.
+    shape_dict = jax.tree_map(jnp.shape, variables["params"])
+    self.assertIn("MergeChannelCond_0", shape_dict)
+    # First condition should be reshaped. Second one (correct shape) shoud not.
     self.assertIn(
-        "MergeChannelCond_0", jax.tree_map(jnp.shape, variables["params"])
+        "conv2d_embed_channel:cond1", shape_dict["MergeChannelCond_0"]
+    )
+    self.assertNotIn(
+        "conv2d_embed_channel:cond2", shape_dict["MergeChannelCond_0"]
     )
 
     out = jax.jit(functools.partial(model.apply, is_training=True))(

@@ -244,8 +244,7 @@ class MergeChannelCond(nn.Module):
     """Merges conditional inputs along the channel dimension.
 
     Relevant fields in the conditional input dictionary are first resized and
-    then
-    concatenated with the main input along their last axes.
+    then concatenated with the main input along their last axes.
 
     Args:
       x: The main model input.
@@ -255,6 +254,8 @@ class MergeChannelCond(nn.Module):
     Returns:
       Model input merged with channel conditions.
     """
+
+    out_spatial_shape = x.shape[-3:-1]
     for key, value in cond.items():
       if key.startswith("channel:"):
         if value.ndim != x.ndim:
@@ -262,21 +263,23 @@ class MergeChannelCond(nn.Module):
               f"Channel condition `{key}` does not have the same ndim"
               f" ({value.ndim}) as x ({x.ndim})!"
           )
+      if value.shape[-3:-1] != out_spatial_shape:
 
-      value = layers.FilteredResize(
-          output_size=x.shape[:-1],
-          kernel_size=self.kernel_size,
-          method=self.resize_method,
-          padding=self.padding,
-          name=f"resize_{key}",
-      )(value)
-      value = nn.swish(nn.LayerNorm()(value))
-      value = layers.ConvLayer(
-          features=self.embed_dim,
-          kernel_size=self.kernel_size,
-          padding=self.padding,
-          name=f"conv2d_embed_{key}",
-      )(value)
+        value = layers.FilteredResize(
+            output_size=x.shape[:-1],
+            kernel_size=self.kernel_size,
+            method=self.resize_method,
+            padding=self.padding,
+            name=f"resize_{key}",
+        )(value)
+        value = nn.swish(nn.LayerNorm()(value))
+        value = layers.ConvLayer(
+            features=self.embed_dim,
+            kernel_size=self.kernel_size,
+            padding=self.padding,
+            name=f"conv2d_embed_{key}",
+        )(value)
+
       x = jnp.concatenate([x, value], axis=-1)
     return x
 
