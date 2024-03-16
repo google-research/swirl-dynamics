@@ -71,11 +71,17 @@ def main(argv):
   )
 
   optimizer = optax.chain(
-      optax.clip(config.clip),
+      # optax.clip(config.clip),
+      optax.clip_by_global_norm(config.max_norm),
       optax.adam(
           learning_rate=schedule,
           b1=config.beta1,
       ),
+  )
+
+  assert (
+      config.input_shapes[0][-1] == config.input_shapes[1][-1]
+      and config.input_shapes[0][-1] == config.out_channels
   )
 
   if config.tf_grain_hdf5:
@@ -87,6 +93,7 @@ def main(argv):
         seed=config.seed,
         split="train",
         spatial_downsample_factor_a=config.spatial_downsample_factor[0],
+        spatial_downsample_factor_b=config.spatial_downsample_factor[1],
         normalize=config.normalize,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
@@ -99,6 +106,7 @@ def main(argv):
         dataset_path_b=config.dataset_path_u_hf,
         seed=config.seed,
         split="eval",
+        spatial_downsample_factor_a=config.spatial_downsample_factor[0],
         spatial_downsample_factor_b=config.spatial_downsample_factor[1],
         normalize=config.normalize,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
@@ -109,15 +117,17 @@ def main(argv):
 
     era5_loader_train = data_utils.create_era5_loader(
         date_range=config.data_range_train,
-        shuffle=True,
+        shuffle=config.shuffle,
         seed=config.seed,
         batch_size=config.batch_size,
+        filter_extremes=config.filter_extremes,
+        extreme_norm=config.extreme_norm,
         drop_remainder=True,
         worker_count=0,)
 
     lens2_loader_train = data_utils.create_lens2_loader(
         date_range=config.data_range_train,
-        shuffle=True,
+        shuffle=config.shuffle,
         seed=config.seed,
         batch_size=config.batch_size,
         drop_remainder=True,
@@ -129,7 +139,7 @@ def main(argv):
 
     era5_loader_eval = data_utils.create_era5_loader(
         date_range=config.data_range_eval,
-        shuffle=True,
+        shuffle=config.shuffle,
         seed=config.seed,
         batch_size=config.batch_size_eval,
         drop_remainder=True,
@@ -137,7 +147,7 @@ def main(argv):
 
     lens2_loader_eval = data_utils.create_lens2_loader(
         date_range=config.data_range_eval,
-        shuffle=True,
+        shuffle=config.shuffle,
         seed=config.seed,
         batch_size=config.batch_size_eval,
         drop_remainder=True,
@@ -173,6 +183,8 @@ def main(argv):
           config.input_shapes[0][3],
       ),  # This must agree with the expected sample shape.
       flow_model=flow_model,
+      min_eval_time_lvl=config.min_time,  # This should be close to 0.
+      max_eval_time_lvl=config.max_time  # It should be close to 1.
   )
 
   # Defining the trainer.

@@ -14,7 +14,7 @@
 
 """U-Net denoiser models."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from flax import linen as nn
 import jax
@@ -43,6 +43,7 @@ class AdaptiveScale(nn.Module):
   see e.g. https://arxiv.org/abs/2105.05233, and for the
   more general FiLM technique see https://arxiv.org/abs/1709.07871.
   """
+  act_fun: Callable[[Array], Array] = nn.swish
 
   @nn.compact
   def __call__(self, x: Array, emb: Array) -> Array:
@@ -60,7 +61,7 @@ class AdaptiveScale(nn.Module):
         + str(emb.ndim)
     )
     affine = nn.Dense(features=x.shape[-1] * 2, kernel_init=default_init(1.0))
-    scale_params = affine(nn.swish(emb))
+    scale_params = affine(self.act_fun(emb))
     # Unsqueeze in the middle to allow broadcasting.
     scale_params = scale_params.reshape(
         scale_params.shape[:1] + (x.ndim - 2) * (1,) + scale_params.shape[1:]
@@ -93,6 +94,7 @@ class ResConv1x(nn.Module):
 
   hidden_layer_size: int
   out_channels: int
+  act_fun: Callable[[Array], Array] = nn.swish
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -103,7 +105,7 @@ class ResConv1x(nn.Module):
         kernel_size=kernel_size,
         kernel_init=default_init(1.0),
     )(x)
-    x = nn.swish(x)
+    x = self.act_fun(x)
     x = nn.Conv(
         features=self.out_channels,
         kernel_size=kernel_size,
@@ -127,18 +129,21 @@ class ConvBlock(nn.Module):
     kernel_sizes: Kernel size for both conv layers.
     padding: The type of convolution padding to use.
     dropout: The rate of dropout applied in between the conv layers.
+    film_act_fun: Activation function for the FilM layer.
   """
 
   out_channels: int
   kernel_size: tuple[int, ...]
   padding: str = "CIRCULAR"
   dropout: float = 0.0
+  film_act_fun: Callable[[Array], Array] = nn.swish
+  act_fun: Callable[[Array], Array] = nn.swish
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, is_training: bool) -> Array:
     h = x
     h = nn.GroupNorm(min(h.shape[-1] // 4, 32))(h)
-    h = nn.swish(h)
+    h = self.act_fun(h)
     h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=self.kernel_size,
@@ -147,8 +152,8 @@ class ConvBlock(nn.Module):
         name="conv_0",
     )(h)
     h = nn.GroupNorm(min(h.shape[-1] // 4, 32))(h)
-    h = AdaptiveScale()(h, emb)
-    h = nn.swish(h)
+    h = AdaptiveScale(act_fun=self.film_act_fun)(h, emb)
+    h = self.act_fun(h)
     h = nn.Dropout(rate=self.dropout, deterministic=not is_training)(h)
     h = layers.ConvLayer(
         features=self.out_channels,
@@ -166,6 +171,7 @@ class FourierEmbedding(nn.Module):
   dims: int = 64
   max_freq: float = 2e4
   projection: bool = True
+  act_fun: Callable[[Array], Array] = nn.swish
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -176,7 +182,7 @@ class FourierEmbedding(nn.Module):
 
     if self.projection:
       x = nn.Dense(features=2 * self.dims)(x)
-      x = nn.swish(x)
+      x = self.act_fun(x)
       x = nn.Dense(features=self.dims)(x)
 
     return x
@@ -329,6 +335,7 @@ class DStack(nn.Module):
             dropout=self.dropout_rate,
             name=f"res{'x'.join(res.astype(str))}.down.block{block_id}",
         )(h, emb, is_training=is_training)
+
         if self.use_attention and level == len(self.num_channels) - 1:
           b, *hw, c = h.shape
           # Adding positional encoding, only in Dstack.
@@ -359,6 +366,17 @@ class UStack(nn.Module):
   as well as final output, and applies upsampling with convolutional blocks
   and combines together with skip connections in typical UNet style.
   Optionally can use self attention at low spatial resolutions.
+
+  Attributes:
+    num_channels: Number of channels at each resolution level.
+    num_res_blocks: Number of resnest blocks at each resolution level.
+    upsample_ratio: The upsampling ration between levels.
+    padding: Type of padding for the convolutional layers.
+    dropout_rate: Rate for the dropout inside the transformed blocks.
+    use_attention: Whether to use attention at the coarser (deepest) level.
+    num_heads: Number of attentions heads inside the attention block.
+    channels_per_head: Number of channels per head.
+    dtype: Data type.
   """
 
   num_channels: tuple[int, ...]
@@ -520,6 +538,7 @@ class UNet(nn.Module):
         use_attention=self.use_attention,
         num_heads=self.num_heads,
     )(skips[-1], emb, skips, is_training=is_training)
+
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
     h = layers.ConvLayer(
         features=self.out_channels,
