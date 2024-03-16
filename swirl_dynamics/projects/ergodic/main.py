@@ -92,12 +92,23 @@ def main(argv):
   else:
     raise NotImplementedError(f"Unknown experiment: {config.experiment}")
 
+  # Slicing the decay options in the learning rate scheduler.
+  if "decay_rate" in config:
+    decay_rate = config.decay_rate
+  else:
+    decay_rate = 0.5
+
+  if "num_steps_for_decrease_lr" in config:
+    num_steps_for_decrease_lr = config.num_steps_for_decrease_lr
+  else:
+    num_steps_for_decrease_lr = config.train_steps_per_cycle
+
   if config.use_lr_scheduler:
     optimizer = optax.adam(
         learning_rate=optax.exponential_decay(
             init_value=config.lr,
-            transition_steps=config.train_steps_per_cycle,
-            decay_rate=0.5,
+            transition_steps=num_steps_for_decrease_lr,
+            decay_rate=decay_rate,
             staircase=True,
         )
     )
