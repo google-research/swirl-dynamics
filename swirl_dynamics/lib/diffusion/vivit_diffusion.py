@@ -54,6 +54,12 @@ _AXIS_TO_NAME = dict({
     2: 'space',
 })
 
+_AXIS_TO_NAME_3D = dict({
+    1: 'time',
+    2: 'height',
+    3: 'width',
+})
+
 
 class EncoderEmbeddingBlock(nn.Module):
   """Transformer encoder block.
@@ -251,6 +257,125 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
     return x + y
 
 
+class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
+  """Encoder with factorized self attention block.
+
+  Attributes:
+    mlp_dim: Dimension of the mlp on top of attention block.
+    num_heads: Number of heads.
+    temporal_dims: Number of temporal dimensions in the flattened input
+    attention_kernel_initializer: Initializer to use for attention layers.
+    dropout_rate: Dropout rate.
+    attention_dropout_rate: Dropout for attention heads.
+    droplayer_p: Probability of dropping a layer.
+    attention_order: The order to do the attention. In this case the two choices
+      are 'time_height_width' and 'height_width_time'.
+    dtype: the dtype of the computation (default: float32).
+  """
+  mlp_dim: int
+  num_heads: int
+  three_dim_shape: tuple[int, int, int, int, int]
+  attention_kernel_initializer: Initializer
+  dropout_rate: float = 0.1
+  attention_dropout_rate: float = 0.1
+  droplayer_p: Optional[float] = None
+  attention_order: str = 'time_height_width'
+  dtype: jnp.dtype = jnp.float32
+
+  @nn.compact
+  def __call__(self, inputs: Array, emb: Array, *, deterministic: bool):
+    """Applies Encoder1DBlock module."""
+
+    batch_size, num_tokens, emb_dim = inputs.shape
+    _, enc_t, enc_h, enc_w, _ = self.three_dim_shape
+
+    if num_tokens != (enc_t * enc_h * enc_w):
+      raise ValueError('The product of the encoded dimensions for time, height',
+                       f' and width ( {enc_t}, {enc_h}, {enc_w}) respectively,',
+                       ' should match with the number of of tokens ',
+                       f'({num_tokens}) in the input.')
+
+    inputs = jnp.reshape(inputs, self.three_dim_shape)
+
+    self_attention = functools.partial(
+        nn.SelfAttention,
+        num_heads=self.num_heads,
+        kernel_init=self.attention_kernel_initializer,
+        broadcast_dropout=False,
+        dropout_rate=self.attention_dropout_rate,
+        dtype=self.dtype)
+
+    # Order of the Axial Transformer.
+    if self.attention_order == 'time_height_width':
+      attention_axes = (1, 2, 3)
+    elif self.attention_order == 'height_width_time':
+      attention_axes = (2, 3, 1)
+    else:
+      raise ValueError(f'Invalid attention order {self.attention_order}.')
+
+    def _run_attention_on_axis(
+        inputs: Array,
+        emb: Array,
+        axis: int,
+        three_dim_shape: tuple[int, int, int, int, int],
+    ):
+      """Reshapes the input and run attention on the given axis."""
+      # shape: (batch, num_tokens, emb_dim)
+      inputs = reshape_utils.reshape_3d_to_1d_factorized(inputs, axis=axis)
+      x = nn.LayerNorm(
+          dtype=self.dtype, name='LayerNorm_{}'.format(_AXIS_TO_NAME_3D[axis])
+      )(inputs)
+      # Add first FiLM layer, some reshaping is necessary. (see Fig. 3 in [1]).
+      in_shape = x.shape
+      x = unets.AdaptiveScale()(
+          x.reshape(three_dim_shape[0], -1, three_dim_shape[-1]), emb
+      ).reshape(in_shape)
+
+      x = self_attention(
+          name='MultiHeadDotProductAttention_{}'.format(_AXIS_TO_NAME_3D[axis])
+      )(x, deterministic=deterministic)
+      x = nn.Dropout(rate=self.dropout_rate)(x, deterministic)
+
+      # Second FiLM layer (see Fig. 3 in [1]).
+      in_shape = x.shape
+      x = unets.AdaptiveScale()(
+          x.reshape(three_dim_shape[0], -1, three_dim_shape[-1]), emb
+      ).reshape(in_shape)
+
+      x = x + inputs
+
+      # shape: (batch, num_frames, hw, emb_dim)
+      return reshape_utils.reshape_to_3d_factorized(
+          x, axis=axis, three_d_shape=three_dim_shape
+      )
+
+    x = inputs
+    three_dim_shape = inputs.shape
+
+    # shape: (batch, num_frames, hw, emb_dim)
+    for axis in attention_axes:
+      x = _run_attention_on_axis(x, emb, axis, three_dim_shape)
+
+    # MLP block.
+    x = jnp.reshape(x, (batch_size, num_tokens, emb_dim))
+    y = nn.LayerNorm(dtype=self.dtype, name='LayerNorm_mlp')(x)
+    # Add FiLM layer before the attention layer (see Fig. 3 in [1]).
+    y = unets.AdaptiveScale()(y, emb)
+    y = vivit.MlpBlock(
+        mlp_dim=self.mlp_dim,
+        dtype=self.dtype,
+        dropout_rate=self.dropout_rate,
+        activation_fn=nn.gelu,
+        kernel_init=nn.initializers.xavier_uniform(),
+        bias_init=nn.initializers.normal(stddev=1e-6),
+        name='MlpBlock')(
+            y, deterministic=deterministic)
+    # Add FiLM layer after the attention layer (see Fig. 3 in [1]).
+    y = unets.AdaptiveScale()(y, emb)
+
+    return x + y
+
+
 class TransformerEmbeddingBlock(nn.Module):
   """Transformer Block with embeddings.
 
@@ -269,6 +394,8 @@ class TransformerEmbeddingBlock(nn.Module):
       uses independent dropping patterns for each skip-connection.
     positional_embedding: The type of positional embedding to use. Supported
       values are {learned_1d, sinusoidal_1d, sinusoidal_3d, none}.
+    encoded_shape: Three-dimensional shapes of the equivalent tensor. This is
+      required for the three-dimensional axial transformer.
     normalise_output: If True, perform layernorm on the output.
   """
 
@@ -282,6 +409,7 @@ class TransformerEmbeddingBlock(nn.Module):
   stochastic_droplayer_rate: float = 0.0
   dtype: jnp.dtype = jnp.float32
   positional_embedding: str = 'sinusoidal_3d'
+  encoded_shape: Optional[tuple[int, ...]] | None = None
   normalise_output: bool = True
 
   @nn.compact
@@ -324,7 +452,14 @@ class TransformerEmbeddingBlock(nn.Module):
               self.attention_config.get('attention_kernel_init_method',
                                         'xavier')],  # pytype: disable=attribute-error
           temporal_dims=self.temporal_dims)
-    # TODO: implement factorized_dot_product_attention.
+    elif self.attention_config.type == 'factorized_3d_self_attention_block':  # pytype: disable=attribute-error
+      encoder_block = functools.partial(
+          Factorized3DSelfAttentionEmbeddingBlock,
+          attention_order=self.attention_config.attention_order,  # pytype: disable=attribute-error
+          attention_kernel_initializer=_KERNEL_INITIALIZERS[
+              self.attention_config.get('attention_kernel_init_method',  # pytype: disable=attribute-error
+                                        'xavier')],
+          three_dim_shape=self.encoded_shape)
     else:
       raise ValueError(f'Unknown attention type {self.attention_config.type}')  # pytype: disable=attribute-error
 
@@ -447,6 +582,7 @@ class ViViTDiffusion(nn.Module):
         stochastic_droplayer_rate=self.stochastic_droplayer_rate,
         positional_embedding=self.positional_embedding,
         dtype=self.dtype,
+        encoded_shape=(batch_size, enc_t, enc_h, enc_w, emb_dim),
         name='Transformer')(
             x, emb, train=is_training)
 

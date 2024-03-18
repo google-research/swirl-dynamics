@@ -311,7 +311,7 @@ class TemporalEncoder(nn.Module):
 
   Attributes:
     temporal_encoding_config: Dictionary containing some of the options.
-    patches: The size of each Patch for the temporal embedding.
+    patches: The size of each patch for the temporal embedding.
     features_out: Number of features in the output.
     encoded_shapes: Shape in time, height, and width of the encoded inputs.
   """
@@ -468,7 +468,7 @@ class EncoderFactorizedSelfAttentionBlock(nn.Module):
 
 
 class Encoder3DFactorizedSelfAttentionBlock(nn.Module):
-  """Encoder with factorized self attention block.
+  """Encoder with 3D factorized self attention block.
 
   Attributes:
     mlp_dim: Dimension of the mlp on top of attention block.
@@ -478,9 +478,10 @@ class Encoder3DFactorizedSelfAttentionBlock(nn.Module):
     dropout_rate: Dropout rate.
     attention_dropout_rate: Dropout for attention heads.
     droplayer_p: Probability of dropping a layer.
-    attention_order: The order to do the attention. Choice of {time_space,
-      space_time}.
-    dtype: the dtype of the computation (default: float32).
+    attention_order: The order in which the axial attention is performed. You
+      can choose either `time_space` (time_height_width) or `space_time`
+      (height_width_time).
+    dtype: The data type of the computation.
   """
   mlp_dim: int
   num_heads: int
@@ -525,7 +526,16 @@ class Encoder3DFactorizedSelfAttentionBlock(nn.Module):
     def _run_attention_on_axis(
         inputs: Array, axis: int, three_d_shape: tuple[int, ...]
     ) -> Array:
-      """Reshapes the input and run attention on the given axis."""
+      """Reshapes the input and run attention on the given axis.
+
+      Args:
+        inputs: Input tensor in 3d space (i.e. a 5-tensor).
+        axis: Index of the axis in which perform the axial attention.
+        three_d_shape: Original three dimensional shape.
+
+      Returns:
+        An tensor with the same spatial dimensions as the input.
+      """
       inputs = reshape_utils.reshape_3d_to_1d_factorized(inputs, axis=axis)
       x = nn.LayerNorm(
           dtype=self.dtype, name='LayerNorm_{}'.format(_AXIS_TO_NAME_3D[axis])
@@ -688,7 +698,9 @@ class TransformerBlock(nn.Module):
       # TODO: change this one to handle non-square domains.
       height = width = int(np.sqrt(num_tokens // self.temporal_dims))
       if height * width * self.temporal_dims != num_tokens:
-        raise ValueError('Input is assumed to be square for sinusoidal init.')
+        raise ValueError('Input is assumed to be square in the '
+                         'spatial dimensions for sinusoidal init. Instead the '
+                         f'dimensions are {height} and {width}.')
 
       inputs_reshape = inputs.reshape([batch, self.temporal_dims, height, width,
                                        hidden_dim])
@@ -766,7 +778,7 @@ class ViViT(nn.Module):
     dropout_rate: Dropout rate.
     attention_dropout_rate: Dropout for attention heads.
     stochastic_droplayer_rate: Probability of dropping a layer. Linearly
-      increases from 0 to the provided value..
+      increases from 0 to the provided value.
     dtype: JAX data type for the weights and activation functions.
   """
 
@@ -795,10 +807,10 @@ class ViViT(nn.Module):
         hidden_size=self.hidden_size,
     )(x, train=is_training)
 
-    bathc_size, enc_t, enc_h, enc_w, emb_dim = x.shape
+    batch_size, enc_t, enc_h, enc_w, emb_dim = x.shape
     num_tokens = enc_t * enc_h * enc_w
 
-    x = jnp.reshape(x, (bathc_size, num_tokens, emb_dim))
+    x = jnp.reshape(x, (batch_size, num_tokens, emb_dim))
 
     x = TransformerBlock(
         temporal_dims=temporal_dims,
@@ -811,6 +823,8 @@ class ViViT(nn.Module):
         stochastic_droplayer_rate=self.stochastic_droplayer_rate,
         dtype=self.dtype,
         name='Transformer',
+        # TODO: clean this input/remove the temporal dims.
+        encoded_shape=(batch_size, enc_t, enc_h, enc_w, emb_dim)
     )(x, train=is_training)
 
     x = TemporalDecoder(

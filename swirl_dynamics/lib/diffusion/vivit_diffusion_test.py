@@ -24,14 +24,49 @@ from swirl_dynamics.lib.diffusion import vivit_diffusion
 class VivitDiffusionTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      ((16, 32, 32), (2, 2, 2), 1),
-      ((16, 64, 64), (4, 4, 4), 1,),
-      ((32, 64, 64), (8, 8, 8), 2,),
+      (
+          (16, 32, 32),
+          (2, 2, 2),
+          1,
+          3,
+          'factorized_self_attention_block',
+          'time_space',
+      ),
+      (
+          (16, 64, 64),
+          (4, 4, 4),
+          1,
+          3,
+          'factorized_self_attention_block',
+          'space_time',
+      ),
+      (
+          (32, 64, 64),
+          (8, 8, 8),
+          2,
+          6,
+          'factorized_3d_self_attention_block',
+          'time_height_width',
+      ),
+      (
+          (32, 32, 32),
+          (4, 4, 4),
+          2,
+          6,
+          'factorized_3d_self_attention_block',
+          'height_width_time',
+      ),
   )
   def test_vivit_diffusion_output_shape(
-      self, spatial_dims, patch_size, output_features
+      self,
+      spatial_dims,
+      patch_size,
+      output_features,
+      channels,
+      attention_type,
+      attention_order,
   ):
-    batch, channels = 2, 3
+    batch = 2
 
     x = np.random.randn(batch, *spatial_dims, channels)
     sigma = np.linspace(0, 1, batch)
@@ -44,8 +79,8 @@ class VivitDiffusionTest(parameterized.TestCase):
     temporal_encoding_config.kernel_init_method = 'central_frame_initializer'
 
     attention_config = ml_collections.ConfigDict()
-    attention_config.type = 'factorized_self_attention_block'
-    attention_config.attention_order = 'time_space'
+    attention_config.type = attention_type
+    attention_config.attention_order = attention_order
     attention_config.attention_kernel_init_method = 'xavier'
 
     vivit_model = vivit_diffusion.ViViTDiffusion(
