@@ -47,11 +47,14 @@ from swirl_dynamics.lib.diffusion.samplers import (
     exponential_noise_decay,
     uniform_time,
 )
+from swirl_dynamics.lib.diffusion.unets import (
+    AxialMLPInterpConvMerge,
+    InterpConvMerge,
+    UNet,
+)
 from swirl_dynamics.lib.diffusion.unets import PreconditionedDenoiser as PreconditionedDenoiserUNet
-from swirl_dynamics.lib.diffusion.unets import UNet
 from swirl_dynamics.lib.diffusion.unets3d import PreconditionedDenoiser3d as PreconditionedDenoiserUNet3d
 from swirl_dynamics.lib.diffusion.unets3d import UNet3d
 from swirl_dynamics.lib.diffusion.vivit import ViViT
 from swirl_dynamics.lib.diffusion.vivit_diffusion import PreconditionedDenoiser as PreconditionedDenoiserViViT
 from swirl_dynamics.lib.diffusion.vivit_diffusion import ViViTDiffusion
-

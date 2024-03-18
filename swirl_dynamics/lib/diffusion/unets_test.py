@@ -123,14 +123,46 @@ class NetworksTest(parameterized.TestCase):
     )
     # Check shape dict so that err message is easier to read when things break.
     shape_dict = jax.tree_map(jnp.shape, variables["params"])
-    self.assertIn("MergeChannelCond_0", shape_dict)
+    self.assertIn("InterpConvMerge_0", shape_dict)
     # First condition should be reshaped. Second one (correct shape) shoud not.
-    self.assertIn(
-        "conv2d_embed_channel:cond1", shape_dict["MergeChannelCond_0"]
-    )
+    self.assertIn("conv2d_embed_channel:cond1", shape_dict["InterpConvMerge_0"])
     self.assertNotIn(
-        "conv2d_embed_channel:cond2", shape_dict["MergeChannelCond_0"]
+        "conv2d_embed_channel:cond2", shape_dict["InterpConvMerge_0"]
     )
+
+    out = jax.jit(functools.partial(model.apply, is_training=True))(
+        variables, x, sigma, cond
+    )
+    self.assertEqual(out.shape, x.shape)
+
+  def test_preconditioned_merging_functions(self):
+    x_dims = (1, 16, 8, 3)
+    c_dims = (1, 8, 4, 6)
+    x = jax.random.normal(jax.random.PRNGKey(42), x_dims)
+    cond = {
+        "channel:cond1": jax.random.normal(jax.random.PRNGKey(42), c_dims),
+    }
+    sigma = jnp.array(0.5)
+    model = diffusion.unets.PreconditionedDenoiser(
+        out_channels=x_dims[-1],
+        num_channels=(4, 8, 12),
+        downsample_ratio=(2, 2, 2),
+        num_blocks=2,
+        num_heads=4,
+        sigma_data=1.0,
+        use_position_encoding=False,
+        cond_embed_dim=32,
+        cond_resize_method="cubic",
+        cond_merging_fn=diffusion.unets.AxialMLPInterpConvMerge,
+    )
+    variables = model.init(
+        jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
+    )
+    # Check shape dict so that err message is easier to read when things break.
+    shape_dict = jax.tree_map(jnp.shape, variables["params"])
+    self.assertIn("AxialMLPInterpConvMerge_0", shape_dict)
+    self.assertIn("Axial2DMLP_0", shape_dict["AxialMLPInterpConvMerge_0"])
+    self.assertIn("InterpConvMerge_0", shape_dict["AxialMLPInterpConvMerge_0"])
 
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma, cond

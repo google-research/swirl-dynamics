@@ -409,7 +409,7 @@ class ViViTDiffusion(nn.Module):
     batch_size_input, num_frames, height, width, _ = x.shape
 
     cond = {} if cond is None else cond
-    x = unets.MergeChannelCond(
+    x = unets.InterpConvMerge(
         embed_dim=self.cond_embed_dim,
         resize_method=self.cond_resize_method,
         kernel_size=self.cond_kernel_size,

@@ -231,13 +231,47 @@ def position_embedding(ndim: int, **kwargs) -> nn.Module:
     raise ValueError("Only 1D or 2D position embeddings are supported.")
 
 
+class Axial2DMLP(nn.Module):
+  """Applies axial spatial perceptrons to an input tensor of 2D fields.
+
+  The inputs are assumed to have the shape (..., *spatial_dims, channels),
+  with two spatial dimensions.
+
+  Attributes:
+    out_dims: A tuple containing the output spatial dimensions.
+    act_fn: The activation function.
+  """
+
+  out_dims: tuple[int, int]
+  act_fn: Callable[[Array], Array] = nn.swish
+
+  @nn.compact
+  def __call__(self, x: Array) -> Array:
+
+    num_channels = x.shape[-1]
+
+    for i, out_dim in enumerate(self.out_dims):
+      spatial_dim = -3 + i
+      x = jnp.swapaxes(x, spatial_dim, -1)
+      x = nn.Dense(features=out_dim)(x)
+      x = nn.swish(x)
+      x = jnp.swapaxes(x, -1, spatial_dim)
+
+    x = nn.Dense(features=num_channels)(x)
+    return x
+
+
 class MergeChannelCond(nn.Module):
-  """Merges conditional inputs along the channel dimension."""
+  """Base class for merging conditional inputs along the channel dimension."""
 
   embed_dim: int
   kernel_size: Sequence[int]
   resize_method: str = "cubic"
   padding: str = "CIRCULAR"
+
+
+class InterpConvMerge(MergeChannelCond):
+  """Merges conditional inputs through interpolation and convolutions."""
 
   @nn.compact
   def __call__(self, x: Array, cond: dict[str, Array]):
@@ -282,6 +316,42 @@ class MergeChannelCond(nn.Module):
 
       x = jnp.concatenate([x, value], axis=-1)
     return x
+
+
+class AxialMLPInterpConvMerge(MergeChannelCond):
+  """Merges conditional inputs through MLPs, interpolation and convolutions."""
+
+  @nn.compact
+  def __call__(self, x: Array, cond: dict[str, Array]):
+    """Transforms and merges conditional inputs along the channel dimension.
+
+    Relevant fields in the conditional input dictionary are first passed through
+    axial perceptrons, then resized, and finally concatenated with the main
+    input along their last axes.
+
+    Args:
+      x: The main model input.
+      cond: A dictionary of conditional inputs. Those with keys that start with
+        "channel:" are processed here while all others are omitted.
+
+    Returns:
+      Model input merged with channel conditions.
+    """
+
+    out_spatial_shape = x.shape[-3:-1]
+    proc_cond = {}
+    for key, value in cond.items():
+      if value.shape[-3:-1] == out_spatial_shape:
+        continue
+      proc_cond[key] = Axial2DMLP(out_dims=value.shape[-3:-1])(value)
+
+    merge_channel_cond = InterpConvMerge(
+        embed_dim=self.embed_dim,
+        kernel_size=self.kernel_size,
+        resize_method=self.resize_method,
+        padding=self.padding,
+    )
+    return merge_channel_cond(x, proc_cond)
 
 
 class DStack(nn.Module):
@@ -470,6 +540,7 @@ class UNet(nn.Module):
   num_heads: int = 8
   cond_resize_method: str = "bilinear"
   cond_embed_dim: int = 128
+  cond_merging_fn: type[MergeChannelCond] = InterpConvMerge
 
   @nn.compact
   def __call__(
@@ -514,7 +585,7 @@ class UNet(nn.Module):
 
     kernel_dim = x.ndim - 2
     cond = {} if cond is None else cond
-    x = MergeChannelCond(
+    x = self.cond_merging_fn(
         embed_dim=self.cond_embed_dim,
         resize_method=self.cond_resize_method,
         kernel_size=(3,) * kernel_dim,
