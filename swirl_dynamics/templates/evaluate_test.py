@@ -92,6 +92,51 @@ class TensorAverageTest(parameterized.TestCase):
     np.testing.assert_allclose(metric_compute, expected, atol=1e-5)
 
 
+@parameterized.parameters(
+    ((1, 2),),
+    (None,),
+    (3,),
+)
+class TensorRatioTest(parameterized.TestCase):
+
+  def test_from_model_output(self, agg_axis):
+    test_shape = (1, 2, 3, 4, 5)
+    metric_cls = evaluate.TensorRatio(agg_axis).from_outputs("abc", "efg")
+    rng = np.random.default_rng(123)
+    test_values = rng.random(test_shape)
+    expected = 2 * np.ones_like(np.mean(test_values, axis=agg_axis))
+    metric = metric_cls.from_model_output(abc=2 * test_values, efg=test_values)
+    metric_compute = metric.compute()
+    np.testing.assert_allclose(metric_compute, expected, atol=1e-4)
+
+  def test_merge(self, agg_axis):
+    test_shape = (1, 2, 3, 4, 5)
+    metric_cls = evaluate.TensorRatio(agg_axis).from_outputs("abc", "efg")
+    metric = metric_cls.empty()
+    rng = np.random.default_rng(321)
+    test_values1 = rng.random(test_shape)
+    test_values2 = rng.random(test_shape)
+    metric = metric.merge(
+        metric_cls.from_model_output(abc=test_values1, efg=test_values2)
+    )
+    test_values3 = rng.random(test_shape)
+    test_values4 = rng.random(test_shape)
+    metric = metric.merge(
+        metric_cls.from_model_output(abc=test_values3, efg=test_values4)
+    )
+    metric_compute = metric.compute()
+    # The expected result is the ratio of the sums of numerators and
+    # denominators, which does not commute with the sum of ratios.
+    expected_numerator = np.add(
+        np.sum(test_values1, axis=agg_axis), np.sum(test_values3, axis=agg_axis)
+    )
+    expected_denominator = np.add(
+        np.sum(test_values2, axis=agg_axis), np.sum(test_values4, axis=agg_axis)
+    )
+    expected = np.divide(expected_numerator, expected_denominator)
+    np.testing.assert_allclose(metric_compute, expected, atol=1e-5)
+
+
 class CollectingResultsTest(parameterized.TestCase):
 
   def test_collect_batches_and_compute(self):

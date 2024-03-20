@@ -17,7 +17,7 @@
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 import functools
 import time
-from typing import Any, Protocol
+from typing import Any, Protocol, Self
 
 from absl import logging
 from clu import metric_writers
@@ -38,6 +38,27 @@ filesys = epath.backend.tf_backend
 InferenceModel = Any
 BatchType = Any
 PredType = Any
+
+
+# Forked from clu.metrics
+def _broadcast_masks(values: jax.Array, mask: jax.Array | None):
+  """Checks and broadcasts mask for aggregating values."""
+  if values.ndim == 0:
+    values = values[None]
+  if mask is None:
+    mask = jnp.ones_like(values)
+  # Leading dimensions of mask and values must match.
+  if mask.shape[0] != values.shape[0]:
+    raise ValueError(
+        "Argument `mask` must have the same leading dimension as `values`. "
+        f"Received mask of dimension {mask.shape} "
+        f"and values of dimension {values.shape}."
+    )
+  # Broadcast mask to the same number of dimensions as values.
+  if mask.ndim < values.ndim:
+    mask = jnp.expand_dims(mask, axis=tuple(np.arange(mask.ndim, values.ndim)))
+  mask = mask.astype(bool)
+  return values, mask
 
 
 class Benchmark(Protocol):
@@ -127,6 +148,118 @@ def TensorAverage(  # pylint: disable=invalid-name
       return jnp.sqrt(res) if rms else res
 
   return _TensorAverage
+
+
+def TensorRatio(  # pylint: disable=invalid-name
+    axis: int | tuple[int, ...] | None = None
+):
+  """Computes the ratio between two aggregated metrics.
+
+  The ratio is performed after full aggregation of numerator and denominator.
+  For numerator and denominator, only entries on the selected axes are
+  aggregated, while the remaining axes stay untouched (which means their
+  dimensions will be part of the final result obtained after the aggregating
+  `.compute()` call).
+
+  Args:
+    axis: The axis or axes along which numerator and denominator are aggregated.
+      If `None`, average is taken across all axes.
+
+  Returns:
+    The metric class.
+  """
+
+  @flax.struct.dataclass
+  class _TensorRatio(clu_metrics.Metric):
+    """Ratio of metrics class."""
+
+    numerator: jax.Array
+    denominator: jax.Array
+
+    @classmethod
+    def from_model_output(
+        cls,
+        *,
+        numerator: jax.Array,
+        denominator: jax.Array,
+        mask: jax.Array | None = None,
+        **_,
+    ) -> Self:
+      """Construct a metric instance given model output values."""
+      numerator, mask = _broadcast_masks(numerator, mask)
+      return cls(
+          numerator=jnp.where(mask, numerator, jnp.zeros_like(numerator)).sum(
+              axis=axis
+          ),
+          denominator=jnp.where(
+              mask, denominator, jnp.zeros_like(denominator)
+          ).sum(axis=axis),
+      )
+
+    def merge(self, other):
+      """Merges with another metric instance of the same type."""
+      return type(self)(
+          numerator=self.numerator + other.numerator,
+          denominator=self.denominator + other.denominator,
+      )
+
+    def compute(self) -> jax.Array:
+      ratio = self.numerator / self.denominator
+      return ratio
+
+    @classmethod
+    def empty(cls) -> Self:
+      return cls(
+          numerator=jnp.array(0, jnp.float32),
+          denominator=jnp.array(0, jnp.float32),
+      )
+
+    @classmethod
+    def from_outputs(cls, numerator_name: str, denominator_name: str):
+      """Calls `cls.from_model_output` with model output names.
+
+      Synopsis:
+
+        @flax.struct.dataclass
+        class Metrics(Collection):
+          loss: TensorRatio(axis=None).from_outputs("foo", "bar")
+
+      Args:
+        numerator_name: Name of the model output that should be passed as the
+          `numerator` keyword argument to `cls.from_model_output()`.
+        denominator_name: Name of the model output that should be passed as the
+          `denominator` keyword argument to `cls.from_model_output()`.
+
+      Returns:
+        A `Metric` derived from `cls` that calls `.from_model_output()` with the
+        the specified numerator and denominator arguments.
+      """
+
+      @flax.struct.dataclass
+      class FromOutputs(cls):
+        """Wrapper Metric class that collects numerator and denominator."""
+
+        @classmethod
+        def from_model_output(cls, **model_output):
+          numerator = jnp.array(model_output[numerator_name])
+          denominator = jnp.array(model_output[denominator_name])
+          mask = model_output.get("mask")
+          if mask is not None and (numerator.shape or [0])[0] != mask.shape[0]:
+            logging.warning(
+                "Ignoring mask for model output '%s' because of shape mismatch:"
+                " output.shape=%s vs. mask.shape=%s",
+                numerator_name,
+                numerator.shape,
+                mask.shape,
+            )
+            mask = None
+          return super().from_model_output(
+              numerator=numerator, denominator=denominator, mask=mask
+          )
+
+      return FromOutputs
+
+  return _TensorRatio
 
 
 class CollectingResults:
