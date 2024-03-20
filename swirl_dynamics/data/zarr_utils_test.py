@@ -81,6 +81,67 @@ class ZarrUtilsTest(parameterized.TestCase):
 
     self.assertTrue(os.path.exists(os.path.join(outdir, "test_metrics.zarr")))
 
+  def test_aggregated_metrics_to_ds(self):
+
+    shape = (10, 5, 3)
+    data = {"foo": np.ones(shape), "bar": np.ones(shape)}
+    coord_dict = {
+        "time": pd.date_range("2012-01-01", "2012-01-08"),
+        "lon": range(shape[0]),
+        "lat": range(shape[1]),
+        "field": ["var1", "var2", "var3"],
+    }
+    coords = xr.Dataset(coords=coord_dict).coords
+    ds = zarr_utils.aggregated_metrics_to_ds(data, coords)
+
+    self.assertIsInstance(ds, xr.Dataset)
+    self.assertIn("foo", ds)
+    self.assertIn("bar", ds)
+    self.assertIn("field", ds.dims)
+    self.assertEqual(ds.dims["field"], 3)
+    self.assertEqual(ds.dims["lon"], 10)
+
+  def test_aggregated_metrics_to_ds_ambiguous_shape(self):
+
+    shape = (5, 5, 3)
+    data = {"foo": np.ones(shape), "bar": np.ones(shape)}
+    coord_dict = {
+        "time": pd.date_range("2012-01-01", "2012-01-08"),
+        "lon": range(shape[0]),
+        "lat": range(shape[1]),
+        "field": ["var1", "var2", "var3"],
+    }
+    coords = xr.Dataset(coords=coord_dict).coords
+    ds = zarr_utils.aggregated_metrics_to_ds(data, coords)
+    # Returned coordinates are generic when ambiguous
+    self.assertIsInstance(ds, xr.Dataset)
+    self.assertIn("foo", ds)
+    self.assertIn("bar", ds)
+    self.assertIn("dim_0", ds.dims)
+    self.assertEqual(ds.dims["dim_2"], 3)
+    self.assertEqual(ds.dims["dim_1"], 5)
+
+  def test_aggregated_metrics_to_zarr(self):
+
+    shape = (10, 5, 3)
+    data = {"foo": np.ones(shape), "bar": np.ones(shape)}
+    coord_dict = {
+        "time": pd.date_range("2012-01-01", "2012-01-08"),
+        "lon": range(shape[0]),
+        "lat": range(shape[1]),
+        "field": ["var1", "var2", "var3"],
+    }
+    coords = xr.Dataset(coords=coord_dict).coords
+    outdir = self.create_tempdir()
+    zarr_utils.aggregated_metrics_to_zarr(
+        data,
+        out_dir=outdir,
+        basename="test_metrics",
+        coords=coords,
+    )
+
+    self.assertTrue(os.path.exists(os.path.join(outdir, "test_metrics.zarr")))
+
   def test_write_to_file(self):
     foo = np.ones((3,))
     outdir = self.create_tempdir()
