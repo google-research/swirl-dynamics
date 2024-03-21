@@ -290,7 +290,7 @@ class InterpConvMerge(MergeChannelCond):
     """
 
     out_spatial_shape = x.shape[-3:-1]
-    for key, value in cond.items():
+    for key, value in sorted(cond.items()):
       if key.startswith("channel:"):
         if value.ndim != x.ndim:
           raise ValueError(
@@ -340,7 +340,7 @@ class AxialMLPInterpConvMerge(MergeChannelCond):
 
     out_spatial_shape = x.shape[-3:-1]
     proc_cond = {}
-    for key, value in cond.items():
+    for key, value in sorted(cond.items()):
       if value.shape[-3:-1] == out_spatial_shape:
         continue
       proc_cond[key] = Axial2DMLP(out_dims=value.shape[-3:-1])(value)
