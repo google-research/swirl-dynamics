@@ -17,7 +17,7 @@
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 import functools
 import time
-from typing import Any, Protocol, Self
+from typing import Any, Literal, Protocol, Self
 
 from absl import logging
 from clu import metric_writers
@@ -32,6 +32,8 @@ import jax.numpy as jnp
 import numpy as np
 from orbax import checkpoint
 from swirl_dynamics.data import hdf5_utils
+from swirl_dynamics.data import zarr_utils
+import xarray as xr
 
 filesys = epath.backend.tf_backend
 
@@ -465,6 +467,8 @@ def run(
     enable_checkpoints: bool = True,
     data_checkpointer: checkpoint.Checkpointer = PYGRAIN_CHECKPOINTER,
     checkpoint_options: checkpoint.CheckpointManagerOptions | None = None,
+    results_format: Literal["hdf5", "zarr"] = "hdf5",
+    datacoords: xr.core.coordinates.DatasetCoordinates | None = None,
 ) -> None:
   """Runs a benchmark evaluation.
 
@@ -501,6 +505,9 @@ def run(
       iterator.
     checkpoint_options: The orbax checkpoint options (see
       `orbax.checkpoint.CheckpointManagerOptions`).
+    results_format: Writing format for results. It can be `"zarr"` or `"hdf5"`.
+    datacoords: The coordinates of the dataset being evaluated, used to annotate
+      collected results.
   """
   # **** Initialization ****
   workdir = epath.Path(workdir)
@@ -590,12 +597,39 @@ def run(
 
       # dump collected
       if dump_period and (ran_out or cur_step % dump_period == 0):
-        batch_path = results_subfolder / f"batch_{cur_step}.hdf5"
-        if not filesys.exists(batch_path):
-          hdf5_utils.save_array_dict(batch_path, collected.compute())  # pylint: disable=undefined-variable
+        if results_format == "hdf5":
+          batch_path = results_subfolder / f"batch_{cur_step}.hdf5"
+          if not filesys.exists(batch_path):
+            hdf5_utils.save_array_dict(batch_path, collected.compute())  # pylint: disable=undefined-variable
+        elif results_format == "zarr":
+          for key, value in collected.compute().items():  # pylint: disable=undefined-variable
+            zarr_utils.collected_metrics_to_zarr(
+                value,
+                out_dir=results_subfolder,
+                basename=f"{key}_collected_metrics",
+                append_dim="time",
+                coords=datacoords,
+                append_slice=slice(
+                    cur_step - num_aggregation_batches, cur_step
+                ),
+            )
+        else:
+          raise ValueError(f"Unknown results format: {results_format}")
 
-  # save final metrics to hdf5
-  agg_metric_path = results_subfolder / "final_aggregated_metrics.hdf5"
-  hdf5_utils.save_array_dict(
-      agg_metric_path, evaluator.state.compute_aggregated_metrics()
-  )
+  if results_format == "hdf5":
+    # save final metrics to hdf5
+    agg_metric_path = results_subfolder / "final_aggregated_metrics.hdf5"
+    hdf5_utils.save_array_dict(
+        agg_metric_path, evaluator.state.compute_aggregated_metrics()
+    )
+  elif results_format == "zarr":
+    # save final metrics to zarr
+    for key, value in evaluator.state.compute_aggregated_metrics().items():
+      zarr_utils.aggregated_metrics_to_zarr(
+          value,
+          out_dir=results_subfolder,
+          basename=f"{key}_aggregated_metrics",
+          coords=datacoords,
+      )
+  else:
+    raise ValueError(f"Unknown results format: {results_format}")

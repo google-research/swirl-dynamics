@@ -28,6 +28,7 @@ import numpy as np
 from orbax import checkpoint
 from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.templates import evaluate
+import xarray as xr
 
 FLAGS = flags.FLAGS
 
@@ -264,6 +265,30 @@ class EvaluateRunTest(parameterized.TestCase):
       )
       self.assertEqual(final_metrics[m]["mean"], 1.0)
 
+  @parameterized.named_parameters(("runs_out", 10), ("doesnt_run_out", 200))
+  def test_aggregated_metrics_to_zarr(self, iterator_batches):
+    work_dir = self.create_tempdir().full_path
+    iterator = itertools.repeat(np.ones(self.collect_shape), iterator_batches)
+    evaluate.run(
+        evaluator=self.evaluator,
+        dataloader=iterator,
+        workdir=work_dir,
+        num_aggregation_batches=10,
+        max_eval_batches=100,
+        enable_checkpoints=False,
+        results_format="zarr",
+    )
+    final_metrics_path = (
+        epath.Path(work_dir) / "results/model0_aggregated_metrics.zarr"
+    )
+    self.assertTrue(os.path.exists(final_metrics_path))
+
+    final_metrics = xr.open_zarr(final_metrics_path)
+    np.testing.assert_allclose(
+        final_metrics["tensor_mean"], np.ones(self.agg_shape[:-1])
+    )
+    self.assertEqual(final_metrics["mean"], 1.0)
+
   @parameterized.parameters((1,), (2,), (3,))
   def test_dump_collected_results(self, dump_every_n_groups):
     work_dir = self.create_tempdir().full_path
@@ -292,6 +317,33 @@ class EvaluateRunTest(parameterized.TestCase):
           first_batch[m]["collect0"],
           np.ones((num_agg_batches,) + self.collect_shape[1:]),
       )
+
+  @parameterized.parameters((1,), (2,))
+  def test_dump_collected_results_to_zarr(self, dump_every_n_groups):
+    work_dir = self.create_tempdir().full_path
+    max_batches = 100
+    num_agg_batches = 10
+    evaluate.run(
+        evaluator=self.evaluator,
+        dataloader=itertools.repeat(np.ones(self.collect_shape)),
+        workdir=work_dir,
+        dump_collected_every_n_groups=dump_every_n_groups,
+        num_aggregation_batches=num_agg_batches,
+        max_eval_batches=max_batches,
+        enable_checkpoints=False,
+        results_format="zarr",
+    )
+    # collected plus final aggregated per model
+    self.assertLen(os.listdir(epath.Path(work_dir) / "results"), 4)
+
+    collected_ds = xr.open_zarr(
+        epath.Path(work_dir) / "results/model0_collected_metrics.zarr"
+    )
+    # Collected zarr contains all dumped batches
+    np.testing.assert_allclose(
+        collected_ds["collect0"],
+        np.ones((max_batches // dump_every_n_groups,) + self.collect_shape[1:]),
+    )
 
   @parameterized.parameters((10,), (20,))
   def test_save_checkpoint(self, period):
