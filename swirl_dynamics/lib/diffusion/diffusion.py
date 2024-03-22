@@ -148,6 +148,20 @@ class Diffusion:
     return cls(scale=jnp.ones_like, sigma=scaled_sigma)
 
 
+def create_variance_preserving_scheme(
+    sigma: InvertibleSchedule, data_std: float = 1.0
+) -> Diffusion:
+  """Alias for `Diffusion.create_variance_preserving`."""
+  return Diffusion.create_variance_preserving(sigma, data_std)
+
+
+def create_variance_exploding_scheme(
+    sigma: InvertibleSchedule, data_std: float = 1.0
+) -> Diffusion:
+  """Alias for `Diffusion.create_variance_exploding`."""
+  return Diffusion.create_variance_exploding(sigma, data_std)
+
+
 def _linear_rescale(
     in_min: float, in_max: float, out_min: float, out_max: float
 ) -> InvertibleSchedule:
@@ -318,9 +332,7 @@ def log_uniform_sampling(
 ) -> NoiseLevelSampling:
   """Samples noise whose natural log follows a uniform distribution."""
 
-  def _noise_sampling(
-      rng: jax.Array, shape: tuple[int, ...]
-  ) -> Array:
+  def _noise_sampling(rng: jax.Array, shape: tuple[int, ...]) -> Array:
     samples = _uniform_samples(rng, shape, uniform_grid)
     log_min, log_max = jnp.log(clip_min), jnp.log(scheme.sigma_max)
     samples = (log_max - log_min) * samples + log_min
@@ -334,9 +346,7 @@ def time_uniform_sampling(
 ) -> NoiseLevelSampling:
   """Samples noise from a uniform distribution in t."""
 
-  def _noise_sampling(
-      rng: jax.Array, shape: tuple[int, ...]
-  ) -> Array:
+  def _noise_sampling(rng: jax.Array, shape: tuple[int, ...]) -> Array:
     samples = _uniform_samples(rng, shape, uniform_grid)
     min_t = scheme.sigma.inverse(clip_min)
     samples = (MAX_DIFFUSION_TIME - min_t) * samples + min_t

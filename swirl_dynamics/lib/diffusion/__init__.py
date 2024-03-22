@@ -22,6 +22,8 @@ from swirl_dynamics.lib.diffusion.diffusion import (
     InvertibleSchedule,
     NoiseLevelSampling,
     NoiseLossWeighting,
+    create_variance_exploding_scheme,
+    create_variance_preserving_scheme,
     edm_weighting,
     exponential_noise_schedule,
     inverse_squared_weighting,
