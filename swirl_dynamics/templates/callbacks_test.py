@@ -16,6 +16,7 @@ import io
 import os
 
 from absl import flags
+from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
 from clu import metric_writers
@@ -142,7 +143,7 @@ class TqdmProgressBarTest(absltest.TestCase):
     )
     trainer = mock.Mock(spec=trainers.BaseTrainer)
     trainer.train_state = _mock_train_state(0)
-    with absltest.mock.patch("sys.stderr", io.StringIO()) as stderr:
+    with mock.patch("sys.stderr", io.StringIO()) as stderr:
       callback.on_train_begin(trainer)
       with self.subTest("FirstTrainMonitorDisplay"):
         callback.on_train_batches_end(trainer, {"train_loss": jnp.array(0.1)})
@@ -170,6 +171,26 @@ class TqdmProgressBarTest(absltest.TestCase):
         self.assertRegex(
             stderr.getvalue(), f"{total_train_steps}/{total_train_steps}"
         )
+
+
+class ParameterOverviewTest(absltest.TestCase):
+
+  def test_logs_parameter_overview(self):
+    work_dir = self.create_tempdir().full_path
+    callback = callbacks.ParameterOverview()
+    callback.metric_writer = metric_writers.create_default_writer(work_dir)
+    trainer = mock.Mock(spec=trainers.BaseTrainer)
+    trainer.train_state = train_states.BasicTrainState(
+        step=jnp.array(0),
+        params={"bias": jnp.ones((10,)), "weights": jnp.ones((10, 10))},
+        opt_state={},
+    )
+    buffer = io.StringIO()
+    logging.use_python_logging()
+    logging.get_absl_handler().python_handler.stream = buffer
+    callback.on_train_begin(trainer)
+    self.assertRegex(buffer.getvalue(), r"bias.*(10,)")
+    self.assertRegex(buffer.getvalue(), r"weights.*(10, 10)")
 
 
 if __name__ == "__main__":
