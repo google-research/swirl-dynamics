@@ -95,8 +95,7 @@ def plot_trajectories(
     ax[1, 1].set_xlabel("")
     ax[1, 1].set_ylim([0, t_max])
     ax[1, 1].grid(False)
-    # fig.colorbar(im, ax=ax[0, -1], pad=0.1, extend="both")
-    # fig.colorbar(err, ax=ax[1, -1], pad=0.1, extend="max")
+
   return {"sample_traj": fig}
 
 
@@ -105,7 +104,7 @@ class KS1DPlotFigures(stable_ar.PlotFigures):
 
   def __init__(self, cos_sim_plot_steps: int = 500):
     super().__init__()
-    # Correlation breaks down early, do not need all the steps
+    # Correlation breaks down early, do not need all the steps.
     self.cos_sim_plot_steps = cos_sim_plot_steps
 
   def on_eval_batches_end(

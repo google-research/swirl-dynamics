@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Modeling utilities."""
+"""Modeling utilities.
+
+References:
+
+[1] Li, Zongyi, et al. "Markov neural operators for learning chaotic systems."
+  arXiv preprint arXiv:2106.06898 (2021): 25.
+"""
 
 from collections.abc import Callable
 from typing import Any
@@ -140,14 +146,14 @@ def create_loader_from_hdf5_reshaped(
 
   source = tfgrain.TfInMemoryDataSource.from_dataset(
       tf.data.Dataset.from_tensor_slices({
-          "u": snapshots,  # states
-          "t": tspan,  # time stamps
+          "u": snapshots,  # States
+          "t": tspan,  # Time stamps
       })
   )
   # This transform randomly takes a random section from the trajectory with the
-  # desired length and stride
+  # desired length and stride.
 
-  # Grain fine-tuning.
+  # Grain fine-tuning for increasing feeding speed.
   tfgrain.config.update(
       "tf_lookup_num_parallel_calls", tf_lookup_num_parallel_calls
   )
@@ -161,7 +167,7 @@ def create_loader_from_hdf5_reshaped(
       sampler=tfgrain.TfDefaultIndexSampler(
           num_records=len(source),
           seed=seed,
-          num_epochs=None,  # loads indefnitely
+          num_epochs=None,  # Loads indefinitely.
           shuffle=True,
           shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
       ),
@@ -230,7 +236,6 @@ def create_loader_from_hdf5(
           f"Number of dimensions {snapshots.ndim} not "
           "supported for spatial downsampling."
       )
-  # grid_points = np.tile(grid, (len(snapshots),) + grid.ndim * (1,))
   if normalize:
     if normalize_stats is not None:
       mean = normalize_stats["mean"]
@@ -253,8 +258,8 @@ def create_loader_from_hdf5(
       })
   )
   # This transform randomly takes a random section from the trajectory with the
-  # desired length and stride
-  if num_time_steps == -1:  # Use full (downsampled) trajectories
+  # desired length and stride.
+  if num_time_steps == -1:  # Use full (downsampled) trajectories.
     num_time_steps = tspan.shape[1] // time_stride
   section_transform = transforms.RandomSection(
       feature_names=("u", "t"),
@@ -270,14 +275,14 @@ def create_loader_from_hdf5(
   tfgrain.config.update("tf_interleaved_shuffle", tf_interleaved_shuffle)
   tfgrain.config.update("tf_lookup_batch_size", tf_lookup_batch_size)
 
-  if batch_size == -1:  # Use full dataset as batch
+  if batch_size == -1:  # Use full dataset as batch.
     batch_size = len(source)
   loader = tfgrain.TfDataLoader(
       source=source,
       sampler=tfgrain.TfDefaultIndexSampler(
           num_records=len(source),
           seed=seed,
-          num_epochs=None,  # loads indefnitely
+          num_epochs=None,  # Loads indefinitely.
           shuffle=True,
           shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
       ),
@@ -321,7 +326,7 @@ def create_loader_from_tfds(
       shuffle of the data.
 
   Returns:
-    loader, stats (optional): tuple of dataloader and dictionary containing
+    loader, stats (optional): Tuple of dataloader and dictionary containing
                               mean and std stats (if normalize=True, else dict
                               contains NoneType values).
   """
@@ -333,7 +338,7 @@ def create_loader_from_tfds(
   ), f"num_time_steps must be > 0, instead of {num_time_steps}"
 
   # This transform randomly takes a random section from the trajectory with the
-  # desired length and stride
+  # desired length and stride.
   section_transform = transforms.RandomSection(
       feature_names=("u", "t"),
       num_steps=num_time_steps,
@@ -369,7 +374,7 @@ def create_loader_from_tfds(
 def sobolev_norm(
     u: Array, s: int = 1, dim: int = 2, length: float = 1.0
 ) -> Array:
-  r"""Sobolev Norm computed via the Plancherel equality.
+  r"""Sobolev Norm computed via the Plancherel equality following [1].
 
   Arguments:
     u: Input to compute the norm (n_batch, n_frames, n_x, n_y, d).
@@ -383,7 +388,7 @@ def sobolev_norm(
   We compute the Sobolov norm using the Fourier Transform following:
   \| x \|_{H^s}^2 = \int (\sum_{i=0}^s \|k\|^2i)) | \hat{u}(k) |^2 dk.
 
-  In particular we assemble the multipliers, and we approximate the quadrature
+  In particular, we assemble the multipliers, and we approximate the quadrature
   using a trapezoidal rule.
   """
   n_x = u.shape[-2]
@@ -567,7 +572,8 @@ def plot_cos_sims(dt: Array, traj_length: int, trajs: Array, pred_trajs: Array):
   plot_time = jnp.arange(traj_length) * dt
   t_max = plot_time.max()
   fig, ax = plt.subplots(1, 1, figsize=(7, 4), tight_layout=True)
-  # Plot 0.9, 0.8 threshold lines
+
+  # Plot 0.9, 0.8 threshold lines.
   ax.plot(
       plot_time,
       jnp.ones(traj_length) * 0.9,
@@ -582,7 +588,8 @@ def plot_cos_sims(dt: Array, traj_length: int, trajs: Array, pred_trajs: Array):
       linestyle="dashed",
       label="0.8 threshold",
   )
-  # Plot correlation lines
+
+  # Plot correlation lines.
   cosine_sims = jax.vmap(state_cos_sim, in_axes=(1, 1))(
       trajs[:, :traj_length, :], pred_trajs[:, :traj_length, :]
   )

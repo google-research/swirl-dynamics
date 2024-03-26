@@ -16,6 +16,21 @@
 
 enum.Enum classes that define the various experiment choices, such as system,
 learned model integrator, neural architecture, etc.
+
+References:
+
+[1] Li, Zongyi, et al. "Fourier Neural Operator for Parametric Partial
+  Differential Equations." International Conference on Learning
+  Representations. 2020.
+[2] Stachenfeld, Kimberly, et al. "Learned Coarse Models for Efficient
+  Turbulence Simulation." arXiv e-prints (2021): arXiv-2112.
+[3] Ronneberger, Olaf, Philipp Fischer, and Thomas Brox. "U-net: Convolutional
+  networks for biomedical image segmentation." Medical image computing and
+  computer-assisted intervention-MICCAI 2015: 18th international conference,
+  Munich, Germany, October 5-9, 2015, proceedings, part III 18. Springer
+  International Publishing, 2015.
+[4] Kochkov, Dmitrii, et al. "Neural general circulation models." arXiv preprint
+  arXiv:2311.07222 (2023).
 """
 
 from collections.abc import Callable
@@ -42,9 +57,9 @@ RolloutWeightingFn = Callable[[int], Array]
 class Experiment(enum.Enum):
   """Experiment choices.
 
-  1. Lorenz 63 system (lorenz63)
-  2. Kuramoto-Sivashinsky system, on a 1D grid (ks_1d)
-  3. Navier-Stokes with Kolmogorov forcing, on a 2D grid (ns_2d)
+  1. Lorenz 63 system (lorenz63).
+  2. Kuramoto-Sivashinsky system, on a 1D grid (ks_1d).
+  3. Navier-Stokes with Kolmogorov forcing, on a 2D grid (ns_2d).
   """
 
   L63 = "lorenz63"
@@ -53,7 +68,7 @@ class Experiment(enum.Enum):
 
 
 class Integrator(enum.Enum):
-  """Integrator choices."""
+  """Different ODE integrator choices."""
 
   EULER = "ExplicitEuler"
   RK4 = "RungeKutta4"
@@ -69,7 +84,7 @@ class Integrator(enum.Enum):
       ScanOdeSolver | MultiStepScanOdeSolver
     """
     # TODO: Profile if the moveaxis call required here introduces a
-    # bottleneck
+    # bottleneck.
     return {
         "ExplicitEuler": ode.ExplicitEuler(time_axis_pos=1),
         "RungeKutta4": ode.RungeKutta4(time_axis_pos=1),
@@ -81,9 +96,9 @@ class Integrator(enum.Enum):
 class MeasureDistance(enum.Enum):
   """Measure distance choices."""
 
-  MMD = "MMD"
-  MMD_DIST = "MMD_DIST"
-  SD = "SD"
+  MMD = "MMD"  # Maximum mean discrepancy.
+  MMD_DIST = "MMD_DIST"  # Distributed version of MMD.
+  SD = "SD"  # Sinkhorn divergence.
 
   def dispatch(
       self,
@@ -114,11 +129,11 @@ class MeasureDistance(enum.Enum):
 class Model(enum.Enum):
   """Model choices."""
 
-  FNO = "Fno"
-  FNO_2D = "Fno2d"
-  MLP = "MLP"
-  PERIODIC_CONV_NET_MODEL = "PeriodicConvNetModel"
-  UNET = "UNet"
+  FNO = "Fno"  # One-dimensional Fourier Neural Operator [1].
+  FNO_2D = "Fno2d"  # Two-dimensional Fourier Neural Operator [1].
+  MLP = "MLP"  # Multi-layer perceptron.
+  PERIODIC_CONV_NET_MODEL = "PeriodicConvNetModel"  # Dilated convolutions [2].
+  UNET = "UNet"  # Regular UNet [3].
 
   def dispatch(self, conf: ml_collections.ConfigDict) -> nn.Module:
     """Dispatch model.
@@ -177,7 +192,11 @@ class Model(enum.Enum):
 
 
 class RolloutWeighting(enum.Enum):
-  """Rollout weighting choices."""
+  """Rollout weighting choices.
+
+  This is useful for stabilizing the rollout training, particularly when it is
+  chaotic, see [4] for different choices
+  """
 
   GEOMETRIC = "geometric"
   INV_SQRT = "inv_sqrt"

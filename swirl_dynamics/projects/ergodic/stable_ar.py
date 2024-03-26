@@ -43,7 +43,7 @@ PyTree = Any
 
 @dataclasses.dataclass(kw_only=True)
 class StableARModelConfig:
-  """Config used by stable AR models."""
+  """Config used by stable autoregressive (AR) models."""
 
   state_dimension: tuple[int, ...]
   dynamics_model: nn.Module
@@ -72,7 +72,7 @@ class StableARModel(models.BaseModel):
     self.pred_integrator = functools.partial(
         pred_integrator, ode.nn_module_to_dynamics(self.conf.dynamics_model)
     )
-    # TODO: check if this is compatible with distributed training.
+    # TODO: Check if this is compatible with distributed training.
     self.vmapped_measure_dist = jax.vmap(self.conf.measure_dist, in_axes=(1, 1))
 
   def initialize(self, rng):
@@ -98,26 +98,25 @@ class StableARModel(models.BaseModel):
     tspan = batch["tspan"].reshape((-1,))
     rollout_weight = batch["rollout_weight"].reshape((-1,))
 
-    # TODO: implement the logic in the Neural Markov paper.
     if self.conf.add_noise:
       noise = self.conf.noise_level + jax.random.normal(rng, x0.shape)
       x0 += noise
     if self.conf.use_pushfwd:
-      # Rollout for t-1 steps with stop gradient
-      # Expected shape: (bsz, num_rollout_steps+num_lookback_steps+1, ...)
+      # Rollout for t-1 steps with stop gradient.
+      # Expected shape: (bsz, num_rollout_steps+num_lookback_steps+1, ...).
       pred_pushfwd = jax.lax.stop_gradient(
           self.pred_integrator(
               x0, batch["tspan"][:-1], dict(params=params, **mutables)
           )
       )
       if self.conf.num_lookback_steps > 1:
-        # Expected shape: (batch_size, num_lookback_steps, ...)
+        # Expected shape: (batch_size, num_lookback_steps, ...).
         pred_pushfwd = pred_pushfwd[:, -self.conf.num_lookback_steps :, ...]
       else:
-        # Expected shape: (batch_size, ...) - no temporal dim
+        # Expected shape: (batch_size, ...) - no temporal dim.
         pred_pushfwd = pred_pushfwd[:, -1, ...]
-      # Pushforward for final step
-      # Expected shape: (batch_size, ...) - no temporal dim
+      # Pushforward for final step.
+      # Expected shape: (batch_size, ...) - no temporal dim.
       pred = self.pred_integrator(
           pred_pushfwd, batch["tspan"][-2:], dict(params=params, **mutables)
       )[:, -1, ...]
@@ -147,7 +146,8 @@ class StableARModel(models.BaseModel):
             * rollout_weight[-1]
         )
 
-    else:  # Regular unrolling without stop-gradient
+    else:
+      # Regular unrolling without stop-gradient.
       # Expected shape: (bsz, num_rollout_steps, ...)
       pred = self.pred_integrator(x0, tspan, dict(params=params, **mutables))[
           :, self.conf.num_lookback_steps :, ...
@@ -181,7 +181,7 @@ class StableARModel(models.BaseModel):
             * rollout_weight
         )
 
-    # Gathering the metrics together.
+    # Gathering the metrics.
     loss = l2
     loss += self.conf.measure_dist_lambda * measure_dist
     loss += self.conf.measure_dist_k_lambda * measure_dist_k
@@ -201,13 +201,25 @@ class StableARModel(models.BaseModel):
   def eval_fn(
       self,
       variables: PyTree,
-      # batch is dict with keys: ['ic', 'true', 'tspan', 'normalize_stats']
+      # Batch is a dict with keys: ['ic', 'true', 'tspan', 'normalize_stats'].
       batch: models.BatchType,
       rng: Array,
       **kwargs,
   ) -> models.ArrayDict:
+    """Computes evaluation metrics.
+
+    Args:
+      variables: Weights and other parameters of the network.
+      batch: Batch of data, in this case it is a dictionary with keys  ['ic',
+        'true', 'tspan', 'normalize_stats'].
+      rng: Seed for the random number generator.
+      **kwargs: Extra keyword variables.
+
+    Returns:
+      A dictionary with all the evaluation variables.
+    """
     tspan = batch["tspan"].reshape((-1,))
-    # Keep extra step for plot fns
+    # Keep extra step for plot functions.
     pred_trajs = self.pred_integrator(batch["ic"], tspan, variables)[
         :, self.conf.num_lookback_steps - 1 :, ...
     ]
@@ -222,7 +234,7 @@ class StableARModel(models.BaseModel):
       pred_trajs *= self.conf.normalize_stats["std"]
       pred_trajs += self.conf.normalize_stats["mean"]
 
-    # TODO: this only computes the local sinkhorn distance.
+    # TODO: This only computes the local sinkhorn distance.
     sd = measure_distances.sinkhorn_div(
         pred_trajs[:, -1, ...], trajs[:, -1, ...]
     )
@@ -233,7 +245,6 @@ class StableARModel(models.BaseModel):
         trajs=trajs,
         pred_trajs=pred_trajs,
     )
-
   # pytype: enable=bad-return-type
 
 
@@ -259,11 +270,11 @@ class StableARTrainer(trainers.BasicTrainer):
     loss: clu_metrics.Average.from_output("loss")
     loss_std: clu_metrics.Std.from_output("loss")
     l2: clu_metrics.Average.from_output("l2")
-    l2_std: clu_metrics.Average.from_output("l2")
+    l2_std: clu_metrics.Std.from_output("l2")
     measure_dist: clu_metrics.Average.from_output("measure_dist")
-    measure_dist_std: clu_metrics.Average.from_output("measure_dist")
+    measure_dist_std: clu_metrics.Std.from_output("measure_dist")
     measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")
-    measure_dist_k_std: clu_metrics.Average.from_output("measure_dist_k")
+    measure_dist_k_std: clu_metrics.Std.from_output("measure_dist_k")
     rollout: clu_metrics.Average.from_output("rollout")
     max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")
 
@@ -316,7 +327,7 @@ class StableARTrainer(trainers.BasicTrainer):
           self.conf.num_lookback_steps
           - 1 : num_time_steps
           + self.conf.num_lookback_steps
-          - 1,  # pylint: disable=line-too-long
+          - 1,
           ...,
       ]
     else:
@@ -350,7 +361,8 @@ class StableARTrainer(trainers.BasicTrainer):
     Returns:
       The preprocessed batch data.
     """
-    # Curr training: increase number of rollout steps every N steps
+    # Curr training: increase number of rollout steps every
+    # time_steps_increase_per_cycle steps.
     if self.conf.use_curriculum:
       cycle_idx = step // self.conf.train_steps_per_cycle
       num_time_steps = cycle_idx * self.conf.time_steps_increase_per_cycle

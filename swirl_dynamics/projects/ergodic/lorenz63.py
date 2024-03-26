@@ -32,6 +32,7 @@ def lorenz63_dynamics(x: Array, t: Array, params: PyTree) -> Array:
     dot{x} = sigma(y - x)
     dot{y} = x(rho - z) - y
     dot{z} = xy - beta*z
+
   Arguments:
       x: Current state.
       t: Time (unused; system is autonomous).
@@ -50,7 +51,9 @@ def lorenz63_dynamics(x: Array, t: Array, params: PyTree) -> Array:
   ])
 
 
-def plot_error(dt, traj_length, trajs, pred_trajs):
+def plot_error(
+    dt: Array, traj_length: list[int] | int, trajs: Array, pred_trajs: Array
+):
   """Plot root mean squared error (RMSE) error over time."""
 
   def rmse_err(true, pred):
@@ -71,7 +74,9 @@ def plot_error(dt, traj_length, trajs, pred_trajs):
   return {"rmse": fig}
 
 
-def plot_trajectory_hists(dt, traj_lengths, trajs, pred_trajs):
+def plot_trajectory_hists(
+    dt: Array, traj_lengths: list[int] | int, trajs: Array, pred_trajs: Array
+):
   """Plots trajectory histograms."""
   fig = plt.figure(figsize=(14, 3 * len(traj_lengths)), constrained_layout=True)
   subfigs = fig.subfigures(nrows=len(traj_lengths), ncols=1)
@@ -139,7 +144,7 @@ def plot_trajectory_hists(dt, traj_lengths, trajs, pred_trajs):
     ax[3].set_yticks([], [])
     ax[3].hist2d((pred_x), (pred_z), **kwargs)
 
-    # Plot y vs. z
+    # Plot y vs. z.
     ax[4].set_title("RK4")
     ax[4].set_xlabel("y")
     ax[4].set_ylabel("z")

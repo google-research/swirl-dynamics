@@ -16,6 +16,12 @@
 
 1) Maximum mean discrepancy (MMD).
 2) Sinkhorn divergence (sinkhorn_div).
+
+References:
+
+[1] https://www.onurtunali.com/ml/2019/03/08/maximum-mean-discrepancy-in-machine-learning.html#implementation-of-mmd  # pylint: disable=line-too-long
+[2] Li, Yujia, Kevin Swersky, and Rich Zemel. "Generative moment matching
+  networks." International conference on machine learning. PMLR, 2015.
 """
 from collections.abc import Callable
 
@@ -40,8 +46,7 @@ def mmd(
   distributions are the same.
   Input arrays are reshaped to dimension: `batch_size x -1`, where `-1`
   indicates that all non-batch dimensions are flattened.
-  This implementation was adapted from:
-  https://www.onurtunali.com/ml/2019/03/08/maximum-mean-discrepancy-in-machine-learning.html#implementation-of-mmd
+  This implementation was adapted from [1].
 
   Args:
     x: first sample, distribution P
@@ -74,16 +79,13 @@ def mmd(
 
   xx, yy, xy = (jnp.zeros_like(xx), jnp.zeros_like(xx), jnp.zeros_like(xx))
 
-  # Multiscale
-  # TODO: We may need to experiment with these bandwidths to have
-  # MMD loss better distinguish distributions, especially for high dim data
+  # Multiscale bandwisth.
   for a in bandwidth:
     xx += a**2 * (a**2 + dxx) ** -1
     yy += a**2 * (a**2 + dyy) ** -1
     xy += a**2 * (a**2 + dxy) ** -1
 
-  # TODO: We may want to use jnp.sqrt(...) here; see:
-  # https://arxiv.org/abs/1502.02761
+  # TODO: We may want to use jnp.sqrt here; see [2].
   return jnp.mean(xx + yy - 2.0 * xy)
 
 
@@ -111,7 +113,7 @@ def mmd_distributed(x: Array, y: Array) -> Array:
   x_shape = x.shape
   y_shape = y.shape
 
-  # we merge the batch per device and device dimensions
+  # Merge the batch per device and device dimensions.
   x = jnp.reshape(x, (x_shape[0] * x_shape[1],) + x_shape[2:])
   y = jnp.reshape(y, (y_shape[0] * y_shape[1],) + y_shape[2:])
 

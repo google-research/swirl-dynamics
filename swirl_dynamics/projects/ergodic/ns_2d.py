@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Navier Stokes 2D custom plotting callback."""
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import jax
 import matplotlib.pyplot as plt
@@ -26,7 +26,11 @@ PyTree = Any
 
 
 def plot_trajectories(
-    dt, traj_lengths, trajs, pred_trajs, case_ids=(1, 3, 5, 7)
+    dt: Array,
+    traj_lengths: list[int] | int,
+    trajs: Array,
+    pred_trajs: Array,
+    case_ids: Sequence[int] = (1, 3, 5, 7),
 ):
   """Plot sample trajectories."""
   assert trajs.shape[0] > max(case_ids), (

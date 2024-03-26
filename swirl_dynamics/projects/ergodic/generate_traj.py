@@ -14,7 +14,7 @@
 
 """Generate predict trajectory.
 
-Helper script for generating trajectories from pre-trained models
+Helper script for generating trajectories from pre-trained models.
 """
 
 import functools
@@ -67,7 +67,6 @@ def create_train_name(args_dict):
   return train_name_base, train_name
 
 
-# Parse dirs
 def parse_dir(exp_dir):
   """Parse directory to load arguments json."""
   exps = {}
@@ -97,8 +96,7 @@ def parse_dir(exp_dir):
 def generate_pred_traj(exps_df, all_steps, dt, trajs, mean=None, std=None):
   """Generate predicted trajectories and save to file."""
   pbar = tqdm.tqdm(exps_df.iterrows(), total=len(exps_df), desc="Exps")
-  # cnt = 0
-  # skipped = 0
+
   for r in pbar:
     first_step = r[1]["save_interval_steps"]
     total_steps = r[1]["train_steps"]
