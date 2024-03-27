@@ -17,9 +17,11 @@
 # pylint: disable=g-importing-member
 # pylint: disable=g-multiple-import
 
+from swirl_dynamics.templates import utils
 from swirl_dynamics.templates.callbacks import (
     Callback,
     LogGinConfig,
+    MatplotlibFigureAsImage,
     ParameterOverview,
     ProgressReport,
     TqdmProgressBar,

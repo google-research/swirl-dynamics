@@ -15,17 +15,39 @@
 """Utility functions for the template."""
 
 import collections
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+import functools
 import os
 from typing import Any
 
 from clu import values
+import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow as tf
 
 Scalar = Any
+
+
+def primary_process_only(cls: type[Any]) -> type[Any]:
+  """Class decorator that modifies all methods to run on primary host only."""
+
+  def wrap_method(method: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+      if jax.process_index() == 0:
+        return method(self, *args, **kwargs)
+      else:
+        return None
+
+    return wrapper
+
+  for attr_name, attr_value in cls.__dict__.items():
+    if callable(attr_value) and not attr_name.startswith("__"):
+      setattr(cls, attr_name, wrap_method(attr_value))
+
+  return cls
 
 
 def load_scalars_from_tfevents(
