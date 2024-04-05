@@ -74,6 +74,21 @@ class GuidanceTransformsTest(parameterized.TestCase):
     denoised = guided_denoiser(jnp.array(0), jnp.array(0.1), cond)
     self.assertAlmostEqual(denoised, expected, places=5)
 
+  @parameterized.parameters(
+      {"test_dim": (1, 2, 4, 4, 4, 1), "style": "swap"},
+      {"test_dim": (1, 2, 4, 4, 4, 1), "style": "average"},
+  )
+  def test_frame_interlocking(self, test_dim, style):
+    interlock = guidance.InterlockingFrames(style=style)
+
+    def _dummy_denoiser(x, sigma, cond=None):
+      del sigma, cond
+      return jnp.ones_like(x)
+
+    guided_denoiser = interlock(_dummy_denoiser)
+    denoised = guided_denoiser(jnp.ones(test_dim), jnp.array(0.1), None)
+
+    self.assertEqual(denoised.shape, test_dim)
 
 if __name__ == "__main__":
   absltest.main()

@@ -37,9 +37,9 @@ def get_config():
   config.model.num_heads = 18
   config.model.mlp_dim = 512
   config.model.num_layers = 6
-  config.model.dropout_rate = 0.3
+  config.model.dropout_rate = 0.5
   config.model_dtype_str = 'float32'
-  config.model.noise_embed_dim = 256
+  config.model.noise_embed_dim = 512
   config.model.diffusion_scheme = 'variance_exploding'
 
   config.save_interval_steps = 1000
@@ -76,9 +76,9 @@ def get_config():
   config.optimizer = ml_collections.ConfigDict()
   config.optimizer.num_train_steps = 1000000
   config.optimizer.initial_lr = 0.0
-  config.optimizer.peak_lr = 3e-4
+  config.optimizer.peak_lr = 1e-4
   config.optimizer.warmup_steps = 50000
-  config.optimizer.end_lr = 1e-6
+  config.optimizer.end_lr = 1e-7
   config.optimizer.ema_decay = 0.999
   config.optimizer.ckpt_interval = 1000
   config.optimizer.max_ckpt_to_keep = 5

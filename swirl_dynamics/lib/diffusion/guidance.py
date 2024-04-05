@@ -15,7 +15,7 @@
 """Modules for guidance transforms for denoising functions."""
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import flax
 import jax
@@ -94,7 +94,7 @@ class InfillFromSlices:
       def constraint(xt: Array) -> tuple[Array, Array]:
         denoised = denoise_fn(xt, sigma, cond)
         error = jnp.sum(
-            (denoised[self.slices] - guidance_inputs["observed_slices"]) ** 2
+            (denoised[self.slices] - guidance_inputs['observed_slices']) ** 2
         )
         return error, denoised
 
@@ -105,7 +105,114 @@ class InfillFromSlices:
       )
       guide_strength = self.guide_strength / cond_fraction
       denoised -= guide_strength * constraint_grad
-      return denoised.at[self.slices].set(guidance_inputs["observed_slices"])
+      return denoised.at[self.slices].set(guidance_inputs['observed_slices'])
+
+    return _guided_denoise
+
+
+@flax.struct.dataclass
+class InterlockingFrames:
+  """Condition on the first and last frame to be equal in a short trajectory.
+
+  The main point of this guidance term is to interlock contigous temporal chunks
+  into a larger one by imposing boundary conditions at the interfaces of the
+  chunks. Each chunk is a short temporal sequence produced by a diffusion model
+  with a given batch size. To ensure the spatio-temporal coherence the boundary
+  conditions are imposed at each step of the evolution of the SDE in diffusion
+  time.
+
+  For a target number of frames to generate, total_num_frames, we decompose the
+  total sequence in several chunks (num_chunks), whose number is given by the
+  temporal generation length of the backbone model (minus the overlap).
+  Then the batch dimension of the backbone diffusion model is fixed to
+  num_chunks. Thus we generate num_chunks of short trajectories simultaneously,
+  and we concatenate them (removing the overlapping regions).
+
+  We can generate more than one long sequence, thus that input of the guidence
+  is a 5-tensor with dimensions:
+  (batch_size, num_chunks, num_frames_per_chunk, height, width, channels).
+
+  Attributes:
+    guide_strength: Strength of the conditioning relative to unconditioned
+      score.
+    style: How the boundaries are imposed following either "mean" or "swap". For
+      "mean" we compute the mean between the overlap of two adjacent chunks,
+      whereas for swap we exchange the values within the overlapping region.
+      The rationale for the second is to not change the statistics by averaging
+      two Gaussians.
+    overlap_length: The length of the overlap which we impose to be the same
+      across the boundaries.
+  """
+
+  guide_strength: float = 0.5
+  style: Literal['average', 'swap'] = 'average'
+  overlap_length: int = 1
+
+  def __call__(
+      self, denoise_fn: DenoiseFn, guidance_inputs: ArrayMapping | None = None
+  ) -> DenoiseFn:
+    """Constructs denoise function conditioned on overlaping values."""
+
+    def _guided_denoise(
+        x: Array, sigma: Array, cond: ArrayMapping | None = None
+    ) -> Array:
+      """Guided denoise function.
+
+      Args:
+        x: The tensor to denoise with dims (num_trajectories, num_chunks_traj,
+        num_frames_per_chunk, height, width, channels).
+        sigma: The noise level.
+        cond: The dictionary with the conditioning.
+
+      Returns:
+        An estimate of the denoised tensor guided by the interlocking
+        constraint.
+      """
+      if x.ndim != 6:
+        raise ValueError(f'Invalid input dimension: {x.shape}, a 6-tensor is '
+                         'expected.')
+
+      def constraint(xt: Array) -> tuple[Array, Array]:
+        denoised = denoise_fn(xt, sigma, cond)
+        return (
+            jnp.sum(
+                (
+                    denoised[:, 1:, :self.overlap_length]
+                    - denoised[:, :-1, -self.overlap_length:]
+                )
+                ** 2
+            ),
+            denoised,
+        )
+
+      constraint_grad, denoised = jax.grad(constraint, has_aux=True)(x)
+      denoised -= self.guide_strength * constraint_grad
+
+      # Interchanging information at each side of the interface.
+      if self.style not in ['average', 'swap']:
+        raise ValueError(f'Invalid style: {self.style}. Expected either'
+                         '"average" or "swap".')
+      elif self.style == 'swap':
+        cond_value_first = denoised[:, 1:, : self.overlap_length]
+        denoised = denoised.at[:, 1:, : self.overlap_length].set(
+            denoised[:, :-1, -self.overlap_length :]
+        )
+        denoised = denoised.at[:, :-1, -self.overlap_length :].set(
+            cond_value_first
+        )
+
+      # Average the values at each side of the interface.
+      elif self.style == 'average':
+        average_value = 0.5 * (
+            denoised[:, 1:, : self.overlap_length]
+            + denoised[:, :-1, -self.overlap_length :]
+        )
+        denoised = denoised.at[:, 1:, : self.overlap_length].set(average_value)
+        denoised = denoised.at[:, :-1, -self.overlap_length :].set(
+            average_value
+        )
+
+      return denoised
 
     return _guided_denoise
 
