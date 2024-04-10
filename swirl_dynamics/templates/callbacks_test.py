@@ -180,7 +180,7 @@ class ParameterOverviewTest(absltest.TestCase):
     callback = callbacks.ParameterOverview()
     callback.metric_writer = metric_writers.create_default_writer(work_dir)
     trainer = mock.Mock(spec=trainers.BaseTrainer)
-    trainer.train_state = train_states.BasicTrainState(
+    trainer.unreplicated_train_state = train_states.BasicTrainState(
         step=jnp.array(0),
         params={"bias": jnp.ones((10,)), "weights": jnp.ones((10, 10))},
         opt_state={},

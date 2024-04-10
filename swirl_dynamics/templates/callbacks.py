@@ -300,8 +300,9 @@ class ParameterOverview(Callback):
   log_to_tb: bool = True
 
   def on_train_begin(self, trainer: trainers.BaseTrainer) -> None:
-    if isinstance(trainer.train_state, train_states.BasicTrainState):
-      params = trainer.train_state.params
+    train_state = trainer.unreplicated_train_state
+    if isinstance(train_state, train_states.BasicTrainState):
+      params = train_state.params
       if self.log_to_info:
         logging.info("Logging parameter overview.")
         parameter_overview.log_parameter_overview(params)
