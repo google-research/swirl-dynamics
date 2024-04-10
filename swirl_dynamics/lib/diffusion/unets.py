@@ -262,7 +262,14 @@ class Axial2DMLP(nn.Module):
 
 
 class MergeChannelCond(nn.Module):
-  """Base class for merging conditional inputs along the channel dimension."""
+  """Base class for merging conditional inputs along the channel dimension.
+
+  Attributes:
+    embed_dim: The output channel dimension.
+    kernel_size: The convolutional kernel size.
+    resize_method: The interpolation method employed by `jax.image.resize`.
+    padding: The padding method of all convolutions.
+  """
 
   embed_dim: int
   kernel_size: Sequence[int]
@@ -271,14 +278,18 @@ class MergeChannelCond(nn.Module):
 
 
 class InterpConvMerge(MergeChannelCond):
-  """Merges conditional inputs through interpolation and convolutions."""
+  """Merges conditional inputs through interpolation and convolutions.
+
+  See `MergeChannelCond` for attribute definition.
+  """
 
   @nn.compact
   def __call__(self, x: Array, cond: dict[str, Array]):
     """Merges conditional inputs along the channel dimension.
 
-    Relevant fields in the conditional input dictionary are first resized and
-    then concatenated with the main input along their last axes.
+    Fields with spatial shape differing from the sample `x` are reshaped to
+    match it. Then, all conditional fields are passed through a nonlinearity,
+    a ConvLayer, and then concatenated with the main input along the last axis.
 
     Args:
       x: The main model input.
@@ -297,8 +308,8 @@ class InterpConvMerge(MergeChannelCond):
               f"Channel condition `{key}` does not have the same ndim"
               f" ({value.ndim}) as x ({x.ndim})!"
           )
-      if value.shape[-3:-1] != out_spatial_shape:
 
+      if value.shape[-3:-1] != out_spatial_shape:
         value = layers.FilteredResize(
             output_size=x.shape[:-1],
             kernel_size=self.kernel_size,
@@ -306,13 +317,14 @@ class InterpConvMerge(MergeChannelCond):
             padding=self.padding,
             name=f"resize_{key}",
         )(value)
-        value = nn.swish(nn.LayerNorm()(value))
-        value = layers.ConvLayer(
-            features=self.embed_dim,
-            kernel_size=self.kernel_size,
-            padding=self.padding,
-            name=f"conv2d_embed_{key}",
-        )(value)
+
+      value = nn.swish(nn.LayerNorm()(value))
+      value = layers.ConvLayer(
+          features=self.embed_dim,
+          kernel_size=self.kernel_size,
+          padding=self.padding,
+          name=f"conv2d_embed_{key}",
+      )(value)
 
       x = jnp.concatenate([x, value], axis=-1)
     return x

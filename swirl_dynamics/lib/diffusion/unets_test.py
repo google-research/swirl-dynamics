@@ -122,13 +122,14 @@ class NetworksTest(parameterized.TestCase):
         jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
     )
     # Check shape dict so that err message is easier to read when things break.
-    shape_dict = jax.tree_map(jnp.shape, variables["params"])
+    shape_dict = jax.tree.map(jnp.shape, variables["params"])
     self.assertIn("InterpConvMerge_0", shape_dict)
     # First condition should be reshaped. Second one (correct shape) shoud not.
+    self.assertIn("resize_channel:cond1", shape_dict["InterpConvMerge_0"])
+    self.assertNotIn("resize_channel:cond2", shape_dict["InterpConvMerge_0"])
+    # But they should both pass through the embedding convolution
     self.assertIn("conv2d_embed_channel:cond1", shape_dict["InterpConvMerge_0"])
-    self.assertNotIn(
-        "conv2d_embed_channel:cond2", shape_dict["InterpConvMerge_0"]
-    )
+    self.assertIn("conv2d_embed_channel:cond2", shape_dict["InterpConvMerge_0"])
 
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma, cond
@@ -159,7 +160,7 @@ class NetworksTest(parameterized.TestCase):
         jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
     )
     # Check shape dict so that err message is easier to read when things break.
-    shape_dict = jax.tree_map(jnp.shape, variables["params"])
+    shape_dict = jax.tree.map(jnp.shape, variables["params"])
     self.assertIn("AxialMLPInterpConvMerge_0", shape_dict)
     self.assertIn("Axial2DMLP_0", shape_dict["AxialMLPInterpConvMerge_0"])
     self.assertIn("InterpConvMerge_0", shape_dict["AxialMLPInterpConvMerge_0"])
