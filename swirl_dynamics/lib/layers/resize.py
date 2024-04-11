@@ -22,6 +22,13 @@ import jax.numpy as jnp
 from swirl_dynamics.lib.layers import convolutions
 
 Array = jax.Array
+PrecisionLike = (
+    None
+    | str
+    | jax.lax.Precision
+    | tuple[str, str]
+    | tuple[jax.lax.Precision, jax.lax.Precision]
+)
 
 
 class FilteredResize(nn.Module):
@@ -35,7 +42,9 @@ class FilteredResize(nn.Module):
       'LATLON', 'LONLAT].
     initializer: The initializer for the convolution kernels.
     use_local: Whether to use unshared weights in the filtering.
-    dtype: The data type of the input and weights.
+    precision: Level of precision used in the convolutional layer.
+    dtype: The data type of the input and output.
+    params_dtype: The data type of of the weights.
   """
 
   output_size: Sequence[int]
@@ -46,7 +55,9 @@ class FilteredResize(nn.Module):
       stddev=0.02
   )
   use_local: bool = False
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -87,5 +98,8 @@ class FilteredResize(nn.Module):
         padding=self.padding,
         kernel_init=self.initializer,
         use_local=self.use_local,
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
     )(resized)
     return out

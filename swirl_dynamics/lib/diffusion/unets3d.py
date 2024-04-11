@@ -30,6 +30,13 @@ from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
 
 Array = jax.Array
+PrecisionLike = (
+    None
+    | str
+    | jax.lax.Precision
+    | tuple[str, str]
+    | tuple[jax.lax.Precision, jax.lax.Precision]
+)
 
 
 def _maybe_broadcast_to_list(
@@ -50,7 +57,9 @@ class AxialSelfAttentionBlock(nn.Module):
   attention_axes: int | Sequence[int] = -2
   add_position_embedding: bool | Sequence[bool] = True
   num_heads: int | Sequence[int] = 1
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -83,6 +92,8 @@ class AxialSelfAttentionBlock(nn.Module):
           kernel_init=nn.initializers.xavier_uniform(),
           deterministic=not is_training,
           dtype=self.dtype,
+          param_dtype=self.param_dtype,
+          precision=self.precision,
           name=f"axial_attn_axis{axis}",
       )(h)
       h = nn.GroupNorm(
@@ -111,7 +122,9 @@ class DStack(nn.Module):
   dropout_rate: float = 0.0
   num_heads: int = 8
   use_position_encoding: bool = False
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, *, is_training: bool) -> list[Array]:
@@ -152,6 +165,9 @@ class DStack(nn.Module):
             kernel_size=(3, 3),
             padding=self.padding,
             dropout=self.dropout_rate,
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             name=f"{nt}xres{'x'.join(dims_str)}.dblock{block_id}",
         )(h, emb, is_training=is_training)
         if (
@@ -168,6 +184,9 @@ class DStack(nn.Module):
               attention_axes=attn_axes,
               add_position_embedding=self.use_position_encoding,
               num_heads=self.num_heads,
+              precision=self.precision,
+              dtype=self.dtype,
+              param_dtype=self.param_dtype,
               name=f"{nt}xres{'x'.join(dims_str)}.dblock{block_id}.attn",
           )(h, is_training=is_training)
         skips.append(h)
@@ -193,7 +212,9 @@ class UStack(nn.Module):
   dropout_rate: float = 0.0
   use_position_encoding: bool = False
   num_heads: int = 8
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(
@@ -222,6 +243,9 @@ class UStack(nn.Module):
             kernel_size=(3, 3),
             padding=self.padding,
             dropout=self.dropout_rate,
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             name=f"{nt}xres{'x'.join(dims_str)}.ublock{block_id}",
         )(h, emb, is_training=is_training)
         if (
@@ -238,6 +262,9 @@ class UStack(nn.Module):
               attention_axes=attn_axes,
               add_position_embedding=self.use_position_encoding,
               num_heads=self.num_heads,
+              precision=self.precision,
+              dtype=self.dtype,
+              param_dtype=self.param_dtype,
               name=f"{nt}xres{'x'.join(dims_str)}.ublock{block_id}.attn",
           )(h, is_training=is_training)
 
@@ -248,6 +275,9 @@ class UStack(nn.Module):
           kernel_size=(3, 3),
           padding=self.padding,
           kernel_init=unets.default_init(1.0),
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
           name=f"{nt}xres{'x'.join(dims_str)}.conv2d_preupsample",
       )(h)
       h = layers.channel_to_space(inputs=h, block_shape=(up_ratio, up_ratio))
@@ -317,6 +347,9 @@ class UNet3d(nn.Module):
   num_heads: int = 8
   cond_resize_method: str = "cubic"
   cond_embed_dim: int = 128
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(
@@ -376,6 +409,9 @@ class UNet3d(nn.Module):
           output_size=self.resize_to_shape,
           kernel_size=(7, 7),
           padding=self.padding,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
       )(x)
 
     cond = {} if cond is None else cond
@@ -384,6 +420,9 @@ class UNet3d(nn.Module):
         resize_method=self.cond_resize_method,
         kernel_size=(3, 3),
         padding=self.padding,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(x, cond)
 
     emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)
@@ -398,6 +437,9 @@ class UNet3d(nn.Module):
         use_temporal_attention=use_temporal_attn,
         num_heads=self.num_heads,
         use_position_encoding=self.use_position_encoding,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(x, emb, is_training=is_training)
     h = UStack(
         num_channels=self.num_channels[::-1],
@@ -409,6 +451,9 @@ class UNet3d(nn.Module):
         use_spatial_attention=use_spatial_attn,
         use_temporal_attention=use_temporal_attn,
         num_heads=self.num_heads,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(skips[-1], emb, skips, is_training=is_training)
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
     h = layers.ConvLayer(
@@ -416,12 +461,20 @@ class UNet3d(nn.Module):
         kernel_size=(3, 3),
         padding=self.padding,
         kernel_init=unets.default_init(),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv2d_out",
     )(h)
 
     if self.resize_to_shape is not None:
       h = layers.FilteredResize(
-          output_size=input_size, kernel_size=(7, 7), padding=self.padding
+          output_size=input_size,
+          kernel_size=(7, 7),
+          padding=self.padding,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
       )(h)
     return h
 

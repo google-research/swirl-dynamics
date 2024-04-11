@@ -23,6 +23,13 @@ import jax.numpy as jnp
 import numpy as np
 
 Array = jax.Array
+PrecisionLike = (
+    None
+    | str
+    | jax.lax.Precision
+    | tuple[str, str]
+    | tuple[jax.lax.Precision, jax.lax.Precision]
+)
 
 
 def ConvLayer(
@@ -30,6 +37,9 @@ def ConvLayer(
     kernel_size: int | Sequence[int],
     padding: nn.linear.PaddingLike,
     use_local: bool = False,
+    precision: PrecisionLike = None,
+    dtype: jnp.dtype = jnp.float32,
+    param_dtype: jnp.dtype = jnp.float32,
     **kwargs,
 ) -> nn.Module:
   """Factory for different types of convolution layers."""
@@ -44,12 +54,31 @@ def ConvLayer(
         kernel_size,
         use_local=use_local,
         order=padding.lower(),
+        precision=precision,
+        dtype=dtype,
+        param_dtype=param_dtype,
         **kwargs,
     )
   elif use_local:
-    return nn.ConvLocal(features, kernel_size, padding=padding, **kwargs)
+    return nn.ConvLocal(
+        features,
+        kernel_size,
+        padding=padding,
+        precision=precision,
+        dtype=dtype,
+        param_dtype=param_dtype,
+        **kwargs,
+    )
   else:
-    return nn.Conv(features, kernel_size, padding=padding, **kwargs)
+    return nn.Conv(
+        features,
+        kernel_size,
+        padding=padding,
+        precision=precision,
+        dtype=dtype,
+        param_dtype=param_dtype,
+        **kwargs,
+    )
 
 
 class LatLonConv(nn.Module):
@@ -64,6 +93,9 @@ class LatLonConv(nn.Module):
   )
   strides: tuple[int, int] = (1, 1)
   use_local: bool = False
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -114,6 +146,9 @@ class LatLonConv(nn.Module):
         strides=self.strides,
         kernel_init=self.kernel_init,
         padding="VALID",
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(padded_inputs)
 
 
@@ -126,6 +161,9 @@ class DownsampleConv(nn.Module):
   kernel_init: nn.initializers.Initializer = nn.initializers.variance_scaling(
       scale=1.0, mode="fan_avg", distribution="uniform"
   )
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -152,4 +190,7 @@ class DownsampleConv(nn.Module):
         strides=self.ratios,
         kernel_init=self.kernel_init,
         padding="VALID",
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(inputs)

@@ -24,6 +24,13 @@ from swirl_dynamics.lib import layers
 
 Array = jax.Array
 Initializer = nn.initializers.Initializer
+PrecisionLike = (
+    None
+    | str
+    | jax.lax.Precision
+    | tuple[str, str]
+    | tuple[jax.lax.Precision, jax.lax.Precision]
+)
 
 
 def default_init(scale: float = 1e-10) -> Initializer:
@@ -44,6 +51,9 @@ class AdaptiveScale(nn.Module):
   more general FiLM technique see https://arxiv.org/abs/1709.07871.
   """
   act_fun: Callable[[Array], Array] = nn.swish
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array) -> Array:
@@ -60,7 +70,13 @@ class AdaptiveScale(nn.Module):
         "The dimension of the embedding needs to be two, instead it was : "
         + str(emb.ndim)
     )
-    affine = nn.Dense(features=x.shape[-1] * 2, kernel_init=default_init(1.0))
+    affine = nn.Dense(
+        features=x.shape[-1] * 2,
+        kernel_init=default_init(1.0),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )
     scale_params = affine(self.act_fun(emb))
     # Unsqueeze in the middle to allow broadcasting.
     scale_params = scale_params.reshape(
@@ -74,7 +90,9 @@ class AttentionBlock(nn.Module):
   """Attention block."""
 
   num_heads: int = 1
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -84,6 +102,8 @@ class AttentionBlock(nn.Module):
         kernel_init=nn.initializers.xavier_uniform(),
         deterministic=not is_training,
         dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
         name="dot_attn",
     )(h, h)
     return layers.CombineResidualWithSkip()(residual=h, skip=x)
@@ -95,6 +115,9 @@ class ResConv1x(nn.Module):
   hidden_layer_size: int
   out_channels: int
   act_fun: Callable[[Array], Array] = nn.swish
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -104,14 +127,24 @@ class ResConv1x(nn.Module):
         features=self.hidden_layer_size,
         kernel_size=kernel_size,
         kernel_init=default_init(1.0),
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
     )(x)
     x = self.act_fun(x)
     x = nn.Conv(
         features=self.out_channels,
         kernel_size=kernel_size,
         kernel_init=default_init(1.0),
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
     )(x)
-    return layers.CombineResidualWithSkip()(residual=x, skip=skip)
+    return layers.CombineResidualWithSkip(
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
+    )(residual=x, skip=skip)
 
 
 class ConvBlock(nn.Module):
@@ -138,6 +171,9 @@ class ConvBlock(nn.Module):
   dropout: float = 0.0
   film_act_fun: Callable[[Array], Array] = nn.swish
   act_fun: Callable[[Array], Array] = nn.swish
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, is_training: bool) -> Array:
@@ -149,6 +185,9 @@ class ConvBlock(nn.Module):
         kernel_size=self.kernel_size,
         padding=self.padding,
         kernel_init=default_init(1.0),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv_0",
     )(h)
     h = nn.GroupNorm(min(h.shape[-1] // 4, 32))(h)
@@ -160,9 +199,17 @@ class ConvBlock(nn.Module):
         kernel_size=self.kernel_size,
         padding=self.padding,
         kernel_init=default_init(1.0),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv_1",
     )(h)
-    return layers.CombineResidualWithSkip(project_skip=True)(residual=h, skip=x)
+    return layers.CombineResidualWithSkip(
+        project_skip=True,
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
+    )(residual=h, skip=x)
 
 
 class FourierEmbedding(nn.Module):
@@ -172,6 +219,9 @@ class FourierEmbedding(nn.Module):
   max_freq: float = 2e4
   projection: bool = True
   act_fun: Callable[[Array], Array] = nn.swish
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -181,9 +231,19 @@ class FourierEmbedding(nn.Module):
     x = jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
 
     if self.projection:
-      x = nn.Dense(features=2 * self.dims)(x)
+      x = nn.Dense(
+          features=2 * self.dims,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
+      )(x)
       x = self.act_fun(x)
-      x = nn.Dense(features=self.dims)(x)
+      x = nn.Dense(
+          features=self.dims,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
+      )(x)
 
     return x
 
@@ -244,6 +304,9 @@ class Axial2DMLP(nn.Module):
 
   out_dims: tuple[int, int]
   act_fn: Callable[[Array], Array] = nn.swish
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -253,11 +316,21 @@ class Axial2DMLP(nn.Module):
     for i, out_dim in enumerate(self.out_dims):
       spatial_dim = -3 + i
       x = jnp.swapaxes(x, spatial_dim, -1)
-      x = nn.Dense(features=out_dim)(x)
+      x = nn.Dense(
+          features=out_dim,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
+      )(x)
       x = nn.swish(x)
       x = jnp.swapaxes(x, -1, spatial_dim)
 
-    x = nn.Dense(features=num_channels)(x)
+    x = nn.Dense(
+        features=num_channels,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )(x)
     return x
 
 
@@ -275,6 +348,9 @@ class MergeChannelCond(nn.Module):
   kernel_size: Sequence[int]
   resize_method: str = "cubic"
   padding: str = "CIRCULAR"
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
 
 class InterpConvMerge(MergeChannelCond):
@@ -315,14 +391,19 @@ class InterpConvMerge(MergeChannelCond):
             kernel_size=self.kernel_size,
             method=self.resize_method,
             padding=self.padding,
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             name=f"resize_{key}",
         )(value)
-
       value = nn.swish(nn.LayerNorm()(value))
       value = layers.ConvLayer(
           features=self.embed_dim,
           kernel_size=self.kernel_size,
           padding=self.padding,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
           name=f"conv2d_embed_{key}",
       )(value)
 
@@ -362,6 +443,9 @@ class AxialMLPInterpConvMerge(MergeChannelCond):
         kernel_size=self.kernel_size,
         resize_method=self.resize_method,
         padding=self.padding,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )
     return merge_channel_cond(x, proc_cond)
 
@@ -383,7 +467,9 @@ class DStack(nn.Module):
   num_heads: int = 8
   channels_per_head: int = -1
   use_position_encoding: bool = False
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, *, is_training: bool) -> list[Array]:
@@ -400,6 +486,9 @@ class DStack(nn.Module):
         kernel_size=kernel_dim * (3,),
         padding=self.padding,
         kernel_init=default_init(1.0),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv_in",
     )(x)
     skips.append(h)
@@ -409,6 +498,9 @@ class DStack(nn.Module):
           features=channel,
           ratios=(self.downsample_ratio[level],) * kernel_dim,
           kernel_init=default_init(1.0),
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
           name=f"res{'x'.join(res.astype(str))}.downsample_conv",
       )(h)
       res = res // self.downsample_ratio[level]
@@ -418,6 +510,9 @@ class DStack(nn.Module):
             kernel_size=kernel_dim * (3,),
             padding=self.padding,
             dropout=self.dropout_rate,
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             name=f"res{'x'.join(res.astype(str))}.down.block{block_id}",
         )(h, emb, is_training=is_training)
 
@@ -431,12 +526,17 @@ class DStack(nn.Module):
             )(h)
           h = AttentionBlock(
               num_heads=self.num_heads,
+              precision=self.precision,
               dtype=self.dtype,
+              param_dtype=self.param_dtype,
               name=f"res{'x'.join(res.astype(str))}.down.block{block_id}.attn",
           )(h.reshape(b, -1, c), is_training=is_training)
           h = ResConv1x(
               hidden_layer_size=channel * 2,
               out_channels=channel,
+              precision=self.precision,
+              dtype=self.dtype,
+              param_dtype=self.param_dtype,
               name=f"res{'x'.join(res.astype(str))}.down.block{block_id}.res_conv_1x",
           )(h).reshape(b, *hw, c)
         skips.append(h)
@@ -472,7 +572,9 @@ class UStack(nn.Module):
   use_attention: bool = False
   num_heads: int = 8
   channels_per_head: int = -1
+  precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(
@@ -489,25 +591,36 @@ class UStack(nn.Module):
     for level, channel in enumerate(self.num_channels):
       for block_id in range(self.num_res_blocks[level]):
         h = layers.CombineResidualWithSkip(
-            project_skip=h.shape[-1] != skips[-1].shape[-1]
+            project_skip=h.shape[-1] != skips[-1].shape[-1],
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
         )(residual=h, skip=skips.pop())
         h = ConvBlock(
             out_channels=channel,
             kernel_size=kernel_dim * (3,),
             padding=self.padding,
             dropout=self.dropout_rate,
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             name=f"res{'x'.join(res.astype(str))}.up.block{block_id}",
         )(h, emb, is_training=is_training)
         if self.use_attention and level == 0:  # opposite to DStack
           b, *hw, c = h.shape
           h = AttentionBlock(
               num_heads=self.num_heads,
+              precision=self.precision,
               dtype=self.dtype,
+              param_dtype=self.param_dtype,
               name=f"res{'x'.join(res.astype(str))}.up.block{block_id}.attn",
           )(h.reshape(b, -1, c), is_training=is_training)
           h = ResConv1x(
               hidden_layer_size=channel * 2,
               out_channels=channel,
+              precision=self.precision,
+              dtype=self.dtype,
+              param_dtype=self.param_dtype,
               name=f"res{'x'.join(res.astype(str))}.up.block{block_id}.res_conv_1x",
           )(h).reshape(b, *hw, c)
 
@@ -518,19 +631,28 @@ class UStack(nn.Module):
           kernel_size=kernel_dim * (3,),
           padding=self.padding,
           kernel_init=default_init(1.0),
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
           name=f"res{'x'.join(res.astype(str))}.conv_upsample",
       )(h)
       h = layers.channel_to_space(h, block_shape=kernel_dim * (up_ratio,))
       res = res * up_ratio
 
     h = layers.CombineResidualWithSkip(
-        project_skip=h.shape[-1] != skips[-1].shape[-1]
+        project_skip=h.shape[-1] != skips[-1].shape[-1],
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(residual=h, skip=skips.pop())
     h = layers.ConvLayer(
         features=128,
         kernel_size=kernel_dim * (3,),
         padding=self.padding,
         kernel_init=default_init(1.0),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv_out",
     )(h)
     return h
@@ -553,6 +675,9 @@ class UNet(nn.Module):
   cond_resize_method: str = "bilinear"
   cond_embed_dim: int = 128
   cond_merging_fn: type[MergeChannelCond] = InterpConvMerge
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(
@@ -593,6 +718,9 @@ class UNet(nn.Module):
           output_size=self.resize_to_shape,
           kernel_size=(7, 7),
           padding=self.padding,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
       )(x)
 
     kernel_dim = x.ndim - 2
@@ -602,6 +730,9 @@ class UNet(nn.Module):
         resize_method=self.cond_resize_method,
         kernel_size=(3,) * kernel_dim,
         padding=self.padding,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(x, cond)
 
     emb = FourierEmbedding(dims=self.noise_embed_dim)(sigma)
@@ -614,6 +745,9 @@ class UNet(nn.Module):
         use_attention=self.use_attention,
         num_heads=self.num_heads,
         use_position_encoding=self.use_position_encoding,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(x, emb, is_training=is_training)
     h = UStack(
         num_channels=self.num_channels[::-1],
@@ -623,6 +757,9 @@ class UNet(nn.Module):
         dropout_rate=self.dropout_rate,
         use_attention=self.use_attention,
         num_heads=self.num_heads,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(skips[-1], emb, skips, is_training=is_training)
 
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
@@ -631,12 +768,20 @@ class UNet(nn.Module):
         kernel_size=kernel_dim * (3,),
         padding=self.padding,
         kernel_init=default_init(),
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv_out",
     )(h)
 
     if self.resize_to_shape:
       h = layers.FilteredResize(
-          output_size=input_size, kernel_size=(7, 7), padding=self.padding
+          output_size=input_size,
+          kernel_size=(7, 7),
+          padding=self.padding,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
       )(h)
     return h
 
