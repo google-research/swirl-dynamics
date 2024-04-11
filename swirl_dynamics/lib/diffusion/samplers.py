@@ -191,7 +191,7 @@ class Sampler:
     x1 *= self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
 
     if cond is not None:
-      cond = jax.tree_map(lambda x: jnp.stack([x] * num_samples, axis=0), cond)
+      cond = jax.tree.map(lambda x: jnp.stack([x] * num_samples, axis=0), cond)
 
     denoised = self.denoise(x1, denoise_rng, self.tspan, cond, guidance_inputs)
 

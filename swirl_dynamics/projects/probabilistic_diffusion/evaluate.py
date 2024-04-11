@@ -74,7 +74,7 @@ class CondSamplingBenchmark(evaluate.Benchmark):
     rngs = jax.random.split(rng, num=num_batches)
 
     squeeze_fn = lambda x: jnp.squeeze(x, axis=0)
-    cond = jax.tree_map(squeeze_fn, batch["cond"])
+    cond = jax.tree.map(squeeze_fn, batch["cond"])
     guidance_inputs = (
         batch["guidance_inputs"] if "guidance_inputs" in batch else None
     )

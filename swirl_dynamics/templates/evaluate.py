@@ -591,7 +591,7 @@ def run(
             step=cur_step,
             items=dict(
                 iterator=iterator,
-                eval_state=jax.tree_map(np.array, evaluator.state),
+                eval_state=jax.tree.map(np.array, evaluator.state),
             ),
         )
 

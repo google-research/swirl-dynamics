@@ -191,7 +191,7 @@ class DenoisingModel(models.BaseModel):
     )
     x = batch["x"][rand_idx]
     cond = (
-        jax.tree_map(lambda y: y[rand_idx], batch["cond"])
+        jax.tree.map(lambda y: y[rand_idx], batch["cond"])
         if self.cond_shape
         else None
     )
