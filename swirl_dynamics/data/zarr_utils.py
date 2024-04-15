@@ -130,8 +130,9 @@ def aggregated_metrics_to_ds(
     else:
       logging.warning(
           'The coordinate order of the data cannot be inferred:'
-          'from their shape due to same-length dimensions. '
-          'Reverting to generic dimension labels.'
+          'from their shape due to same-length dimensions. Dims = %s. '
+          'Reverting to generic dimension labels.',
+          {dims.values()},
       )
 
   data_vars = {}
