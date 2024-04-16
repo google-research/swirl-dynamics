@@ -122,6 +122,7 @@ def aggregated_metrics_to_ds(
   """
   coord_dict = None
   dim_dict = {}
+  desc = 'Aggregated metrics.'
   if coords is not None:
     dims = coords.dims
     if len(dims.values()) == len(set(dims.values())):
@@ -134,6 +135,10 @@ def aggregated_metrics_to_ds(
           'Reverting to generic dimension labels.',
           {dims.values()},
       )
+    if 'time' in coords:
+      start_time = str(coords['time'].values[0].astype('<M8[h]'))
+      end_time = str(coords['time'].values[-1].astype('<M8[h]'))
+      desc = f'Aggregated metrics from {start_time} to {end_time}.'
 
   data_vars = {}
   for key, value in data.items():
@@ -146,7 +151,7 @@ def aggregated_metrics_to_ds(
   return xr.Dataset(
       data_vars=data_vars,
       coords=coord_dict,
-      attrs=dict(description='Aggregated metrics.'),
+      attrs=dict(description=desc),
   )
 
 
