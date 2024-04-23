@@ -29,6 +29,7 @@ import jax
 import matplotlib.backends.backend_agg as mpl_agg
 import matplotlib.pyplot as plt
 import numpy as np
+import optax
 import orbax.checkpoint as ocp
 from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
@@ -404,3 +405,58 @@ class MatplotlibFigureAsImage(Callback):
     self.metric_writer.write_images(
         step, {k: figure_to_image(v) for k, v in images.items()}
     )
+
+
+@dataclasses.dataclass
+class LogLearningRateToTensorBoard(Callback):
+  """Logs the learning rate to tensorboard scalar.
+
+  Attributes:
+    lr_schedule: The (static) schedule which will be used to compute the
+      learning rate at given steps.
+  """
+
+  lr_schedule: optax.Schedule
+
+  def on_train_batches_end(
+      self, trainer: Trainer, train_metrics: ComputedMetrics
+  ) -> None:
+    self.metric_writer.write_scalars(
+        trainer.train_state.int_step,
+        {"learning_rate": self.lr_schedule(trainer.train_state.int_step)},
+    )
+
+
+@dataclasses.dataclass
+class InitializeFromCheckpoint(Callback):
+  """Initializes train state based on an existing checkpoint.
+
+  Before training starts, this callback loads a checkpoint and overrides
+  selected fields in the current train state with corresponding ones in the
+  checkpoint.
+
+  Note that this callback should always be passed before
+  `TrainStateCheckpoint` so that it does not interfere with the latter's ability
+  to restore training progress from unfinished runs.
+
+  Attributes:
+    checkpoint_dir: The directory containing the checkpoint to load.
+    step: The training step of the checkpoint to load. If `None`, the latest
+      step is loaded.
+    fields_to_override: Fields of the current train state to be overridden by
+      the corresponding ones (with the same name) in the checkpoint.
+  """
+
+  checkpoint_dir: str
+  step: int | None = None
+  fields_to_override: Sequence[str] = ("params",)
+
+  def on_train_begin(self, trainer: Trainer) -> None:
+    restored_state = trainer.train_state.restore_from_orbax_ckpt(
+        self.checkpoint_dir, step=self.step, ref_state=trainer.train_state
+    )
+    overrides = {
+        field: getattr(restored_state, field)
+        for field in self.fields_to_override
+    }
+    trainer.train_state = trainer.train_state.replace(**overrides)

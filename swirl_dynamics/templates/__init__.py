@@ -20,7 +20,9 @@
 from swirl_dynamics.templates import utils
 from swirl_dynamics.templates.callbacks import (
     Callback,
+    InitializeFromCheckpoint,
     LogGinConfig,
+    LogLearningRateToTensorBoard,
     MatplotlibFigureAsImage,
     ParameterOverview,
     ProgressReport,

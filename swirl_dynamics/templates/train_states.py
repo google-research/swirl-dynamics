@@ -21,7 +21,7 @@ saves/restores the training progress.
 """
 
 import functools
-from typing import TypeVar
+from typing import Self
 
 import flax
 from flax.core import scope as flax_scope
@@ -29,9 +29,6 @@ import jax
 import jax.numpy as jnp
 import optax
 import orbax.checkpoint as ocp
-
-# TODO: use typing.Self after python 3.11 (PEP 673)
-TState = TypeVar("TState", bound="TrainState")
 
 EMPTY_DICT = flax.core.freeze({})
 FrozenVariableDict = flax_scope.FrozenVariableDict
@@ -41,10 +38,7 @@ class TrainState(flax.struct.PyTreeNode):
   """Base train state class.
 
   Attributes:
-    step: a counter that holds the number of gradient steps applied.
-    _rng: a Jax random key to use for training if needed. It should never be
-      accessed directly (instead use `split_rng()` method above to retrieve the
-      split rng while simultaneously updating the state).
+    step: A counter that holds the number of gradient steps applied.
   """
 
   step: jax.Array
@@ -65,12 +59,27 @@ class TrainState(flax.struct.PyTreeNode):
       ckpt_dir: str,
       step: int | None = None,
       field: str = "default",
-      ref_state: TState | None = None,
-  ) -> TState:
-    """Restores train state from an orbax checkpoint."""
-    # NOTE: If `ref_state` is not provided, the loaded object will contain raw
-    # dictionaries, which should be fine for inference but may become
-    # problematic to continue training with.
+      ref_state: Self | None = None,
+  ) -> Self:
+    """Restores train state from an orbax checkpoint directory.
+
+    Args:
+      ckpt_dir: A directory which may contain checkpoints at different steps. A
+        checkpoint manager will be instantiated in this folder to load a
+        checkpoint at the desired step.
+      step: The training step to restore checkpoint from. Retores the latest
+        step if `None`.
+      field: The field of the checkpoint containing the train state to be
+        restored.
+      ref_state: A reference state instance. If provided, the restored state
+        will be the same type with its leaves replaced by values in the
+        checkpoint. Otherwise, the restored object will be raw dictionaries,
+        which should be fine for inference but will become problematic to resume
+        training from.
+
+    Returns:
+      Restored train state.
+    """
     mngr = ocp.CheckpointManager(
         ckpt_dir, item_handlers={field: ocp.StandardCheckpointHandler()}
     )
@@ -92,7 +101,7 @@ class TrainState(flax.struct.PyTreeNode):
       return cls(**state_fields)
 
   @classmethod
-  def create(cls, replicate: bool = False, **kwargs) -> TState:
+  def create(cls, replicate: bool = False, **kwargs) -> Self:
     """Creates a new train state with step count 0."""
     state = cls(step=jnp.array(0), **kwargs)
     return state if not replicate else flax.jax_utils.replicate(state)
@@ -102,10 +111,10 @@ class BasicTrainState(TrainState):
   """Train state that stores optimizer state, flax model params and mutables.
 
   Attributes:
-    params: the parameters of the model as a PyTree.
-    opt_state: optimizer state of the parameters.
-    flax_mutables: flax mutable fields (e.g. batch stats for batch norm layers)
-      of the model being trained, also as a PyTree.
+    params: The parameters of the model.
+    opt_state: The optimizer state of the parameters.
+    flax_mutables: The flax mutable fields (e.g. batch stats for batch norm
+      layers) of the model being trained.
   """
 
   params: FrozenVariableDict
