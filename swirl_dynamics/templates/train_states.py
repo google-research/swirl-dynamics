@@ -19,6 +19,7 @@ states, plus everything else that collectively represent a complete snapshot of
 the training. In other words, by saving/loading a train state, one
 saves/restores the training progress.
 """
+
 import functools
 from typing import TypeVar
 
@@ -27,7 +28,7 @@ from flax.core import scope as flax_scope
 import jax
 import jax.numpy as jnp
 import optax
-from orbax import checkpoint
+import orbax.checkpoint as ocp
 
 # TODO: use typing.Self after python 3.11 (PEP 673)
 TState = TypeVar("TState", bound="TrainState")
@@ -63,19 +64,32 @@ class TrainState(flax.struct.PyTreeNode):
       cls,
       ckpt_dir: str,
       step: int | None = None,
+      field: str = "default",
       ref_state: TState | None = None,
   ) -> TState:
     """Restores train state from an orbax checkpoint."""
-    # NOTE: if `ref_state` is not provided, the loaded object will contain raw
+    # NOTE: If `ref_state` is not provided, the loaded object will contain raw
     # dictionaries, which should be fine for inference but may become
-    # problematic to continue training with
-    mngr = checkpoint.CheckpointManager(
-        ckpt_dir, checkpoint.PyTreeCheckpointer()
+    # problematic to continue training with.
+    mngr = ocp.CheckpointManager(
+        ckpt_dir, item_handlers={field: ocp.StandardCheckpointHandler()}
     )
     if ref_state is not None:
-      return mngr.restore(step or mngr.latest_step(), items=ref_state)
+      restored = mngr.restore(
+          step or mngr.latest_step(),
+          args=ocp.args.Composite(
+              **{field: ocp.args.StandardRestore(item=ref_state)}
+          ),
+      )
+      if restored[field] is None:
+        raise ValueError(f"Field `{field}` not found in the checkpoint.")
+      return restored[field]
     else:
-      return cls(**mngr.restore(step or mngr.latest_step()))
+      restored = mngr.restore(step or mngr.latest_step())
+      state_fields = restored[field]
+      if state_fields is None:
+        raise ValueError(f"Field `{field}` not found in the checkpoint.")
+      return cls(**state_fields)
 
   @classmethod
   def create(cls, replicate: bool = False, **kwargs) -> TState:

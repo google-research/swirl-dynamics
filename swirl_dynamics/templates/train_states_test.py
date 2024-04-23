@@ -22,7 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from orbax import checkpoint
+import orbax.checkpoint as ocp
 from swirl_dynamics.templates import train_states
 
 jax.config.parse_flags_with_absl()
@@ -42,19 +42,29 @@ class TrainStateTest(parameterized.TestCase):
     self.assertEqual(state.int_step, 0)
 
   def test_load_state_from_ckpt(self):
+    field = "state"
     state = train_states.TrainState.create(replicate=False)
     save_dir = self.create_tempdir().full_path
     save_dir = os.path.join(save_dir, "checkpoints")
-    checkpoint.CheckpointManager(
-        save_dir, checkpoint.PyTreeCheckpointer()
-    ).save(step=100, items=state, force=True)
-    loaded_state = train_states.TrainState.restore_from_orbax_ckpt(save_dir)
-    jax.tree_util.tree_map(np.testing.assert_array_equal, loaded_state, state)
+    mngr = ocp.CheckpointManager(
+        save_dir, item_handlers={field: ocp.StandardCheckpointHandler()}
+    )
+    mngr.save(
+        step=100,
+        args=ocp.args.Composite(**{field: ocp.args.StandardSave(state)}),
+        force=True,
+    )
+    mngr.wait_until_finished()
+    loaded_state = train_states.TrainState.restore_from_orbax_ckpt(
+        save_dir, field=field
+    )
+    jax.tree.map(np.testing.assert_array_equal, loaded_state, state)
 
 
 class BasicTrainStateTest(absltest.TestCase):
 
   def test_load_state_from_ckpt(self):
+    field = "default"
     model_variables = flax.core.freeze({
         "params": {"dense": {"bias": jnp.zeros(5), "kernel": jnp.ones((5, 5))}},
         "batch_stats": {
@@ -69,14 +79,21 @@ class BasicTrainStateTest(absltest.TestCase):
     )
     save_dir = self.create_tempdir().full_path
     save_dir = os.path.join(save_dir, "checkpoints")
-    checkpoint.CheckpointManager(
-        save_dir, checkpoint.PyTreeCheckpointer()
-    ).save(step=0, items=state, force=True)
+    mngr = ocp.CheckpointManager(
+        save_dir, item_handlers={field: ocp.StandardCheckpointHandler()}
+    )
+    mngr.save(
+        step=0,
+        args=ocp.args.Composite(**{field: ocp.args.StandardSave(state)}),
+        force=True,
+    )
+    mngr.wait_until_finished()
+
     with self.subTest("No ref state"):
       loaded_variables = train_states.BasicTrainState.restore_from_orbax_ckpt(
           ckpt_dir=save_dir
       ).model_variables
-      jax.tree_util.tree_map(
+      jax.tree.map(
           np.testing.assert_array_equal, loaded_variables, model_variables
       )
     with self.subTest("With ref state"):
@@ -84,7 +101,7 @@ class BasicTrainStateTest(absltest.TestCase):
           ckpt_dir=save_dir,
           ref_state=state.replace(step=66),
       )
-      jax.tree_util.tree_map(np.testing.assert_array_equal, loaded_state, state)
+      jax.tree.map(np.testing.assert_array_equal, loaded_state, state)
 
 
 if __name__ == "__main__":

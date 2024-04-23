@@ -24,7 +24,6 @@ from absl import logging
 from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
-import flax
 import gin
 import jax
 import matplotlib.backends.backend_agg as mpl_agg
@@ -50,7 +49,7 @@ class Callback:
   The instance methods of these objects are hooks that get executed at various
   phases of training (i.e. fixed positions inside `train.run` function).
 
-  The execution  (in `train.run`) observes the following flow::
+  The execution (in `train.run`) observes the following flow::
 
     callbacks.on_train_begin()
     while training:
@@ -105,6 +104,7 @@ class Callback:
     """Called when training ends."""
 
 
+# This callback does not seem to work with `utils.primary_process_only`.
 class TrainStateCheckpoint(Callback):
   """Callback that periodically saves train state checkpoints."""
 
@@ -112,11 +112,15 @@ class TrainStateCheckpoint(Callback):
       self,
       base_dir: str,
       folder_prefix: str = "checkpoints",
+      train_state_field: str = "default",
       options: ocp.CheckpointManagerOptions | None = None,
   ):
     self.save_dir = os.path.join(base_dir, folder_prefix)
+    self.train_state_field = train_state_field
     self.ckpt_manager = ocp.CheckpointManager(
-        self.save_dir, ocp.PyTreeCheckpointer(), options=options
+        self.save_dir,
+        item_handlers={self.train_state_field: ocp.StandardCheckpointHandler()},
+        options=options,
     )
 
   def on_train_begin(self, trainer: Trainer) -> None:
@@ -124,16 +128,17 @@ class TrainStateCheckpoint(Callback):
     self.last_eval_metric = {}
     # retrieve from existing checkpoints if possible
     if self.ckpt_manager.latest_step() is not None:
-      train_state = self.ckpt_manager.restore(
-          self.ckpt_manager.latest_step(), items=trainer.train_state
+      restored = self.ckpt_manager.restore(
+          self.ckpt_manager.latest_step(),
+          args=ocp.args.Composite(**{
+              self.train_state_field: ocp.args.StandardRestore(
+                  item=trainer.train_state
+              )
+          }),
       )
-      # Replicate the restored train state (always unreplicated) for a
-      # distributed trainer.
-      trainer.train_state = (
-          flax.jax_utils.replicate(train_state)
-          if trainer.is_distributed
-          else train_state
-      )
+      # The restored train state gets automatically replicated according to the
+      # shape of `trainer.train_state` so we don't need to do it manually.
+      trainer.train_state = getattr(restored, self.train_state_field)
 
   def on_train_batches_end(
       self, trainer: Trainer, train_metrics: ComputedMetrics
@@ -145,7 +150,11 @@ class TrainStateCheckpoint(Callback):
           step=cur_step,
           # This always saves the unreplicated train state.
           # Converting to np array seems necessary for multi-host environments.
-          items=jax.tree_map(np.array, trainer.unreplicated_train_state),
+          args=ocp.args.Composite(**{
+              self.train_state_field: ocp.args.StandardSave(
+                  jax.tree.map(np.array, trainer.unreplicated_train_state)
+              )
+          }),
           metrics=dict(**train_metrics, **self.last_eval_metric),
       )
 
@@ -160,9 +169,14 @@ class TrainStateCheckpoint(Callback):
     if self.ckpt_manager.latest_step() != trainer.train_state.int_step:
       self.ckpt_manager.save(
           trainer.train_state.int_step,
-          items=jax.tree_map(np.array, trainer.unreplicated_train_state),
+          args=ocp.args.Composite(**{
+              self.train_state_field: ocp.args.StandardSave(
+                  jax.tree.map(np.array, trainer.unreplicated_train_state)
+              )
+          }),
           force=True,
       )
+    self.ckpt_manager.wait_until_finished()
 
 
 @utils.primary_process_only
@@ -340,7 +354,6 @@ def figure_to_image(figures: Figures) -> np.ndarray:
   return np.stack(images)
 
 
-@utils.primary_process_only
 class MatplotlibFigureAsImage(Callback):
   """Makes matplotlib figures and writes to tensorboard.
 
@@ -386,6 +399,8 @@ class MatplotlibFigureAsImage(Callback):
   """
 
   def write_images(self, step: int, images: Mapping[str, Figures]) -> None:
+    # Writing should only happen on primary host if metric writer is set up
+    # correctly (i.e. with `just_logging=jax.process_index() > 0`).
     self.metric_writer.write_images(
         step, {k: figure_to_image(v) for k, v in images.items()}
     )

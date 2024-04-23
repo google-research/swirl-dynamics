@@ -23,7 +23,7 @@ from clu import metric_writers
 import flax
 import jax
 import jax.numpy as jnp
-from orbax import checkpoint
+import orbax.checkpoint as ocp
 from swirl_dynamics.templates import callbacks
 from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
@@ -74,7 +74,7 @@ class TrainStateCheckpointCallbackTest(parameterized.TestCase):
   def test_saves_correct_number_of_files(
       self, num_train_steps, save_interval_steps, max_to_keep, replicated_state
   ):
-    options = checkpoint.CheckpointManagerOptions(
+    options = ocp.CheckpointManagerOptions(
         save_interval_steps=save_interval_steps, max_to_keep=max_to_keep
     )
     work_dir = self.create_tempdir().full_path
@@ -90,18 +90,30 @@ class TrainStateCheckpointCallbackTest(parameterized.TestCase):
       trainer.train_state = _mock_train_state(step + 1, replicated_state)
       callback.on_train_batches_end(trainer, train_metrics={})
 
+    callback.ckpt_manager.wait_until_finished()
+
     files = os.listdir(callback.save_dir)
     num_ckpts = min(num_train_steps // save_interval_steps + 1, max_to_keep)
     self.assertLen(files, num_ckpts)
 
-    callback.on_train_end(trainer=trainer)
-    mngr = checkpoint.CheckpointManager(
-        os.path.join(work_dir, "checkpoints"),
-        checkpoint.PyTreeCheckpointer(),
-        options,
-    )
-    restored_state_dict = mngr.restore(step=mngr.latest_step())
-    self.assertEqual(restored_state_dict["step"], num_train_steps)
+  @parameterized.product(
+      replicated_state=(True, False),
+  )
+  def test_restore_saved_state(self, replicated_state):
+    work_dir = self.create_tempdir().full_path
+    TestTrainer.is_distributed = replicated_state
+    old_trainer = TestTrainer(model=mock.Mock(), rng=jax.random.PRNGKey(0))
+    old_trainer.train_state = _mock_train_state(20, replicated_state)
+    old_callback = callbacks.TrainStateCheckpoint(base_dir=work_dir)
+    old_callback.last_eval_metric = {}
+    old_callback.on_train_batches_end(old_trainer, train_metrics={})
+    old_callback.ckpt_manager.wait_until_finished()
+    # restore
+    new_callback = callbacks.TrainStateCheckpoint(base_dir=work_dir)
+    new_trainer = TestTrainer(model=mock.Mock(), rng=jax.random.PRNGKey(0))
+    new_callback.on_train_begin(new_trainer)
+    self.assertIsInstance(new_trainer.train_state, train_states.TrainState)
+    self.assertEqual(new_trainer.train_state.int_step, 20)
 
 
 class ProgressReportCallbackTest(parameterized.TestCase):
