@@ -35,7 +35,7 @@ VariableDict = train_states.FrozenVariableDict
 M = TypeVar("M")  # Model
 S = TypeVar("S", bound=train_states.TrainState)  # Train state
 
-PMAP_AXIS_NAME = "device"
+PMAP_AXIS_NAME = "batch"
 
 
 class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
@@ -110,10 +110,8 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
     """Returns unreplicated train state (for checkpointing or inference)."""
     return self._maybe_unreplicate(self.train_state)
 
-  def _maybe_pmap(
-      self, fn: Callable[..., Any], axis_name: str = PMAP_AXIS_NAME
-  ) -> Callable[..., Any]:
-    return jax.pmap(fn, axis_name=axis_name) if self.is_distributed else fn
+  def _maybe_pmap(self, fn: Callable[..., Any]) -> Callable[..., Any]:
+    return jax.pmap(fn, axis_name=PMAP_AXIS_NAME) if self.is_distributed else fn
 
   def _maybe_unreplicate(self, tree: PyTree) -> PyTree:
     return flax.jax_utils.unreplicate(tree) if self.is_distributed else tree
@@ -445,7 +443,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
           train_state.params, batch, rng, train_state.flax_mutables
       )
       # Collective operations like `pmean` are computed over GLOBAL devices
-      grads = jax.lax.pmean(grads, axis_name="device")
+      grads = jax.lax.pmean(grads, axis_name=PMAP_AXIS_NAME)
       # No need to modify `update_state` here because pmapped version should
       # just work
       # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
@@ -456,7 +454,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
       # This takes care of both `gather` (local) and `reduce` (global) so a
       # single unreplicate call returns the computed metrics outside
       metrics_update = self.TrainMetrics.gather_from_model_output(
-          axis_name="device", **metrics
+          axis_name=PMAP_AXIS_NAME, **metrics
       )
       return new_state, metrics_update
 
@@ -474,7 +472,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
           variables=train_state.model_variables, batch=batch, rng=rng
       )
       return self.EvalMetrics.gather_from_model_output(
-          axis_name="device", **eval_metrics
+          axis_name=PMAP_AXIS_NAME, **eval_metrics
       )
 
     return _eval_step
