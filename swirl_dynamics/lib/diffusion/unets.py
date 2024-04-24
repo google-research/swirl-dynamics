@@ -90,6 +90,7 @@ class AttentionBlock(nn.Module):
   """Attention block."""
 
   num_heads: int = 1
+  normalize_qk: bool = False
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
@@ -105,6 +106,7 @@ class AttentionBlock(nn.Module):
         precision=self.precision,
         param_dtype=self.param_dtype,
         name="dot_attn",
+        normalize_qk=self.normalize_qk,
     )(h, h)
     return layers.CombineResidualWithSkip()(residual=h, skip=x)
 
@@ -467,6 +469,7 @@ class DStack(nn.Module):
   num_heads: int = 8
   channels_per_head: int = -1
   use_position_encoding: bool = False
+  normalize_qk: bool = False
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
@@ -528,6 +531,7 @@ class DStack(nn.Module):
               num_heads=self.num_heads,
               precision=self.precision,
               dtype=self.dtype,
+              normalize_qk=self.normalize_qk,
               param_dtype=self.param_dtype,
               name=f"res{'x'.join(res.astype(str))}.down.block{block_id}.attn",
           )(h.reshape(b, -1, c), is_training=is_training)
@@ -572,6 +576,7 @@ class UStack(nn.Module):
   use_attention: bool = False
   num_heads: int = 8
   channels_per_head: int = -1
+  normalize_qk: bool = False
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
@@ -610,6 +615,7 @@ class UStack(nn.Module):
           b, *hw, c = h.shape
           h = AttentionBlock(
               num_heads=self.num_heads,
+              normalize_qk=self.normalize_qk,
               precision=self.precision,
               dtype=self.dtype,
               param_dtype=self.param_dtype,
@@ -672,6 +678,7 @@ class UNet(nn.Module):
   use_attention: bool = True  # lowest resolution only
   use_position_encoding: bool = True
   num_heads: int = 8
+  normalize_qk: bool = False
   cond_resize_method: str = "bilinear"
   cond_embed_dim: int = 128
   cond_merging_fn: type[MergeChannelCond] = InterpConvMerge
@@ -745,6 +752,7 @@ class UNet(nn.Module):
         use_attention=self.use_attention,
         num_heads=self.num_heads,
         use_position_encoding=self.use_position_encoding,
+        normalize_qk=self.normalize_qk,
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
@@ -757,6 +765,7 @@ class UNet(nn.Module):
         dropout_rate=self.dropout_rate,
         use_attention=self.use_attention,
         num_heads=self.num_heads,
+        normalize_qk=self.normalize_qk,
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,

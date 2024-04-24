@@ -30,6 +30,20 @@ from swirl_dynamics.templates import callbacks
 from swirl_dynamics.templates import train
 import tensorflow as tf
 
+_ERA5_VARIABLES = {
+    "temperature": {"level": 1000},
+    "specific_humidity": {"level": 1000},
+    "geopotential": {"level": [200, 500]},
+    "mean_sea_level_pressure": None,
+}
+
+_ERA5_WIND_COMPONENTS = {
+    "u_component_of_wind": {"level": 1000},
+    "v_component_of_wind": {"level": 1000},
+}
+
+_LENS2_MEMBER_INDEXER = {"member": "cmip6_1001_001"}
+_LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "Z200", "Z500", "PSL", "WSPDSRFAV")
 
 FLAGS = flags.FLAGS
 
@@ -77,6 +91,7 @@ def main(argv):
           learning_rate=schedule,
           b1=config.beta1,
       ),
+      # optax.ema(decay=0.999)
   )
 
   assert (
@@ -115,47 +130,85 @@ def main(argv):
     )
   elif config.pygrain_zarr:
 
+    # TODO write and use a get_config instead.
+    if "interp_shapes_target" in config:
+      interp_shapes_target = config.interp_shapes_target
+    else:
+      interp_shapes_target = None
+
+    if "era5_variables" in config:
+      era5_variables = config.era5_variables.to_dict()
+    else:
+      era5_variables = _ERA5_VARIABLES
+
+    if "era5_wind_components" in config:
+      era5_wind_components = config.era5_wind_components.to_dict()
+    else:
+      era5_wind_components = _ERA5_WIND_COMPONENTS
+
+    if "lens2_member_indexer" in config:
+      lens2_member_indexer = config.lens2_member_indexer.to_dict()
+    else:
+      lens2_member_indexer = _LENS2_MEMBER_INDEXER
+
+    if "lens2_variable_names" in config:
+      lens2_variable_names = config.lens2_variable_names
+    else:
+      lens2_variable_names = _LENS2_VARIABLE_NAMES
+
     era5_loader_train = data_utils.create_era5_loader(
         date_range=config.data_range_train,
         shuffle=config.shuffle,
+        variables=era5_variables,
+        wind_components=era5_wind_components,
         seed=config.seed,
         batch_size=config.batch_size,
         filter_extremes=config.filter_extremes,
         extreme_norm=config.extreme_norm,
         drop_remainder=True,
-        worker_count=0,)
+        interp_shapes=interp_shapes_target,
+        worker_count=config.num_workers,)
 
     lens2_loader_train = data_utils.create_lens2_loader(
         date_range=config.data_range_train,
         shuffle=config.shuffle,
         seed=config.seed,
+        member_indexer=lens2_member_indexer,
+        variable_names=lens2_variable_names,
         batch_size=config.batch_size,
         drop_remainder=True,
         interp_shapes=config.interp_shapes,
-        worker_count=0,)
+        worker_count=config.num_workers,)
 
-    train_dataloader = data_utils.DualLens2Era5Dataset(era5_loader_train,
-                                                       lens2_loader_train)
+    train_dataloader = data_utils.DualLens2Era5Dataset(
+        era5_loader=era5_loader_train, lens2_loader=lens2_loader_train
+    )
 
     era5_loader_eval = data_utils.create_era5_loader(
         date_range=config.data_range_eval,
         shuffle=config.shuffle,
         seed=config.seed,
         batch_size=config.batch_size_eval,
+        variables=era5_variables,
+        wind_components=era5_wind_components,
         drop_remainder=True,
-        worker_count=0,)
+        interp_shapes=interp_shapes_target,
+        worker_count=config.num_workers,)
 
     lens2_loader_eval = data_utils.create_lens2_loader(
         date_range=config.data_range_eval,
         shuffle=config.shuffle,
         seed=config.seed,
         batch_size=config.batch_size_eval,
+        member_indexer=lens2_member_indexer,
+        variable_names=lens2_variable_names,
         drop_remainder=True,
         interp_shapes=config.interp_shapes,
-        worker_count=0,)
+        worker_count=config.num_workers,)
 
-    eval_dataloader = data_utils.DualLens2Era5Dataset(era5_loader_eval,
-                                                      lens2_loader_eval)
+    eval_dataloader = data_utils.DualLens2Era5Dataset(
+        era5_loader=era5_loader_eval, lens2_loader=lens2_loader_eval
+    )
   else:  # to avoid the linter to complain.
     train_dataloader = None
     eval_dataloader = None
@@ -173,6 +226,7 @@ def main(argv):
       resize_to_shape=config.resize_to_shape,
       use_position_encoding=config.use_position_encoding,
       num_heads=config.num_heads,
+      normalize_qk=config.normalize_qk,
   )
 
   model = models.ReFlowModel(
