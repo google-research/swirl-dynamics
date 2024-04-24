@@ -58,6 +58,7 @@ class AxialSelfAttentionBlock(nn.Module):
   add_position_embedding: bool | Sequence[bool] = True
   num_heads: int | Sequence[int] = 1
   precision: PrecisionLike = None
+  normalize_qk: bool = False
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -91,6 +92,7 @@ class AxialSelfAttentionBlock(nn.Module):
           num_heads=num_head,
           kernel_init=nn.initializers.xavier_uniform(),
           deterministic=not is_training,
+          normalize_qk=self.normalize_qk,
           dtype=self.dtype,
           param_dtype=self.param_dtype,
           precision=self.precision,
@@ -120,9 +122,10 @@ class DStack(nn.Module):
   num_input_proj_channels: int = 128
   padding: str = "LATLON"
   dropout_rate: float = 0.0
-  num_heads: int = 8
   use_position_encoding: bool = False
   precision: PrecisionLike = None
+  num_heads: int = 8
+  normalize_qk: bool = False
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -187,6 +190,7 @@ class DStack(nn.Module):
               precision=self.precision,
               dtype=self.dtype,
               param_dtype=self.param_dtype,
+              normalize_qk=self.normalize_qk,
               name=f"{nt}xres{'x'.join(dims_str)}.dblock{block_id}.attn",
           )(h, is_training=is_training)
         skips.append(h)
@@ -213,6 +217,7 @@ class UStack(nn.Module):
   use_position_encoding: bool = False
   num_heads: int = 8
   precision: PrecisionLike = None
+  normalize_qk: bool = False
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -265,6 +270,7 @@ class UStack(nn.Module):
               precision=self.precision,
               dtype=self.dtype,
               param_dtype=self.param_dtype,
+              normalize_qk=self.normalize_qk,
               name=f"{nt}xres{'x'.join(dims_str)}.ublock{block_id}.attn",
           )(h, is_training=is_training)
 
@@ -327,6 +333,8 @@ class UNet3d(nn.Module):
     use_position_encoding: Whether to add position encoding before axial
       attention.
     num_heads: Number of attention heads.
+    normalize_qk: Whether to apply normalization to the Q and K matrices of
+      attention layers.
     cond_resize_method: Resize method for channel-wise conditioning.
     cond_embed_dim: Embedding dimension for channel-wise conditioning.
   """
@@ -345,6 +353,7 @@ class UNet3d(nn.Module):
   use_temporal_attention: bool | Sequence[bool] = (False, False, False, True)
   use_position_encoding: bool = True
   num_heads: int = 8
+  normalize_qk: bool = False
   cond_resize_method: str = "cubic"
   cond_embed_dim: int = 128
   precision: PrecisionLike = None
@@ -435,11 +444,12 @@ class UNet3d(nn.Module):
         dropout_rate=self.dropout_rate,
         use_spatial_attention=use_spatial_attn,
         use_temporal_attention=use_temporal_attn,
-        num_heads=self.num_heads,
         use_position_encoding=self.use_position_encoding,
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
+        num_heads=self.num_heads,
+        normalize_qk=self.normalize_qk,
     )(x, emb, is_training=is_training)
     h = UStack(
         num_channels=self.num_channels[::-1],
@@ -454,6 +464,7 @@ class UNet3d(nn.Module):
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
+        normalize_qk=self.normalize_qk,
     )(skips[-1], emb, skips, is_training=is_training)
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
     h = layers.ConvLayer(

@@ -70,6 +70,7 @@ class AxialSelfAttention(nn.Module):
   kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
   deterministic: bool = True
   precision: PrecisionLike = None
+  normalize_qk: bool = False
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -90,6 +91,7 @@ class AxialSelfAttention(nn.Module):
         num_heads=self.num_heads,
         kernel_init=self.kernel_init,
         deterministic=self.deterministic,
+        normalize_qk=self.normalize_qk,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
         precision=self.precision,
