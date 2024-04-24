@@ -22,8 +22,6 @@ import pandas as pd
 from swirl_dynamics.data import zarr_utils
 import xarray as xr
 
-FLAGS = flags.FLAGS
-
 
 class ZarrUtilsTest(parameterized.TestCase):
 
@@ -158,4 +156,5 @@ class ZarrUtilsTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
+  flags.FLAGS.mark_as_parsed()
   absltest.main()

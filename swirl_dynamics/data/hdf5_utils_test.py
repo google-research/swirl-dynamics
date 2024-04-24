@@ -21,8 +21,6 @@ from jax import tree_util
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
 
-FLAGS = flags.FLAGS
-
 
 class Hdf5UtilsTest(parameterized.TestCase):
 
@@ -65,4 +63,5 @@ class Hdf5UtilsTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
+  flags.FLAGS.mark_as_parsed()
   absltest.main()
