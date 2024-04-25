@@ -34,7 +34,7 @@ dependencies = [
   "matplotlib",
   "numpy",
   "optax",
-  "orbax-checkpoint==0.5.0",
+  "orbax-checkpoint",
   "tensorflow",
   "tqdm",
   "xarray",
