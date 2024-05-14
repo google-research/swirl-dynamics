@@ -195,22 +195,22 @@ def interpolants_minus(u_bar: Array, order: int = 3) -> Array:
   eno_polynomials = jnp.array([0., 0.])
 
   if order == 3:
-    # u^0_{i-1/2} = 0.5( -u_{i+1} + 3 u_{i}).
-    u_minus_0 = 0.5 * (3 * u_bar[1] - u_bar[2])
     # u^1_{i-1/2} = 0.5(u_{i-1} + u_{i}).
-    u_minus_1 = 0.5 * (u_bar[0] + u_bar[1])
+    u_minus_0 = 0.5 * (u_bar[0] + u_bar[1])
+    # u^0_{i-1/2} = 0.5( -u_{i+1} + 3 u_{i}).
+    u_minus_1 = 0.5 * (3 * u_bar[1] - u_bar[2])
 
-    eno_polynomials = jnp.array([u_minus_0, u_minus_1])
+    eno_polynomials = jnp.array([u_minus_1, u_minus_0])
 
   elif order == 5:
-    # u^1_{i+1/2} = ( 2 u_{i} + 5 u_{i+1} -1 u_{i+2}) / 6.
+    # u^1_{i-1/2} = ( 2 u_{i} + 5 u_{i+1} -1 u_{i+2}) / 6.
     u_minus_0 = (- u_bar[0] + 5 * u_bar[1] + 2 * u_bar[2]) / 6.
-    # u^1_{i+1/2} = ( - u_{i-1} + 5 u_{i} + 2 * u_{i+1}) / 6.
+    # u^1_{i-1/2} = ( - u_{i-1} + 5 u_{i} + 2 * u_{i+1}) / 6.
     u_minus_1 = (2 * u_bar[1] + 5 * u_bar[2] - u_bar[3]) / 6.
-    # u^0_{i+1/2} = ( -2 u_{i-2} - 7 u_{i-1} + 11 * u_{0}) / 6.
+    # u^0_{i-1/2} = ( -2 u_{i-2} - 7 u_{i-1} + 11 * u_{0}) / 6.
     u_minus_2 = (11 * u_bar[2] - 7 * u_bar[3] + 2 * u_bar[4]) / 6.
 
-    eno_polynomials = jnp.array([u_minus_0, u_minus_1, u_minus_2])
+    eno_polynomials = jnp.array([u_minus_2, u_minus_1, u_minus_0])
 
   return eno_polynomials
 
