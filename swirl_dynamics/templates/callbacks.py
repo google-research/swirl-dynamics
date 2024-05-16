@@ -26,7 +26,6 @@ from clu import parameter_overview
 from clu import periodic_actions
 import gin
 import jax
-import matplotlib.backends.backend_agg as mpl_agg
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
@@ -339,6 +338,9 @@ Figures = Sequence[plt.Figure] | plt.Figure
 
 def figure_to_image(figures: Figures) -> np.ndarray:
   """Converts a sequence of figures to image data ingestable by tensorboard."""
+
+  # This import is rather heavy so we only do it when it's actually needed.
+  import matplotlib.backends.backend_agg as mpl_agg  # pylint: disable=g-import-not-at-top
 
   def render_to_rgb(figure: plt.Figure) -> np.ndarray:
     canvas = mpl_agg.FigureCanvasAgg(figure)
