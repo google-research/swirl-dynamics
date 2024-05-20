@@ -58,6 +58,27 @@ class TensorAverageTest(parameterized.TestCase):
       (None,),
       (3,),
   )
+  def test_from_model_output_with_mask(self, mean_axis):
+    test_shape = (1, 2, 3, 4, 5)
+    mask = np.ones(test_shape)
+    mask[0, 0, :, 0, 0] = 0
+    metric_cls = evaluate.TensorAverage(mean_axis).from_output("abc")
+    rng = np.random.default_rng(123)
+    test_values = rng.random(test_shape)
+    metric = metric_cls.from_model_output(abc=test_values, mask=mask)
+    metric_compute = metric.compute()
+    # A masked numpy array ignores the masked elements, opposite to our mask.
+    expected = np.ma.array(test_values, mask=np.logical_not(mask)).mean(
+        axis=mean_axis
+    )
+    np.testing.assert_allclose(metric_compute, expected, atol=1e-5)
+
+  @parameterized.parameters(
+      ((1, 2),),
+      ((0, 1, 2, 3, 4),),
+      (None,),
+      (3,),
+  )
   def test_merge(self, mean_axis):
     test_shape = (1, 2, 3, 4, 5)
     metric_cls = evaluate.TensorAverage(mean_axis).from_output("abc")

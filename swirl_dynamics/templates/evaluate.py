@@ -43,6 +43,27 @@ PredType = Any
 
 
 # Forked from clu.metrics
+def check_param(value, *, ndim=None, dtype=jnp.float32):
+  """Raises a `ValueError` if `value` does not match ndim/dtype.
+
+  Args:
+    value: Value to be tested.
+    ndim: Expected dimensions.
+    dtype: Expected dtype.
+
+  Raises:
+    A `ValueError` if `value` does not match `ndim` or `dtype`, or if `value`
+    is not an instance of `jnp.ndarray`.
+  """
+  if not isinstance(value, (np.ndarray, jnp.ndarray)):
+    raise ValueError(f"Expected np.array or jnp.array, got type={type(value)}")
+  if ndim is not None and value.ndim != ndim:
+    raise ValueError(f"Expected ndim={ndim}, got ndim={value.ndim}")
+  if dtype is not None and value.dtype != dtype:
+    raise ValueError(f"Expected dtype={dtype}, got dtype={value.dtype}")
+
+
+# Forked from clu.metrics
 def _broadcast_masks(values: jax.Array, mask: jax.Array | None):
   """Checks and broadcasts mask for aggregating values."""
   if values.ndim == 0:
@@ -60,6 +81,7 @@ def _broadcast_masks(values: jax.Array, mask: jax.Array | None):
   if mask.ndim < values.ndim:
     mask = jnp.expand_dims(mask, axis=tuple(np.arange(mask.ndim, values.ndim)))
   mask = mask.astype(bool)
+  check_param(mask, dtype=bool, ndim=values.ndim)
   return values, mask
 
 
@@ -130,12 +152,19 @@ def TensorAverage(  # pylint: disable=invalid-name
     """Tensor Average metric class."""
 
     @classmethod
-    def from_model_output(cls, values: jax.Array, **_) -> clu_metrics.Average:
+    def from_model_output(
+        cls, values: jax.Array, mask: jnp.ndarray | None = None, **_
+    ) -> clu_metrics.Average:
       """Construct a metric instance given model output values."""
       values = jnp.square(values) if rms else values
+      values, mask = _broadcast_masks(values, mask)
       return cls(
-          total=jnp.sum(values, axis=axis),
-          count=jnp.ones_like(values, dtype=jnp.int32).sum(axis=axis),
+          total=jnp.where(mask, values, jnp.zeros_like(values)).sum(axis=axis),
+          count=jnp.where(
+              mask,
+              jnp.ones_like(values, dtype=jnp.int32),
+              jnp.zeros_like(values, dtype=jnp.int32),
+          ).sum(axis=axis),
       )
 
     def merge(self, other: clu_metrics.Average) -> clu_metrics.Average:
