@@ -153,7 +153,7 @@ def TensorAverage(  # pylint: disable=invalid-name
 
     @classmethod
     def from_model_output(
-        cls, values: jax.Array, mask: jnp.ndarray | None = None, **_
+        cls, values: jax.Array, mask: jax.Array | None = None, **_
     ) -> clu_metrics.Average:
       """Construct a metric instance given model output values."""
       values = jnp.square(values) if rms else values
