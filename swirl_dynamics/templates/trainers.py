@@ -97,8 +97,8 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
   # Convenience properties/functions
   # **********************************
 
-  def get_train_rng(self, num: int = 1) -> Array:
-    rng = jax.random.fold_in(self._train_rng, self.train_state.int_step)
+  def get_train_rng(self, step: int, num: int = 1) -> Array:
+    rng = jax.random.fold_in(self._train_rng, step)
     return jax.random.split(rng, num=num)
 
   def get_eval_rng(self, num: int = 1) -> Array:
@@ -130,13 +130,16 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
 
   def train(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
     """Runs training for a specified number of steps."""
+    # `.int_step` may involve unreplicate (expensive), so we do it only once.
+    step0 = self.train_state.int_step
     train_metrics = self.TrainMetrics.empty()
     for step in range(num_steps):
-      with jax.profiler.StepTraceAnnotation("train", step_num=step):
-        train_rng, preproc_rng = self.get_train_rng(num=2)
+      cur_step = step0 + step
+      with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
+        train_rng, preproc_rng = self.get_train_rng(step=cur_step, num=2)
         batch = self.preprocess_train_batch(
             batch_data=next(batch_iter),
-            step=self.train_state.int_step,
+            step=cur_step,
             rng=preproc_rng,
         )
         self.train_state, metrics_update = self._compiled_train_step(
