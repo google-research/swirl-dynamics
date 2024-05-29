@@ -407,11 +407,11 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     loss: clu_metrics.Average.from_output("loss")
     loss_std: clu_metrics.Std.from_output("loss")
     l2: clu_metrics.Average.from_output("l2")
-    l2_std: clu_metrics.Average.from_output("l2")
+    l2_std: clu_metrics.Std.from_output("l2")
     measure_dist: clu_metrics.Average.from_output("measure_dist")
-    measure_dist_std: clu_metrics.Average.from_output("measure_dist")
+    measure_dist_std: clu_metrics.Std.from_output("measure_dist")
     measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")
-    measure_dist_k_std: clu_metrics.Average.from_output("measure_dist_k")
+    measure_dist_k_std: clu_metrics.Std.from_output("measure_dist_k")
     rollout: clu_metrics.Average.from_output("rollout")
     max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")
 
@@ -551,14 +551,14 @@ class PlotFigures(callbacks.Callback):
       print("please install matplotlib")
 
     def render_to_rgb(figure):
-      canvas = plt_backend_agg.FigureCanvasAgg(figure)
+      canvas = plt_backend_agg.FigureCanvasAgg(figure)  # pylint: disable=undefined-variable
       canvas.draw()
       data = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
       w, h = figure.canvas.get_width_height()
       image_hwc = data.reshape([h, w, 4])[:, :, 0:3]
       image_chw = np.moveaxis(image_hwc, source=2, destination=0)
       if close:
-        plt.close(figure)
+        plt.close(figure)  # pylint: disable=undefined-variable
       return image_chw
 
     if isinstance(figures, list):
