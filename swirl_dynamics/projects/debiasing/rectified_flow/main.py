@@ -14,13 +14,13 @@
 
 r"""The main entry point for running training loops."""
 
+import itertools
 import json
 from os import path as osp
 
 from absl import app
 from absl import flags
 from absl import logging
-
 import jax
 from ml_collections import config_flags
 import optax
@@ -197,6 +197,24 @@ def main(argv):
           batch_size=config.batch_size_eval,
           drop_remainder=True,
           worker_count=config.num_workers,)
+
+    elif "dummy_loaders" in config and config.dummy_loaders:
+      # Dummy data.
+      fake_batch_lens2 = {
+          "x_0": jax.numpy.zeros(
+              (config.batch_size,) + config.input_shapes[0][1:]
+          )
+      }
+      fake_batch_era5 = {
+          "x_1": jax.numpy.ones(
+              (config.batch_size,) + config.input_shapes[1][1:]
+          )
+      }
+
+      era5_loader_train = era5_loader_eval = itertools.repeat(fake_batch_era5)
+      lens2_loader_train = lens2_loader_eval = itertools.repeat(
+          fake_batch_lens2
+      )
 
     else:
       era5_loader_train = data_utils.create_era5_loader(
