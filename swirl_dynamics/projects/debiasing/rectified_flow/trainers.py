@@ -13,8 +13,8 @@
 # limitations under the License.
 
 """Trainers for ReFlow models."""
-
 from collections.abc import Callable
+import functools
 
 from clu import metrics as clu_metrics
 import flax
@@ -54,14 +54,13 @@ class ReFlowTrainer(
     train_loss: clu_metrics.Average.from_output("loss")
     train_loss_std: clu_metrics.Std.from_output("loss")
 
-  EvalMetrics = clu_metrics.Collection.create(  # pylint: disable=invalid-name
-      **{
-          f"eval_time_lvl{i}": clu_metrics.Average.from_output(
-              f"time_lvl{i}"
-          )
-          for i in range(models.ReFlowModel.num_eval_time_levels)
-      }
-  )
+  @functools.cached_property
+  def EvalMetrics(self):
+    denoising_metrics = {
+        f"eval_time_lvl{i}": clu_metrics.Average.from_output(f"time_lvl{i}")
+        for i in range(self.model.num_eval_time_levels)
+    }
+    return clu_metrics.Collection.create(**denoising_metrics)
 
   def __init__(self, ema_decay: float, *args, **kwargs):
     """Initializes the trainer along the ema state."""
@@ -126,6 +125,3 @@ class DistributedReFlowTrainer(
   """Multi-device trainer for rectified flow models."""
 
   # TODO: Write a test for this trainer.
-
-  # MRO: ReFlowTrainer > BasicDistributedTrainer > BasicTrainer
-  ...

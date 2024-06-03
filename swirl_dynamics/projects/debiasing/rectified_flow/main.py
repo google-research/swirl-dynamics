@@ -144,12 +144,6 @@ def main(argv):
     )
   elif config.pygrain_zarr:
 
-    # TODO write and use a get_config instead.
-    if "interp_shapes_target" in config:
-      interp_shapes_target = config.interp_shapes_target
-    else:
-      interp_shapes_target = None
-
     if "era5_variables" in config:
       era5_variables = config.era5_variables.to_dict()
     else:
@@ -170,55 +164,85 @@ def main(argv):
     else:
       lens2_variable_names = _LENS2_VARIABLE_NAMES
 
-    era5_loader_train = data_utils.create_era5_loader(
-        date_range=config.data_range_train,
-        shuffle=config.shuffle,
-        variables=era5_variables,
-        wind_components=era5_wind_components,
-        seed=config.seed,
-        batch_size=config.batch_size,
-        filter_extremes=config.filter_extremes,
-        extreme_norm=config.extreme_norm,
-        drop_remainder=True,
-        interp_shapes=interp_shapes_target,
-        worker_count=config.num_workers,)
+    if "default_loaders" in config and config.default_loaders:
 
-    lens2_loader_train = data_utils.create_lens2_loader(
-        date_range=config.data_range_train,
-        shuffle=config.shuffle,
-        seed=config.seed,
-        member_indexer=lens2_member_indexer,
-        variable_names=lens2_variable_names,
-        batch_size=config.batch_size,
-        drop_remainder=True,
-        interp_shapes=config.interp_shapes,
-        worker_count=config.num_workers,)
+      era5_loader_train = data_utils.create_default_era5_loader(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
 
+      lens2_loader_train = data_utils.create_default_lens2_loader(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+      era5_loader_eval = data_utils.create_default_era5_loader(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+      lens2_loader_eval = data_utils.create_default_lens2_loader(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+    else:
+      era5_loader_train = data_utils.create_era5_loader(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          variables=era5_variables,
+          wind_components=era5_wind_components,
+          seed=config.seed,
+          batch_size=config.batch_size,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+      lens2_loader_train = data_utils.create_lens2_loader(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          member_indexer=lens2_member_indexer,
+          variable_names=lens2_variable_names,
+          batch_size=config.batch_size,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+      era5_loader_eval = data_utils.create_era5_loader(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          variables=era5_variables,
+          wind_components=era5_wind_components,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+      lens2_loader_eval = data_utils.create_lens2_loader(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          member_indexer=lens2_member_indexer,
+          variable_names=lens2_variable_names,
+          drop_remainder=True,
+          worker_count=config.num_workers,)
+
+    # Then create the mixed dataloaders here.
     train_dataloader = data_utils.DualLens2Era5Dataset(
         era5_loader=era5_loader_train, lens2_loader=lens2_loader_train
     )
-
-    era5_loader_eval = data_utils.create_era5_loader(
-        date_range=config.data_range_eval,
-        shuffle=config.shuffle,
-        seed=config.seed,
-        batch_size=config.batch_size_eval,
-        variables=era5_variables,
-        wind_components=era5_wind_components,
-        drop_remainder=True,
-        interp_shapes=interp_shapes_target,
-        worker_count=config.num_workers,)
-
-    lens2_loader_eval = data_utils.create_lens2_loader(
-        date_range=config.data_range_eval,
-        shuffle=config.shuffle,
-        seed=config.seed,
-        batch_size=config.batch_size_eval,
-        member_indexer=lens2_member_indexer,
-        variable_names=lens2_variable_names,
-        drop_remainder=True,
-        interp_shapes=config.interp_shapes,
-        worker_count=config.num_workers,)
 
     eval_dataloader = data_utils.DualLens2Era5Dataset(
         era5_loader=era5_loader_eval, lens2_loader=lens2_loader_eval
