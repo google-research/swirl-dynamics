@@ -62,9 +62,7 @@ class FlowFlaxModule(Protocol):
   NOTE: This protocol is for reference only and not statically checked.
   """
 
-  def __call__(
-      self, x: Array, t: Array, is_training: bool
-  ) -> Array:
+  def __call__(self, x: Array, t: Array, is_training: bool) -> Array:
     ...
 
 
@@ -93,9 +91,12 @@ class ReFlowModel(models.BaseModel):
       jax.random.uniform, dtype=jnp.float32
   )
 
+  min_train_time: float = 1e-4  # This should be close to 0.
+  max_train_time: float = 1.0 - 1e-4  # It should be close to 1.
+
   num_eval_cases_per_lvl: int = 1
   min_eval_time_lvl: float = 1e-4  # This should be close to 0.
-  max_eval_time_lvl: float = 1 - 1e-4  # It should be close to 1.
+  max_eval_time_lvl: float = 1.0 - 1e-4  # It should be close to 1.
   num_eval_time_levels: ClassVar[int] = 10
 
   def initialize(self, rng: Array):
@@ -130,9 +131,12 @@ class ReFlowModel(models.BaseModel):
     batch_size = len(batch["x_0"])
     time_sample_rng, dropout_rng = jax.random.split(rng, num=2)
 
-    time_range = self.max_eval_time_lvl - self.min_eval_time_lvl
-    time = (time_range * self.time_sampling(time_sample_rng, (batch_size,))
-            + self.min_eval_time_lvl)
+    time_range = self.max_train_time - self.min_train_time
+    # add the normal-logit sampling here.
+    time = (
+        time_range * self.time_sampling(time_sample_rng, (batch_size,))
+        + self.min_train_time
+    )
 
     vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
 
@@ -165,23 +169,25 @@ class ReFlowModel(models.BaseModel):
 
     Args:
       variables: The full model variables for the flow module.
-      batch: A batch of evaluation data expected to contain two fields `x_0`
-        and `x_1` fields, representing samples of each set. Both fields are
-        expected to have shape of `(batch, *spatial_dims, channels)`.
+      batch: A batch of evaluation data expected to contain two fields `x_0` and
+        `x_1` fields, representing samples of each set. Both fields are expected
+        to have shape of `(batch, *spatial_dims, channels)`.
       rng: A Jax random key.
 
     Returns:
       A dictionary of evaluation metrics.
     """
-    choice_rng_0, choice_rng_1 = jax.random.split(rng)
+    # We bootstrap the samples from the batch, but we keep them paired by using
+    # the same random number generator seed.
+    choice_rng, _ = jax.random.split(rng)
     x_0 = jax.random.choice(
-        key=choice_rng_0,
+        key=choice_rng,
         a=batch["x_0"],
         shape=(self.num_eval_time_levels, self.num_eval_cases_per_lvl),
     )
 
     x_1 = jax.random.choice(
-        key=choice_rng_1,
+        key=choice_rng,
         a=batch["x_1"],
         shape=(self.num_eval_time_levels, self.num_eval_cases_per_lvl),
     )
@@ -196,11 +202,9 @@ class ReFlowModel(models.BaseModel):
     vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     x_t = vmap_mult(x_1, time_eval) + vmap_mult(x_0, 1 - time_eval)
     flow_fn = self.inference_fn(variables, self.flow_model)
-    v_t = jax.vmap(flow_fn, in_axes=(1, None), out_axes=1)(
-        x_t, time_eval
-    )
+    v_t = jax.vmap(flow_fn, in_axes=(1, None), out_axes=1)(x_t, time_eval)
 
-    # Eq. (1) in [1].
+    # Eq. (1) in [1]. (by default in_axes=0 and out_axes=0 in vmap)
     int_losses = jax.vmap(jnp.mean)(jnp.square((x_1 - x_0 - v_t)))
     eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
 
@@ -210,15 +214,11 @@ class ReFlowModel(models.BaseModel):
   def inference_fn(variables: models.PyTree, flow_model: nn.Module):
     """Returns the inference flow function."""
 
-    def _flow(
-        x: Array, time: float | Array
-    ) -> Array:
+    def _flow(x: Array, time: float | Array) -> Array:
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(
-          variables, x=x, sigma=time, is_training=False
-      )
+      return flow_model.apply(variables, x=x, sigma=time, is_training=False)
 
     return _flow
 
@@ -248,7 +248,7 @@ class RescaledUnet(unets.UNet):
       raise ValueError(
           f"Number of channels in the input ({x.shape[-1]}) must "
           "match the number of channels in the output "
-          f"{self.out_channel})."
+          f"{self.out_channels})."
       )
 
     if sigma.ndim < 1:
@@ -262,8 +262,6 @@ class RescaledUnet(unets.UNet):
 
     time = sigma * self.time_rescale
 
-    f_x = super().__call__(
-        x, time, cond, is_training=is_training
-    )
+    f_x = super().__call__(x, time, cond, is_training=is_training)
 
     return f_x

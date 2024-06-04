@@ -34,15 +34,15 @@ import tensorflow as tf
 
 
 _ERA5_VARIABLES = {
-    "temperature": {"level": 1000},
+    "2m_temperature": None,
     "specific_humidity": {"level": 1000},
     "geopotential": {"level": [200, 500]},
     "mean_sea_level_pressure": None,
 }
 
 _ERA5_WIND_COMPONENTS = {
-    "u_component_of_wind": {"level": 1000},
-    "v_component_of_wind": {"level": 1000},
+    "10m_u_component_of_wind": None,
+    "10m_v_component_of_wind": None,
 }
 
 _LENS2_MEMBER_INDEXER = {"member": "cmip6_1001_001"}
@@ -81,8 +81,9 @@ def main(argv):
   # Only 0-th process should write the json file to disk, in order to avoid
   # race conditions.
   if jax.process_index() == 0:
-    with tf.io.gfile.GFile(name=osp.join(workdir,
-                                         "config.json"), mode="w") as f:
+    with tf.io.gfile.GFile(
+        name=osp.join(workdir, "config.json"), mode="w"
+    ) as f:
       conf_json = config.to_json_best_effort()
       if isinstance(conf_json, str):  # Sometimes `.to_json()` returns string
         conf_json = json.loads(conf_json)
@@ -99,19 +100,19 @@ def main(argv):
   )
 
   optimizer = optax.chain(
-      # optax.clip(config.clip),
       optax.clip_by_global_norm(config.max_norm),
       optax.adam(
           learning_rate=schedule,
           b1=config.beta1,
       ),
-      # optax.ema(decay=0.999)
   )
 
   assert (
       config.input_shapes[0][-1] == config.input_shapes[1][-1]
       and config.input_shapes[0][-1] == config.out_channels
   )
+
+  # TODO: add an utility function to encapsulate all this code.
 
   if config.tf_grain_hdf5:
 
@@ -172,7 +173,8 @@ def main(argv):
           seed=config.seed,
           batch_size=config.batch_size,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
       lens2_loader_train = data_utils.create_default_lens2_loader(
           date_range=config.data_range_train,
@@ -180,7 +182,8 @@ def main(argv):
           seed=config.seed,
           batch_size=config.batch_size,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
       era5_loader_eval = data_utils.create_default_era5_loader(
           date_range=config.data_range_eval,
@@ -188,7 +191,8 @@ def main(argv):
           seed=config.seed,
           batch_size=config.batch_size_eval,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
       lens2_loader_eval = data_utils.create_default_lens2_loader(
           date_range=config.data_range_eval,
@@ -196,7 +200,8 @@ def main(argv):
           seed=config.seed,
           batch_size=config.batch_size_eval,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
     elif "dummy_loaders" in config and config.dummy_loaders:
       # Dummy data.
@@ -216,6 +221,67 @@ def main(argv):
           fake_batch_lens2
       )
 
+    elif "chunked_loaders" in config and config.chunked_loaders:
+      logging.info("Using chunked loaders.")
+      era5_loader_train = data_utils.create_chunked_era5_loader(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size,
+          num_chunks=config.num_chunks,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+
+      lens2_loader_train = data_utils.create_chunked_lens2_loader(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size,
+          num_chunks=config.num_chunks,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+
+      era5_loader_eval = data_utils.create_chunked_era5_loader(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          num_chunks=config.num_chunks,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+
+      lens2_loader_eval = data_utils.create_chunked_lens2_loader(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          num_chunks=config.num_chunks,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+
+    elif "chunked_aligned_loader" and config.chunked_aligned_loader:
+      logging.info("Using chunked aligned loaders.")
+
+      lens2_era5_loader_train = data_utils.create_lens2_era5_loader_chunked(
+          date_range=config.data_range_train,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+      lens2_era5_loader_eval = data_utils.create_lens2_era5_loader_chunked(
+          date_range=config.data_range_eval,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
     else:
       era5_loader_train = data_utils.create_era5_loader(
           date_range=config.data_range_train,
@@ -225,7 +291,8 @@ def main(argv):
           seed=config.seed,
           batch_size=config.batch_size,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
       lens2_loader_train = data_utils.create_lens2_loader(
           date_range=config.data_range_train,
@@ -235,7 +302,8 @@ def main(argv):
           variable_names=lens2_variable_names,
           batch_size=config.batch_size,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
       era5_loader_eval = data_utils.create_era5_loader(
           date_range=config.data_range_eval,
@@ -245,7 +313,8 @@ def main(argv):
           variables=era5_variables,
           wind_components=era5_wind_components,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
       lens2_loader_eval = data_utils.create_lens2_loader(
           date_range=config.data_range_eval,
@@ -255,16 +324,65 @@ def main(argv):
           member_indexer=lens2_member_indexer,
           variable_names=lens2_variable_names,
           drop_remainder=True,
-          worker_count=config.num_workers,)
+          worker_count=config.num_workers,
+      )
 
-    # Then create the mixed dataloaders here.
-    train_dataloader = data_utils.DualLens2Era5Dataset(
-        era5_loader=era5_loader_train, lens2_loader=lens2_loader_train
-    )
+    # Creating the DataLoaders.
+    if "chunked_loaders" in config and config.chunked_loaders:
 
-    eval_dataloader = data_utils.DualLens2Era5Dataset(
-        era5_loader=era5_loader_eval, lens2_loader=lens2_loader_eval
-    )
+      # Then create the mixed dataloaders here.
+      train_dataloader = data_utils.DualChunkedLens2Era5Dataset(
+          era5_loader=era5_loader_train, lens2_loader=lens2_loader_train  # pylint: disable=undefined-variable
+      )
+
+      eval_dataloader = data_utils.DualChunkedLens2Era5Dataset(
+          era5_loader=era5_loader_eval, lens2_loader=lens2_loader_eval  # pylint: disable=undefined-variable
+      )
+
+    elif "date_aligned" in config and config.date_aligned:
+      logging.info("Using date aligned loaders.")
+      train_dataloader = data_utils.create_lens2_era5_loader(
+          date_range=config.data_range_train,
+          output_variables=era5_variables,
+          output_wind_components=era5_wind_components,
+          input_member_indexer=lens2_member_indexer,
+          input_variable_names=lens2_variable_names,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+      eval_dataloader = data_utils.create_lens2_era5_loader(
+          date_range=config.data_range_eval,
+          output_variables=era5_variables,
+          output_wind_components=era5_wind_components,
+          input_member_indexer=lens2_member_indexer,
+          input_variable_names=lens2_variable_names,
+          shuffle=config.shuffle,
+          seed=config.seed,
+          batch_size=config.batch_size_eval,
+          drop_remainder=True,
+          worker_count=config.num_workers,
+      )
+    elif "chunked_aligned_loader" and config.chunked_aligned_loader:
+      logging.info("Using chunked aligned loaders.")
+      train_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
+          loader=lens2_era5_loader_train  # pylint: disable=undefined-variable
+      )
+      eval_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
+          loader=lens2_era5_loader_eval  # pylint: disable=undefined-variable
+      )
+    else:
+      # Then create the mixed dataloaders here.
+      train_dataloader = data_utils.DualLens2Era5Dataset(
+          era5_loader=era5_loader_train, lens2_loader=lens2_loader_train  # pylint: disable=undefined-variable
+      )
+
+      eval_dataloader = data_utils.DualLens2Era5Dataset(
+          era5_loader=era5_loader_eval, lens2_loader=lens2_loader_eval  # pylint: disable=undefined-variable
+      )
+
   else:  # to avoid the linter to complain.
     train_dataloader = None
     eval_dataloader = None
@@ -294,7 +412,7 @@ def main(argv):
       ),  # This must agree with the expected sample shape.
       flow_model=flow_model,
       min_eval_time_lvl=config.min_time,  # This should be close to 0.
-      max_eval_time_lvl=config.max_time  # It should be close to 1.
+      max_eval_time_lvl=config.max_time,  # It should be close to 1.
   )
 
   # Defining the trainer.
