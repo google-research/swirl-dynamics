@@ -66,6 +66,15 @@ class FlowFlaxModule(Protocol):
     ...
 
 
+# TODO add a test function.
+def lognormal_sampler(
+    mean: float = 0.0, std: float = 1.0
+) -> Callable[[Array, tuple[int, ...]], Array]:
+  return lambda x, y: jax.lax.logistic(
+      std * jax.random.uniform(x, y, dtype=jnp.float32) + mean
+  )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ReFlowModel(models.BaseModel):
   """Training a flow-based model for distribution matching.

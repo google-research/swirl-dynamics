@@ -14,6 +14,7 @@
 
 r"""The main entry point for running training loops."""
 
+import functools
 import itertools
 import json
 from os import path as osp
@@ -403,6 +404,13 @@ def main(argv):
       normalize_qk=config.normalize_qk,
   )
 
+  if "time_sampler" in config and config.time_sampler == "lognorm":
+    time_sampler = models.lognormal_sampler()
+  else:
+    time_sampler = functools.partial(
+        jax.random.uniform, dtype=jax.numpy.float32
+    )
+
   model = models.ReFlowModel(
       # TODO: clean this part.
       input_shape=(
@@ -411,8 +419,9 @@ def main(argv):
           config.input_shapes[0][3],
       ),  # This must agree with the expected sample shape.
       flow_model=flow_model,
-      min_eval_time_lvl=config.min_time,  # This should be close to 0.
-      max_eval_time_lvl=config.max_time,  # It should be close to 1.
+      time_sampling=time_sampler,
+      min_train_time=config.min_time,  # It should be close to 0.
+      max_train_time=config.max_time,  # It should be close to 1.
   )
 
   # Defining the trainer.
