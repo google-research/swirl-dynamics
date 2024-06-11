@@ -157,7 +157,11 @@ def main(argv):
       era5_wind_components = _ERA5_WIND_COMPONENTS
 
     if "lens2_member_indexer" in config:
-      lens2_member_indexer = config.lens2_member_indexer.to_dict()
+      if "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader:
+        # This will be a tuple of dictionaries.
+        lens2_member_indexer = config.lens2_member_indexer
+      else:
+        lens2_member_indexer = config.lens2_member_indexer.to_dict()
     else:
       lens2_member_indexer = _LENS2_MEMBER_INDEXER
 
@@ -283,6 +287,30 @@ def main(argv):
           drop_remainder=True,
           worker_count=config.num_workers,
       )
+
+    elif "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader:
+      logging.info("Using ensemble chunked aligned loaders.")
+
+      lens2_era5_loader_train = (
+          data_utils.create_ensemble_lens2_era5_loader_chunked(
+              date_range=config.data_range_train,
+              shuffle=config.shuffle,
+              seed=config.seed,
+              batch_size=config.batch_size_eval,
+              drop_remainder=True,
+              worker_count=config.num_workers,
+          )
+      )
+      lens2_era5_loader_eval = (
+          data_utils.create_ensemble_lens2_era5_loader_chunked(
+              date_range=config.data_range_eval,
+              shuffle=config.shuffle,
+              seed=config.seed,
+              batch_size=config.batch_size_eval,
+              drop_remainder=True,
+              worker_count=config.num_workers,
+          )
+      )
     else:
       era5_loader_train = data_utils.create_era5_loader(
           date_range=config.data_range_train,
@@ -366,7 +394,9 @@ def main(argv):
           drop_remainder=True,
           worker_count=config.num_workers,
       )
-    elif "chunked_aligned_loader" and config.chunked_aligned_loader:
+    elif ("chunked_aligned_loader" and config.chunked_aligned_loader) or (
+        "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader
+    ):
       logging.info("Using chunked aligned loaders.")
       train_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
           loader=lens2_era5_loader_train  # pylint: disable=undefined-variable
