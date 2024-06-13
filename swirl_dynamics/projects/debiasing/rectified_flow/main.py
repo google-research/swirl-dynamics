@@ -243,6 +243,8 @@ def main(argv):
           shuffle=config.shuffle,
           seed=config.seed,
           batch_size=config.batch_size,
+          member_indexer=lens2_member_indexer,
+          variable_names=lens2_variable_names,
           num_chunks=config.num_chunks,
           drop_remainder=True,
           worker_count=config.num_workers,
@@ -262,6 +264,8 @@ def main(argv):
           date_range=config.data_range_eval,
           shuffle=config.shuffle,
           seed=config.seed,
+          member_indexer=lens2_member_indexer,
+          variable_names=lens2_variable_names,
           batch_size=config.batch_size_eval,
           num_chunks=config.num_chunks,
           drop_remainder=True,
@@ -274,6 +278,10 @@ def main(argv):
       lens2_era5_loader_train = data_utils.create_lens2_era5_loader_chunked(
           date_range=config.data_range_train,
           shuffle=config.shuffle,
+          input_member_indexer=lens2_member_indexer,
+          input_variable_names=lens2_variable_names,
+          output_variables=era5_variables,
+          output_wind_components=era5_wind_components,
           seed=config.seed,
           batch_size=config.batch_size_eval,
           drop_remainder=True,
@@ -282,6 +290,10 @@ def main(argv):
       lens2_era5_loader_eval = data_utils.create_lens2_era5_loader_chunked(
           date_range=config.data_range_eval,
           shuffle=config.shuffle,
+          input_member_indexer=lens2_member_indexer,
+          input_variable_names=lens2_variable_names,
+          output_variables=era5_variables,
+          output_wind_components=era5_wind_components,
           seed=config.seed,
           batch_size=config.batch_size_eval,
           drop_remainder=True,
@@ -295,20 +307,30 @@ def main(argv):
           data_utils.create_ensemble_lens2_era5_loader_chunked(
               date_range=config.data_range_train,
               shuffle=config.shuffle,
+              input_member_indexer=lens2_member_indexer,
+              input_variable_names=lens2_variable_names,
+              output_variables=era5_variables,
+              output_wind_components=era5_wind_components,
               seed=config.seed,
               batch_size=config.batch_size_eval,
               drop_remainder=True,
               worker_count=config.num_workers,
+              num_chunks=config.num_chunks,
           )
       )
       lens2_era5_loader_eval = (
           data_utils.create_ensemble_lens2_era5_loader_chunked(
               date_range=config.data_range_eval,
               shuffle=config.shuffle,
+              input_member_indexer=lens2_member_indexer,
+              input_variable_names=lens2_variable_names,
+              output_variables=era5_variables,
+              output_wind_components=era5_wind_components,
               seed=config.seed,
               batch_size=config.batch_size_eval,
               drop_remainder=True,
               worker_count=config.num_workers,
+              num_chunks=config.num_chunks,
           )
       )
     else:
