@@ -314,6 +314,8 @@ def main(argv):
               seed=config.seed,
               batch_size=config.batch_size_eval,
               drop_remainder=True,
+              random_local_shuffle=config.random_local_shuffle,
+              batch_ot_shuffle=config.batch_ot_shuffle,
               worker_count=config.num_workers,
               num_chunks=config.num_chunks,
           )
@@ -329,6 +331,8 @@ def main(argv):
               seed=config.seed,
               batch_size=config.batch_size_eval,
               drop_remainder=True,
+              random_local_shuffle=config.random_local_shuffle,
+              batch_ot_shuffle=config.batch_ot_shuffle,
               worker_count=config.num_workers,
               num_chunks=config.num_chunks,
           )
