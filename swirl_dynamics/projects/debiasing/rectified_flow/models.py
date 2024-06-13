@@ -75,6 +75,20 @@ def lognormal_sampler(
   )
 
 
+def cond_sample_from_shape(
+    shape: ShapeDict | None, batch_dims: tuple[int, ...] = (1,)
+) -> PyTree:
+  """Instantiates a conditional input sample based on shape specifications."""
+  if shape is None:
+    return None
+  elif isinstance(shape, tuple):
+    return jnp.ones(batch_dims + shape)
+  elif isinstance(shape, dict):
+    return {k: cond_sample_from_shape(v, batch_dims) for k, v in shape.items()}
+  else:
+    raise TypeError(f"Cannot initialize shape: {shape}")
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ReFlowModel(models.BaseModel):
   """Training a flow-based model for distribution matching.
@@ -141,7 +155,6 @@ class ReFlowModel(models.BaseModel):
     time_sample_rng, dropout_rng = jax.random.split(rng, num=2)
 
     time_range = self.max_train_time - self.min_train_time
-    # add the normal-logit sampling here.
     time = (
         time_range * self.time_sampling(time_sample_rng, (batch_size,))
         + self.min_train_time
@@ -228,6 +241,158 @@ class ReFlowModel(models.BaseModel):
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
       return flow_model.apply(variables, x=x, sigma=time, is_training=False)
+
+    return _flow
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ConditionalReFlowModel(ReFlowModel):
+  """Training a conditional flow-based model for distribution matching.
+
+  Attributes:
+    cond_shape: Shape of the conditional input.
+  """
+  cond_shape: ShapeDict | None = None
+
+  def initialize(self, rng: Array):
+    x = jnp.ones((1,) + self.input_shape)
+    cond = cond_sample_from_shape(self.cond_shape, batch_dims=(1,))
+
+    return self.flow_model.init(  # add conditional input here.
+        rng, x=x, sigma=jnp.ones((1,)), cond=cond, is_training=False
+    )
+
+  def loss_fn(
+      self,
+      params: models.PyTree,
+      batch: models.BatchType,
+      rng: Array,
+      mutables: models.PyTree,
+  ) -> models.LossAndAux:
+    """Computes the flow matching loss on a training batch.
+
+    Args:
+      params: The parameters of the flow model to differentiate against.
+      batch: A batch of training data expected to contain two fields, namely
+        `x_0` and `x_1` corresponding to samples from different sets. Each field
+        is expected to have a shape of `(batch, *spatial_dims, channels)`.
+      rng: A Jax random key.
+      mutables: The mutable (non-differentiated) parameters of the flow model
+        (e.g. batch stats); *currently assumed empty*.
+
+    Returns:
+      The loss value and a tuple of training metric and mutables.
+    """
+    batch_size = len(batch["x_0"])
+    time_sample_rng, dropout_rng = jax.random.split(rng, num=2)
+
+    time_range = self.max_train_time - self.min_train_time
+    time = (
+        time_range * self.time_sampling(time_sample_rng, (batch_size,))
+        + self.min_train_time
+    )
+
+    # Extracting the conditioning.
+    cond = {
+        "channel:mean": batch["channel:mean"],
+        "channel:std": batch["channel:std"],
+    }
+
+    vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
+
+    # Interpolation between x_0 and x_1.
+    x_t = vmap_mult(batch["x_1"], time) + vmap_mult(batch["x_0"], 1 - time)
+
+    v_t = self.flow_model.apply(
+        {"params": params},
+        x=x_t,
+        sigma=time,
+        cond=cond,
+        is_training=True,
+        rngs={"dropout": dropout_rng},
+    )
+    # Eq. (1) in [1].
+    loss = jnp.mean(jnp.square((batch["x_1"] - batch["x_0"]) - v_t))
+    metric = dict(loss=loss)
+    return loss, (metric, mutables)
+
+  def eval_fn(
+      self,
+      variables: models.PyTree,
+      batch: models.BatchType,
+      rng: Array,
+  ) -> models.ArrayDict:
+    """Compute metrics on an eval batch.
+
+    Randomly selects members of the batch and interpolates them at different
+    points between 0 and 1 and computed the flow. The error of the flow at each
+    point is aggregated.
+
+    Args:
+      variables: The full model variables for the flow module.
+      batch: A batch of evaluation data expected to contain two fields `x_0` and
+        `x_1` fields, representing samples of each set. Both fields are expected
+        to have shape of `(batch, *spatial_dims, channels)`.
+      rng: A Jax random key.
+
+    Returns:
+      A dictionary of evaluation metrics.
+    """
+    # We bootstrap the samples from the batch, but we keep them paired by using
+    # the same random number generator seed.
+    # TODO: Avoid repeated code in here.
+    choice_rng, _ = jax.random.split(rng)
+
+    # Shuffling the batch (but keeping the pairs together).
+    batch_reorg = jax.tree.map(
+        lambda x: jax.random.choice(
+            key=choice_rng,
+            a=x,
+            shape=(self.num_eval_time_levels, self.num_eval_cases_per_lvl),
+        ),
+        batch,
+    )
+
+    # The intervals for evaluation of time are linear.
+    time_eval = jnp.linspace(
+        self.min_eval_time_lvl,
+        self.max_eval_time_lvl,
+        self.num_eval_time_levels,
+    )
+
+    x_0 = batch_reorg["x_0"]
+    x_1 = batch_reorg["x_1"]
+    cond = {
+        "channel:mean": batch_reorg["channel:mean"],
+        "channel:std": batch_reorg["channel:std"],
+    }
+
+    vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
+    x_t = vmap_mult(x_1, time_eval) + vmap_mult(x_0, 1 - time_eval)
+    flow_fn = self.inference_fn(variables, self.flow_model)
+    v_t = jax.vmap(flow_fn, in_axes=(1, None, 1), out_axes=1)(
+        x_t, time_eval, cond
+    )
+
+    # Eq. (1) in [1]. (by default in_axes=0 and out_axes=0 in vmap)
+    int_losses = jax.vmap(jnp.mean)(jnp.square((x_1 - x_0 - v_t)))
+    eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
+
+    return eval_losses
+
+  @staticmethod
+  def inference_fn(variables: models.PyTree, flow_model: nn.Module):
+    """Returns the inference conditional flow function."""
+
+    def _flow(
+        x: Array, time: float | Array, cond: CondDict | None = None
+    ) -> Array:
+      # This is a wrapper to vectorize time if it is a float.
+      if not jnp.shape(jnp.asarray(time)):
+        time *= jnp.ones((x.shape[0],))
+      return flow_model.apply(
+          variables, x=x, sigma=time, cond=cond, is_training=False
+      )
 
     return _flow
 

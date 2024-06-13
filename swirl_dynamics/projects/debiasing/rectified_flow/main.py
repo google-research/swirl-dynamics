@@ -39,12 +39,9 @@ _ERA5_VARIABLES = {
     "specific_humidity": {"level": 1000},
     "geopotential": {"level": [200, 500]},
     "mean_sea_level_pressure": None,
+    "10m_magnitude_of_wind": None,
 }
-
-_ERA5_WIND_COMPONENTS = {
-    "10m_u_component_of_wind": None,
-    "10m_v_component_of_wind": None,
-}
+_ERA5_WIND_COMPONENTS = {}
 
 _LENS2_MEMBER_INDEXER = {"member": "cmip6_1001_001"}
 _LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "Z200", "Z500", "PSL", "WSPDSRFAV")
