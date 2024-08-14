@@ -653,7 +653,9 @@ def run(
     )
   elif results_format == "zarr":
     # save final metrics to zarr
-    for key, value in evaluator.state.compute_aggregated_metrics().items():
+    metrics = evaluator.state.compute_aggregated_metrics()
+    metrics = jax.tree.map(np.asarray, metrics)
+    for key, value in metrics.items():
       zarr_utils.aggregated_metrics_to_zarr(
           value,
           out_dir=results_subfolder,
