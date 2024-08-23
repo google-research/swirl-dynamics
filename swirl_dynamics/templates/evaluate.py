@@ -182,7 +182,7 @@ def TensorAverage(  # pylint: disable=invalid-name
 
 
 def TensorRatio(  # pylint: disable=invalid-name
-    axis: int | tuple[int, ...] | None = None
+    axis: int | tuple[int, ...] | None = None,
 ):
   """Computes the ratio between two aggregated metrics.
 
@@ -462,7 +462,9 @@ class Evaluator:
         rng = jax.random.fold_in(self.rng, self.state.step)
         batch_agg_update = {}
         for key, inf_fn in self._compiled_inf_fns.items():
-          inference_rng = jax.random.fold_in(rng, hash(key))
+          inference_rng = jax.random.fold_in(
+              rng, np.int32(hash(key) % (2**31 - 1))  # Prevent overflows.
+          )
           pred = inf_fn(batch, inference_rng)
           batch_collect, batch_res = self._compiled_metrics_compute(pred, batch)
           collected.collect_batch_result(key, batch_collect)
