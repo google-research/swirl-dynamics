@@ -305,6 +305,23 @@ def main(argv):
         ema_decay=config.ema_decay,
     )
 
+  if "trained_state_dir" in config:
+    # Load the parameters from the checkpoint of an already trained model.
+    logging.info("Loading trained state from %s", config.trained_state_dir)
+    trained_state = trainers.TrainState.restore_from_orbax_ckpt(
+        f"{config.trained_state_dir}/checkpoints",
+        step=None,
+        ref_state=trainer.train_state,
+    )
+
+    # Modify train_state with params from checkpoint.
+    trainer.train_state = trainer.train_state.replace(
+        params=trained_state.params,
+        flax_mutables=trained_state.flax_mutables,
+    )
+    # Avoid having more than one checkpoint.
+    del trained_state
+
   # Setting up checkpointing.
   ckpt_options = checkpoint.CheckpointManagerOptions(
       save_interval_steps=config.save_interval_steps,
