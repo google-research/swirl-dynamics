@@ -275,3 +275,73 @@ def log_energy_error(
       "ref_weighted_err_log_ratio": ref_err_wlog,
   }
   return dict_metrics
+
+
+def smoothed_average_l1_error(
+    input_array: jax.Array,
+    output: jax.Array,
+    target: jax.Array,
+    variables: Sequence[str],
+    window_size: int = 365,
+) -> dict[str, dict[str, jax.Array]]:
+  """Computes the l1 error of between global averages smoothed in time.
+
+  Args:
+    input_array: LENS2 input data with dimensions (num_samples, lon, lat,
+      num_fields).
+    output: Reflow debiased data with the same dimensions as the input.
+    target: Reference ERA5 data with the same dimensions as the input.
+    variables: List of physical variables in the snapshots.
+    window_size: The size of the window for the smoothing in time.
+
+  Returns:
+    A dictionary with the errors per field.
+
+  Raises:
+    ValueError:
+  """
+  num_fields = len(variables)
+  if num_fields != input_array.shape[-1]:
+    raise ValueError(
+        f"Number of fields ({num_fields}) does not match the ",
+        f"number of channels if the input fields ({input_array.shape[-1]}).",
+    )
+
+  err_mean = {}
+  ref_err_mean = {}
+  diff_mean = {}
+  global_mean_lens2 = {}
+  global_mean_era5 = {}
+  global_mean_reflow = {}
+
+  for field_idx in range(num_fields):
+    # Compute global averages per snapshot.
+    era5_mean = np.mean(target[:, :, :, field_idx], axis=(-1, -2))
+    lens2_mean = np.mean(input_array[:, :, :, field_idx], axis=(-1, -2))
+    reflow_mean = np.mean(output[:, :, :, field_idx], axis=(-1, -2))
+
+    # Compute the moving average.
+    conv_window = np.ones(window_size)/window_size
+    reflow_mean = np.convolve(reflow_mean, conv_window, mode="valid")
+    lens2_mean = np.convolve(lens2_mean, conv_window, mode="valid")
+    era5_mean = np.convolve(era5_mean, conv_window, mode="valid")
+
+    # Compute the l1 error.
+    err_mean[variables[field_idx]] = np.mean(np.abs(reflow_mean - era5_mean))
+    diff_mean[variables[field_idx]] = np.mean(np.abs(reflow_mean - lens2_mean))
+    ref_err_mean[variables[field_idx]] = np.mean(np.abs(lens2_mean - era5_mean))
+
+    # Save the global means.
+    global_mean_lens2[variables[field_idx]] = lens2_mean
+    global_mean_era5[variables[field_idx]] = era5_mean
+    global_mean_reflow[variables[field_idx]] = reflow_mean
+
+  dict_metrics = {
+      "err_mean": err_mean,
+      "ref_err_mean": ref_err_mean,
+      "diff_mean": diff_mean,
+      "global_mean_lens2": global_mean_lens2,
+      "global_mean_era5": global_mean_era5,
+      "global_mean_reflow": global_mean_reflow,
+  }
+  return dict_metrics

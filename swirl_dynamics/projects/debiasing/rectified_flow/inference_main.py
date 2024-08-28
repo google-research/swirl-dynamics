@@ -576,7 +576,7 @@ def main(argv):
 
         ds = xr.Dataset(ds)
         ds = ds.chunk(
-            {"time": 8, "longitud": -1, "latitude": -1, "variables": -1}
+            {"time": 128, "longitud": -1, "latitude": -1, "variables": -1}
         )
         ds.to_zarr(path_zarr)
         logging.info("Data saved in Zarr format in %s", path_zarr)

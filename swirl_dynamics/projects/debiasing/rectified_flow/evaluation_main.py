@@ -586,10 +586,15 @@ def evaluation_pipeline(
       input_array, output_array, target_array, variables=variables
   )
 
+  mean_err_dict = metrics.smoothed_average_l1_error(
+      input_array, output_array, target_array, variables=variables
+  )
+
   err_dict = dict(
       transport_error=transport_error,
       wass_err=wass_err_dict,
       energy_err=log_energy_dict,
+      mean_err=mean_err_dict,
   )
 
   # Saving evaluation snapshots in Zarr format.
@@ -620,7 +625,9 @@ def evaluation_pipeline(
   )
 
   ds = xr.Dataset(ds)
-  ds = ds.chunk({"time": 8, "longitude": -1, "latitude": -1, "variables": -1})
+  # TODO: change the chunk size to be a function of the dimensions
+  # of each snapshot.
+  ds = ds.chunk({"time": 128, "longitude": -1, "latitude": -1, "variables": -1})
   ds.to_zarr(path_zarr)
   logging.info("Data saved in Zarr format in %s", path_zarr)
 
