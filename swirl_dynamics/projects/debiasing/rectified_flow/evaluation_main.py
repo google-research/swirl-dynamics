@@ -27,6 +27,7 @@ import ml_collections
 from ml_collections import config_flags
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
+from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.lib.solvers import ode as ode_solvers
 from swirl_dynamics.projects.debiasing.rectified_flow import data_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import evaluation_metrics as metrics
@@ -349,6 +350,13 @@ def read_normalized_stats(
 
 def build_model(config):
   """Builds the model from config file."""
+
+  if "conditional_embedding" in config and config.conditional_embedding:
+    logging.info("Using conditional embedding")
+    cond_embed_fn = unets.EmbConvMerge
+  else:
+    cond_embed_fn = None
+
   flow_model = models.RescaledUnet(
       out_channels=config.out_channels,
       num_channels=config.num_channels,
@@ -362,6 +370,7 @@ def build_model(config):
       use_position_encoding=config.use_position_encoding,
       num_heads=config.num_heads,
       normalize_qk=config.normalize_qk,
+      cond_embed_fn=cond_embed_fn,
   )
 
   model = models.ConditionalReFlowModel(

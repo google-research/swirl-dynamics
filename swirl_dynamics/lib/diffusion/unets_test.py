@@ -170,6 +170,47 @@ class NetworksTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, x.shape)
 
+  def test_preconditioned_embedding_functions(self):
+    x_dims = (1, 16, 8, 3)
+    c_dims = (1, 8, 4, 6)
+    x = jax.random.normal(jax.random.PRNGKey(42), x_dims)
+    cond = {
+        "channel:cond1": jax.random.normal(jax.random.PRNGKey(42), c_dims),
+    }
+    sigma = jnp.array(0.5)
+    model = diffusion.unets.PreconditionedDenoiser(
+        out_channels=x_dims[-1],
+        num_channels=(4, 8, 12),
+        downsample_ratio=(2, 2, 2),
+        num_blocks=2,
+        num_heads=4,
+        sigma_data=1.0,
+        use_position_encoding=False,
+        cond_embed_dim=32,
+        cond_resize_method="cubic",
+        cond_embed_fn=diffusion.unets.EmbConvMerge,
+    )
+    variables = model.init(
+        jax.random.PRNGKey(42), x=x, sigma=sigma, cond=cond, is_training=True
+    )
+    # Check shape dict so that err message is easier to read when things break.
+    shape_dict = jax.tree.map(jnp.shape, variables["params"])
+    self.assertIn("EmbConvMerge_0", shape_dict)
+    self.assertIn(
+        "level_0.embedding_downsample_conv", shape_dict["EmbConvMerge_0"]
+    )
+    self.assertIn(
+        "cond_embedding.attention_block", shape_dict["EmbConvMerge_0"]
+    )
+    self.assertIn(
+        "resize_embedding_channel:cond1", shape_dict["EmbConvMerge_0"]
+    )
+
+    out = jax.jit(functools.partial(model.apply, is_training=True))(
+        variables, x, sigma, cond
+    )
+    self.assertEqual(out.shape, x.shape)
+
 
 if __name__ == "__main__":
   absltest.main()

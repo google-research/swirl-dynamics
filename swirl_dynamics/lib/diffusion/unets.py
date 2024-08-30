@@ -22,6 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
 
+
 Array = jax.Array
 Initializer = nn.initializers.Initializer
 PrecisionLike = (
@@ -50,6 +51,7 @@ class AdaptiveScale(nn.Module):
   see e.g. https://arxiv.org/abs/2105.05233, and for the
   more general FiLM technique see https://arxiv.org/abs/1709.07871.
   """
+
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
@@ -452,6 +454,139 @@ class AxialMLPInterpConvMerge(MergeChannelCond):
     return merge_channel_cond(x, proc_cond)
 
 
+class MergeEmdCond(nn.Module):
+  """Base class for merging conditional inputs as embeddings."""
+
+  def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):
+    pass
+
+
+class EmbConvMerge(MergeEmdCond):
+  """Compute conditional inputs through interpolation and convolutions.
+
+  We resize the conditional inputs to match the spatial shape of the main input
+  and then pass them through a nonlinearity and a ConvLayer. The output is then
+  mixied with the embedding from the Fourier embedding.
+
+   Attributes:
+    embed_dim: The output channel dimension.
+    latent_dim: The latent dimension of the embedding.
+    downsample_ratio: Ratio for the downsampling of the embedding.
+    interp_shape: The shape to which the conditional inputs are resized.
+    kernel_size: The convolutional kernel size.
+    resize_method: The interpolation method employed by `jax.image.resize`.
+    padding: The padding method of all convolutions.
+    num_heads: Number of heads in the attention block.
+    normalize_qk: Whether to normalize the query and key vectors in the
+      attention block.
+  """
+
+  embed_dim: int
+  latent_dim: int
+  kernel_size: Sequence[int]
+  downsample_ratio: Sequence[int]
+  interp_shape: Sequence[int]
+  resize_method: str = "cubic"
+  padding: str = "CIRCULAR"
+  num_heads: int = 128
+  normalize_qk: bool = True
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
+
+  @nn.compact
+  def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):
+    """Merges conditional inputs along the channel dimension.
+
+    Fields with spatial shape differing from the sample `x` are reshaped to
+    match it. Then, all conditional fields are passed through a nonlinearity,
+    a ConvLayer, and then concatenated with the main input along the last axis.
+
+    Args:
+      emb: Embedding coming from the kernel_dim = x.ndim - 2.
+      cond: A dictionary of conditional inputs. Those with keys that start with
+        "channel:" are processed here while all others are omitted.
+      is_training: Whether the model is in training mode.
+
+    Returns:
+      Embedding merged with channel conditions.
+    """
+
+    if emb.shape[-1] != self.embed_dim:
+      raise ValueError(
+          f"Number of channels in the embedding ({emb.shape[-1]}) must "
+          "match the number of channels in the output "
+          f"{self.embed_dim})."
+      )
+
+    value_temp = []
+
+    # Extract fields, resize and concatenate.
+    for key, value in sorted(cond.items()):
+      # TODO: Change the prefix to "merge_embed:".
+      if key.startswith("channel:"):
+        # Enforcing prefix in the key.
+        value = layers.FilteredResize(
+            output_size=self.interp_shape,
+            kernel_size=self.kernel_size,
+            method=self.resize_method,
+            padding=self.padding,
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name=f"resize_embedding_{key}",
+        )(value)
+
+      value_temp.append(value)
+
+    value = jnp.concatenate(value_temp, axis=-1)
+
+    kernel_dim = value.ndim - 2
+    # Downsample the embedding.
+    num_levels = len(self.downsample_ratio)
+    for level in range(num_levels):
+      value = nn.swish(nn.LayerNorm()(value))
+      value = layers.DownsampleConv(
+          features=self.latent_dim,
+          ratios=(self.downsample_ratio[level],) * kernel_dim,
+          kernel_init=default_init(1.0),
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
+          name=f"level_{level}.embedding_downsample_conv",
+      )(value)
+
+    # Add a self-attention block.
+    b, _, _, c = value.shape
+    value = AttentionBlock(
+        num_heads=self.num_heads,
+        precision=self.precision,
+        dtype=self.dtype,
+        normalize_qk=self.normalize_qk,
+        param_dtype=self.param_dtype,
+        name="cond_embedding.attention_block",
+    )(value.reshape(b, -1, c), is_training=is_training)
+
+    value = nn.Dense(
+        features=self.embed_dim,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )(value.reshape(b, -1))
+    value = nn.swish(value)
+
+    # Concatenate the noise and conditional embedding.
+    emb = jnp.concatenate([emb, value], axis=-1)
+    emb = nn.Dense(
+        features=self.embed_dim,
+        precision=self.precision,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )(emb)
+
+    return emb
+
+
 class DStack(nn.Module):
   """Downsampling stack.
 
@@ -682,6 +817,8 @@ class UNet(nn.Module):
   cond_resize_method: str = "bilinear"
   cond_embed_dim: int = 128
   cond_merging_fn: type[MergeChannelCond] = InterpConvMerge
+  cond_embed_fn: type[nn.Module] | None = None
+  cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
@@ -743,6 +880,28 @@ class UNet(nn.Module):
     )(x, cond)
 
     emb = FourierEmbedding(dims=self.noise_embed_dim)(sigma)
+    # Incorporating the embedding from the conditional inputs.
+    if self.cond_embed_fn:
+      if self.cond_embed_kwargs is None:
+        # For backward compatibility.
+        # TODO: Remove this once the configs are updated.
+        cond_embed_kwargs = dict(latent_dim=32, num_heads=32)
+      else:
+        cond_embed_kwargs = self.cond_embed_kwargs
+
+      emb = self.cond_embed_fn(
+          embed_dim=self.noise_embed_dim,
+          latent_dim=cond_embed_kwargs["latent_dim"],
+          num_heads=cond_embed_kwargs["num_heads"],
+          kernel_size=(3,) * kernel_dim,
+          interp_shape=x.shape[:-1],
+          downsample_ratio=self.downsample_ratio,
+          padding=self.padding,
+          precision=self.precision,
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
+      )(emb, cond, is_training=is_training)
+
     skips = DStack(
         num_channels=self.num_channels,
         num_res_blocks=len(self.num_channels) * (self.num_blocks,),

@@ -25,6 +25,7 @@ import jax
 from ml_collections import config_flags
 import optax
 from orbax import checkpoint
+from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.projects.debiasing.rectified_flow import data_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import models
 from swirl_dynamics.projects.debiasing.rectified_flow import trainers
@@ -239,6 +240,13 @@ def main(argv):
     dtype = jax.numpy.float32
     param_dtype = jax.numpy.float32
 
+  # Adding the conditional embedding for the FILM layer.
+  if "conditional_embedding" in config and config.conditional_embedding:
+    logging.info("Using conditional embedding")
+    cond_embed_fn = unets.EmbConvMerge
+  else:
+    cond_embed_fn = None
+
   # Setting up the neural network for the flow model.
   flow_model = models.RescaledUnet(
       out_channels=config.out_channels,
@@ -253,6 +261,7 @@ def main(argv):
       use_position_encoding=config.use_position_encoding,
       num_heads=config.num_heads,
       normalize_qk=config.normalize_qk,
+      cond_embed_fn=cond_embed_fn,
       dtype=dtype,
       param_dtype=param_dtype,
   )
