@@ -573,7 +573,7 @@ class EmbConvMerge(MergeEmdCond):
         dtype=self.dtype,
         param_dtype=self.param_dtype,
     )(value.reshape(b, -1))
-    value = nn.swish(value)
+    value = nn.swish(nn.LayerNorm()(value))
 
     # Concatenate the noise and conditional embedding.
     emb = jnp.concatenate([emb, value], axis=-1)
