@@ -336,8 +336,6 @@ class OmegaNN(nn.Module):
         delta = rational_networks.RationalLayer()(delta)
       elif self.act_fun == "unshared_rational_act_fun":
         delta = rational_networks.UnsharedRationalLayer()(delta)
-      elif self.act_fun == "GeGLU":
-        delta = nn.GeGLU()(delta)
       else:
         delta = self.act_fun(delta)
 
