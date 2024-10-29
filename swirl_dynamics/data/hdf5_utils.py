@@ -91,5 +91,10 @@ def save_array_dict(save_path: epath.PathLike, data: Mapping[str, Any]) -> None:
   with h5py.File(bio, "w") as f:
     _save_array_dict(f, data)
 
+  # Creates parent directory if it does not exist.
+  save_dir = epath.Path(save_path).parent
+  if not filesys.exists(save_dir):
+    filesys.makedirs(save_dir)
+
   with filesys.gfile.GFile(save_path, "w") as f:
     f.write(bio.getvalue())
