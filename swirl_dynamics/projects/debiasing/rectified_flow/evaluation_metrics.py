@@ -283,6 +283,7 @@ def smoothed_average_l1_error(
     target: jax.Array,
     variables: Sequence[str],
     window_size: int = 365,
+    weighted_norm: jax.Array | float = 1.0,
 ) -> dict[str, dict[str, jax.Array]]:
   """Computes the l1 error of between global averages smoothed in time.
 
@@ -293,6 +294,7 @@ def smoothed_average_l1_error(
     target: Reference ERA5 data with the same dimensions as the input.
     variables: List of physical variables in the snapshots.
     window_size: The size of the window for the smoothing in time.
+    weighted_norm: The weights to use in the global averages, by default is 1.0.
 
   Returns:
     A dictionary with the errors per field.
@@ -316,9 +318,15 @@ def smoothed_average_l1_error(
 
   for field_idx in range(num_fields):
     # Compute global averages per snapshot.
-    era5_mean = np.mean(target[:, :, :, field_idx], axis=(-1, -2))
-    lens2_mean = np.mean(input_array[:, :, :, field_idx], axis=(-1, -2))
-    reflow_mean = np.mean(output[:, :, :, field_idx], axis=(-1, -2))
+    era5_mean = np.mean(
+        weighted_norm * target[:, :, :, field_idx], axis=(-1, -2)
+    )
+    lens2_mean = np.mean(
+        weighted_norm * input_array[:, :, :, field_idx], axis=(-1, -2)
+    )
+    reflow_mean = np.mean(
+        weighted_norm * output[:, :, :, field_idx], axis=(-1, -2)
+    )
 
     # Compute the moving average.
     conv_window = np.ones(window_size)/window_size

@@ -250,7 +250,15 @@ class ReFlowModel(models.BaseModel):
     v_t = jax.vmap(flow_fn, in_axes=(1, None), out_axes=1)(x_t, time_eval)
 
     # Eq. (1) in [1]. (by default in_axes=0 and out_axes=0 in vmap)
-    int_losses = jax.vmap(jnp.mean)(jnp.square((x_1 - x_0 - v_t)))
+    if self.weighted_norm is None:
+      weighted_norm = 1.0
+    else:
+      # Adds extra dimension to the weighted norm to broadcast it.
+      weighted_norm = self.weighted_norm[None, ...]
+
+    int_losses = jax.vmap(jnp.mean)(
+        weighted_norm * jnp.square((x_1 - x_0 - v_t))
+    )
     eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
 
     return eval_losses
@@ -280,6 +288,17 @@ class ConditionalReFlowModel(ReFlowModel):
   def initialize(self, rng: Array):
     x = jnp.ones((1,) + self.input_shape)
     cond = cond_sample_from_shape(self.cond_shape, batch_dims=(1,))
+
+    # If weighted norm is provided, it must have the right shape.
+    if self.weighted_norm is not None:
+      if (
+          self.weighted_norm.shape[0] != 1
+          or self.weighted_norm.shape[1:] != x.shape[1:]
+      ):
+        raise ValueError(
+            "Weighted norm shape must be (1, *x.shape[1:]) instead we have"
+            f" {self.weighted_norm.shape}, with x.shape = {x.shape}"
+        )
 
     return self.flow_model.init(  # add conditional input here.
         rng, x=x, sigma=jnp.ones((1,)), cond=cond, is_training=False
@@ -334,8 +353,15 @@ class ConditionalReFlowModel(ReFlowModel):
         is_training=True,
         rngs={"dropout": dropout_rng},
     )
-    # Eq. (1) in [1].
-    loss = jnp.mean(jnp.square((batch["x_1"] - batch["x_0"]) - v_t))
+
+    if self.weighted_norm is None:
+      weighted_norm = 1.0
+    else:
+      weighted_norm = self.weighted_norm
+
+    # Eq. (1) in [1], but with a possibly weighted norm.
+    error = ((batch["x_1"] - batch["x_0"]) - v_t)
+    loss = jnp.mean(weighted_norm * jnp.square(error))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 

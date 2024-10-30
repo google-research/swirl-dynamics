@@ -538,6 +538,18 @@ def evaluation_pipeline(
   n_lat = 121
   n_field = len(variables)
 
+  if "weighted_norm" in config and config.weighted_norm:
+    logging.info("Using weighted norm")
+    lat = jnp.linspace(-90., 90., n_lat)
+    # Reshapes to the correct broadcast shape.
+    weighted_norm = (
+        jnp.cos(jnp.deg2rad(lat)).reshape((1, 1, -1))
+    )
+    # In the metric, we handle one field at a time.
+    weighted_norm = jnp.tile(weighted_norm, (1, n_lon, 1))
+  else:
+    weighted_norm = 1.0
+
   logging.info("Batch size per device: %d", batch_size_eval)
 
   for ii, batch in enumerate(eval_dataloader):
@@ -596,7 +608,11 @@ def evaluation_pipeline(
   )
 
   mean_err_dict = metrics.smoothed_average_l1_error(
-      input_array, output_array, target_array, variables=variables
+      input_array,
+      output_array,
+      target_array,
+      variables=variables,
+      weighted_norm=weighted_norm,
   )
 
   err_dict = dict(

@@ -22,6 +22,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import jax
+import jax.numpy as jnp
 from ml_collections import config_flags
 import optax
 from orbax import checkpoint
@@ -273,6 +274,23 @@ def main(argv):
         jax.random.uniform, dtype=jax.numpy.float32
     )
 
+  # Adds the weighted norm for the loss function.
+  if "weighted_norm" in config and config.weighted_norm:
+    lat = jnp.linspace(-90., 90., config.input_shapes[0][2])
+    # Reshapes to the correct broadcast shape.
+    if "reg_factor" in config:
+      reg_factor = config.reg_factor
+    else:
+      reg_factor = 0.05
+    weighted_norm = (
+        jnp.cos(jnp.deg2rad(lat)).reshape((1, 1, -1, 1)) + reg_factor
+    )
+    weighted_norm = jnp.broadcast_to(
+        weighted_norm, (1,) + config.input_shapes[0][1:]
+    )
+  else:
+    weighted_norm = None
+
   model = models.ConditionalReFlowModel(
       # TODO: clean this part.
       input_shape=(
@@ -296,6 +314,7 @@ def main(argv):
       time_sampling=time_sampler,
       min_train_time=config.min_time,  # It should be close to 0.
       max_train_time=config.max_time,  # It should be close to 1.
+      weighted_norm=weighted_norm,
   )
 
   # Defining the trainer.
