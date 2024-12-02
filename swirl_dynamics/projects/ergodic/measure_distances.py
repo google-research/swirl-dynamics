@@ -27,8 +27,8 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from ott_jax.geometry import pointcloud
-from ott_jax.tools import sinkhorn_divergence
+from ott.geometry import pointcloud
+from ott.tools import sinkhorn_divergence
 
 
 Array = jax.Array
