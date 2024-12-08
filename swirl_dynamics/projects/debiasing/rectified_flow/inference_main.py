@@ -71,7 +71,7 @@ config_flags.DEFINE_config_file(
 )
 
 
-## Loading the trainers:
+# Loading the trainers.
 def build_data_loaders(
     config: ml_collections.ConfigDict,
     batch_size: int,
@@ -553,7 +553,7 @@ def main(argv):
     if tf.io.gfile.exists(path_zarr):
       logging.info("File %s already exists, skipping", path_zarr)
     else:
-      # run the inference pipeline here.
+      # Run the inference pipeline here.
       data_dict = inference_pipeline(
           model_dir=model_dir,
           date_range=date_range,

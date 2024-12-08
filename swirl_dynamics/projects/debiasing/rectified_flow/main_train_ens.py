@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""The main entry point for running training loops."""
+r"""The main entry point for running training loops.
+
+This script is used the train the models with different ensemble members.
+"""
 
 import functools
 import json
@@ -46,7 +49,7 @@ _ERA5_VARIABLES = {
 _ERA5_WIND_COMPONENTS = {}
 
 # For the training of ensemble data, the indexer is a tuple of dictionaries.
-# For evaluation and inference is a tupe of strings.
+# For evaluation and inference is a tuple of strings.
 _LENS2_MEMBER_INDEXER = (
     {"member": "cmip6_1001_001"},
     {"member": "cmip6_1021_002"},
@@ -118,13 +121,11 @@ def main(argv):
   )
 
   optimizer = optax.chain(
-      # optax.clip(config.clip),
       optax.clip_by_global_norm(config.max_norm),
       optax.adam(
           learning_rate=schedule,
           b1=config.beta1,
       ),
-      # optax.ema(decay=0.999)
   )
 
   assert (
@@ -132,7 +133,7 @@ def main(argv):
       and config.input_shapes[0][-1] == config.out_channels
   )
 
-  # TODO: add an utility function to encapsulate all this code.
+  # TODO: Add an utility function to encapsulate all this code.
   if "era5_variables" in config:
     era5_variables = config.era5_variables.to_dict()
   else:
@@ -144,7 +145,7 @@ def main(argv):
     era5_wind_components = _ERA5_WIND_COMPONENTS
 
   if "lens2_member_indexer" in config:
-    # TODO: clean this, so far for backwards compatibility.
+    # TODO: Clean this. Kept for backwards compatibility.
     if (
         "ens_chunked_aligned_loader" in config
         and config.ens_chunked_aligned_loader
@@ -175,7 +176,7 @@ def main(argv):
       and config.climatological_data_loader
   ):
     logging.info("Using climatological data loader")
-    # Here we define the dataloaders directly.
+    # Defines the dataloaders directly.
     train_dataloader = (
         dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
             date_range=config.data_range_train,
@@ -212,7 +213,7 @@ def main(argv):
     )
   else:
     if "norm_stats_loader" in config and config.norm_stats_loader:
-      # choosing if the stats are normalized or not. (by default they should be)
+      # Choosing if the stats are normalized. On by default.
       logging.info("Using normalized stats")
       loader_train = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
           date_range=config.data_range_train,
@@ -290,7 +291,7 @@ def main(argv):
     dtype = jax.numpy.float32
     param_dtype = jax.numpy.float32
 
-  # Adding the conditional embedding for the FILM layer.
+  # Adds the conditional embedding for the FILM layer.
   if "conditional_embedding" in config and config.conditional_embedding:
     logging.info("Using conditional embedding")
     cond_embed_fn = unets.EmbConvMerge
@@ -341,7 +342,6 @@ def main(argv):
     weighted_norm = None
 
   model = models.ConditionalReFlowModel(
-      # TODO: clean this part.
       input_shape=(
           config.input_shapes[0][1],
           config.input_shapes[0][2],
@@ -366,7 +366,7 @@ def main(argv):
       weighted_norm=weighted_norm,
   )
 
-  # Defining the trainer.
+  # Defines the trainer.
   if config.distributed:
     trainer = trainers.DistributedReFlowTrainer(
         model=model,
@@ -383,7 +383,7 @@ def main(argv):
     )
 
   if "trained_state_dir" in config:
-    # Load the parameters from the checkpoint of an already trained model.
+    # Loads the parameters from the checkpoint of an already trained model.
     logging.info("Loading trained state from %s", config.trained_state_dir)
     trained_state = trainers.TrainState.restore_from_orbax_ckpt(
         f"{config.trained_state_dir}/checkpoints",
@@ -391,7 +391,7 @@ def main(argv):
         ref_state=trainer.train_state,
     )
 
-    # Modify train_state with params from checkpoint.
+    # Modifies the train_state with parameters from a checkpoint.
     trainer.train_state = trainer.train_state.replace(
         params=trained_state.params,
         flax_mutables=trained_state.flax_mutables,
@@ -425,7 +425,6 @@ def main(argv):
           callbacks.ProgressReport(
               num_train_steps=config.num_train_steps,
           ),
-          # TODO add a plot callback.
       ),
   )
 
