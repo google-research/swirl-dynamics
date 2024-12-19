@@ -219,6 +219,51 @@ class Concatenate(pygrain.MapTransform):
     return features
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SelectAs(pygrain.MapTransform):
+  """Select and rename features similar to 'SELECT ... AS ...' in sql.
+
+  Attributes:
+    select_features: Names of the features to be chosen.
+    as_features: Replacement names for the selected features.
+
+  Note: If the names of the features in the original dictionary are not among
+    select_features, they will be removed from the dictionary, unless they are
+    an internal feature, i.e., their key starts by '_'.
+
+  """
+
+  select_features: Sequence[str]
+  as_features: Sequence[str]
+
+  def __post_init__(self):
+    """Checks the validity of the attributes."""
+    if len(self.select_features) != len(self.as_features):
+      raise ValueError(
+          f"Length of `select_features` [{self.select_features}] must match "
+          f"that of `as_features` [{self.as_features}]"
+      )
+    # Both `select_features` and `as_features` must be unique.
+    if len(self.as_features) != len(set(self.as_features)):
+      raise ValueError(
+          f"The names in `as_features` [{self.as_features}] must be unique."
+      )
+    if len(self.select_features) != len(set(self.select_features)):
+      raise ValueError(
+          f"The names in `select_features` [{self.select_features}] must be"
+          " unique."
+      )
+
+  def map(self, features: FlatFeatures) -> FlatFeatures:
+    for old, new in zip(self.select_features, self.as_features):
+      features[new] = features[old]
+    # Clean unselected feature; keep things that start with "_"
+    for feature in tuple(features.keys()):
+      if feature not in self.as_features and not feature.startswith("_"):
+        del features[feature]
+    return features
+
+
 @dataclasses.dataclass(frozen=True)
 class BatchOT(pygrain.MapTransform):
   """Shuffles the elements of a chunk by solving a linear assigment problem."""
@@ -265,6 +310,38 @@ class RandomShuffleChunk(pygrain.RandomMapTransform):
   ) -> FlatFeatures:
     for field in self.input_fields:
       features[field] = rng.permutation(features[field], axis=0)
+    return features
+
+
+@dataclasses.dataclass(frozen=True)
+class ReshapeBatch(pygrain.MapTransform):
+  """Reshapes the batch and merges the first two dimensions."""
+
+  def map(self, features: FlatFeatures) -> FlatFeatures:
+    """Merges the first two dimensions of the batch.
+
+    The data loader for the rectified flow model expects the data to be in the
+    format of [batch, lon, lat, channel]. However the chunked data loaders
+    return the data in the format of [num_chunks, size_chunk, lon, lat, channel]
+    This transform merges the first two dimensions so that the data is in the
+    proper format required by the trainer, which will split the samples across
+    jax devices. Here we assume that features has type dict[str, np.ndarray].
+
+    Args:
+      features: The input features.
+
+    Returns:
+      The features with the first two dimensions merged.
+    """
+    for field in features.keys():
+      if not isinstance(features[field], np.ndarray):
+        raise ValueError(
+            "The features should be a dictionary of numpy arrays. The field"
+            f" {field} is not a numpy array."
+        )
+      features[field] = features[field].reshape(
+          (-1, *features[field].shape[2:])
+      )
     return features
 
 
