@@ -29,8 +29,6 @@ _ERA5_VARIABLES = {
     "10m_magnitude_of_wind": None,
 }
 
-_ERA5_WIND_COMPONENTS = {}
-
 # pylint: disable=line-too-long
 _ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
 _ERA5_STATS_PATH = "/lzepedanunez/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
@@ -76,8 +74,8 @@ def get_config():
   """Get the default hyperparameter configuration."""
   config = ml_collections.ConfigDict()
   config.experiment = "evaluation_reflow_lens2_to_era5"
-  config.model_dir = "/lzepedanunez/xm/debiasing/reflow_lens2_to_era5_ens_all_surface_variables_batch_OT_sweep_vlp/112502871"
-  config.date_range = ("2000", "2020")
+  config.model_dir = "/lzepedanunez/xm/debiasing/reflow_lens2_to_era5_4_member_ens_all_surface_variables_batch_OT_sweep_vlp_long_training_large_channel/114628134"
+  config.date_range = ("2000", "2010")
   config.batch_size_eval = 16
   config.weighted_norm = True
   config.variables = (
@@ -89,7 +87,6 @@ def get_config():
   config.lens2_member_indexer = _LENS2_MEMBER_INDEXER
   config.lens2_variables = None
   config.era5_variables = None
-  config.era5_wind_components = _ERA5_WIND_COMPONENTS
 
   return config
 

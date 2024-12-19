@@ -70,7 +70,6 @@ def get_config():
   config.lens2_variables_names = _LENS2_VARIABLE_NAMES
   config.lens2_member_indexer = _LENS2_MEMBER_INDEXER
   config.era5_variables = None
-  config.era5_wind_components = _ERA5_WIND_COMPONENTS
 
   return config
 

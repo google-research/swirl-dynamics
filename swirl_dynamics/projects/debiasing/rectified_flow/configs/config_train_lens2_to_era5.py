@@ -96,11 +96,12 @@ def get_config():
   # Different options for the data loader.
   config.ens_chunked_aligned_loader = True
   config.random_local_shuffle = False
+  config.overlapping_chunks = True
   config.batch_ot_shuffle = False  # To make the training faster.
   config.norm_stats_loader = True
 
   # Parameters for the data loader.
-  config.data_range_train = ("1990", "2000")  # Reduced train period.
+  config.data_range_train = ("1960", "2000")
   config.data_range_eval = ("2001", "2010")
   config.normalize = True
   config.shuffle = True
@@ -108,8 +109,8 @@ def get_config():
   # This is supposed to be run on 4 replicas, each replica containing 8 chips.
   config.batch_size = 8  # one sample per chip.
   config.batch_size_eval = 8
-  # Optimization flags for the data loader.
   config.num_chunks = 1
+  # Optimization flags for the data loader.
   config.num_workers = 0
 
   # Model params
