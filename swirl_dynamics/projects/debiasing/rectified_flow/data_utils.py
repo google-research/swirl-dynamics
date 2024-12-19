@@ -21,12 +21,10 @@ from typing import Any, Literal, SupportsIndex
 from absl import logging
 from etils import epath
 import grain.python as pygrain
-import grain.tensorflow as tfgrain
 import jax
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import pygrain_transforms as transforms
-import tensorflow as tf
 import xarray_tensorstore as xrts
 
 Array = jax.Array
@@ -202,15 +200,14 @@ class UnpairedDataLoader:
       dataset_path_a: str,
       dataset_path_b: str,
       seed: int,
-      split: str | None = None,
+      split: Literal["train", "eval", "test"],
       spatial_downsample_factor_a: int = 1,
       spatial_downsample_factor_b: int = 1,
       normalize: bool = False,
       normalize_stats_a: dict[str, Array] | None = None,
       normalize_stats_b: dict[str, Array] | None = None,
-      tf_lookup_batch_size: int = 1024,
-      tf_lookup_num_parallel_calls: int = -1,
-      tf_interleaved_shuffle: bool = False,
+      drop_remainder: bool = True,
+      worker_count: int = 0,
   ):
 
     loader, normalize_stats_a = create_loader_from_hdf5(
@@ -221,9 +218,9 @@ class UnpairedDataLoader:
         spatial_downsample_factor=spatial_downsample_factor_a,
         normalize=normalize,
         normalize_stats=normalize_stats_a,
-        tf_lookup_batch_size=tf_lookup_batch_size,
-        tf_lookup_num_parallel_calls=tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=tf_interleaved_shuffle,
+        output_name="x_0",
+        drop_remainder=drop_remainder,
+        worker_count=worker_count,
     )
 
     self.loader_a = iter(loader)
@@ -236,9 +233,9 @@ class UnpairedDataLoader:
         spatial_downsample_factor=spatial_downsample_factor_b,
         normalize=normalize,
         normalize_stats=normalize_stats_b,
-        tf_lookup_batch_size=tf_lookup_batch_size,
-        tf_lookup_num_parallel_calls=tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=tf_interleaved_shuffle,
+        output_name="x_1",
+        drop_remainder=drop_remainder,
+        worker_count=worker_count,
     )
     self.loader_b = iter(loader)
 
@@ -248,137 +245,102 @@ class UnpairedDataLoader:
   def __iter__(self):
     return self
 
-  def __next__(self):
+  def __next__(self) -> dict[str, Array]:
 
     b = next(self.loader_b)
     a = next(self.loader_a)
 
-    # Return dictionary with a tuple, following the cycleGAN convention.
-    return {"x_0": a["u"], "x_1": b["u"]}
+    # Return dictionary with keys "x_0" and "x_1".
+    return {**a, **b}
 
 
 def create_loader_from_hdf5(
     batch_size: int,
     dataset_path: str,
-    seed: int,
-    split: str | None = None,
+    split: Literal["train", "eval", "test"],
+    seed: int = 999,
+    shuffle: bool = True,
     spatial_downsample_factor: int = 1,
-    normalize: bool = False,
-    normalize_stats: dict[str, Array] | None = None,
-    tf_lookup_batch_size: int = 1024,
-    tf_lookup_num_parallel_calls: int = -1,
-    tf_interleaved_shuffle: bool = False,
-) -> tuple[tfgrain.TfDataLoader, dict[str, Array] | None]:
+    normalize: bool = True,
+    normalize_stats: dict[str, np.ndarray] | None = None,
+    output_name: str | None = None,
+    drop_remainder: bool = True,
+    worker_count: int = 0,
+) -> tuple[pygrain.DataLoader, dict[str, np.ndarray] | None]:
   """Load pre-computed trajectories dumped to hdf5 file.
 
   Args:
     batch_size: Batch size returned by dataloader. If set to -1, use entire
       dataset size as batch_size.
     dataset_path: Absolute path to dataset file.
+    split: Data split - "train", "eval", or "test".
     seed: Random seed to be used in data sampling.
-    split: Data split - train, eval, test, or None.
+    shuffle: Whether to randomly shuffle the data.
     spatial_downsample_factor: reduce spatial resolution by factor of x.
     normalize: Flag for adding data normalization (subtact mean divide by std.).
-    normalize_stats: Dictionary with mean and std stats to avoid recomputing.
-    tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
-    tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
-      dataset. -1 is set to let grain optimize tha number of calls.
-    tf_interleaved_shuffle: Using a more localized shuffle instead of a global
-      suffle of the data.
+    normalize_stats: Dictionary with mean and std stats to avoid recomputing, or
+      if they need to be computed from a different dataset.
+    output_name: Name of the output feature in the dictionary.
+    drop_remainder: Flag for dropping the last batch if it is not complete.
+    worker_count: Number of workers to use in the dataloader.
 
   Returns:
     loader, stats (optional): Tuple of dataloader and dictionary containing
                               mean and std stats (if normalize=True, else dict
                               contains NoneType values).
   """
-  # TODO: create the data arrays following a similar convention.
-  snapshots = hdf5_utils.read_single_array(
+
+  # Creates the source file, which is a random access file wrapping a numpy
+  # array
+  source = SourceInMemoryHDF5(
       dataset_path,
-      f"{split}/u",
+      split=split,
+      spatial_downsample_factor=spatial_downsample_factor,
   )
 
-  # If the data is given aggregated by trajectory, we scramble the time stamps.
-  if snapshots.ndim == 5:
-    # We assume that the data is 2-dimensional + channels.
-    num_trajs, num_time, nx, ny, dim = snapshots.shape
-    snapshots = snapshots.reshape((num_trajs * num_time, nx, ny, dim))
-  elif snapshots.ndim != 4:
+  if normalize_stats is None:
+    normalize_stats = source.normalize_stats
+
+  if "mean" not in normalize_stats or "std" not in normalize_stats:
     raise ValueError(
-        "The dimension of the data should be either a 5- or 4-",
-        "dimensional tensor: two spatial dimension, one chanel ",
-        "dimension and either number of samples, or number of ",
-        "trajectories plus number of time-steps per trajectories.",
-        f" Instead the data is a {snapshots.ndim}-tensor.",
+        "The normalize_stats dictionary should contain keys 'mean' and 'std'."
     )
 
-  # Downsample the data spatially, the data is two-dimensional.
-  snapshots = snapshots[
-      :, ::spatial_downsample_factor, ::spatial_downsample_factor, :
-  ]
-
-  return_stats = None
-
+  transformations = []
   if normalize:
-    if normalize_stats is not None:
-      mean = normalize_stats["mean"]
-      std = normalize_stats["std"]
-    else:
-      if split != "train":
-        data_for_stats = hdf5_utils.read_single_array(
-            dataset_path,
-            "train/u",
+    transformations.append(
+        transforms.Standardize(
+            input_fields=["u",],
+            mean={"u": normalize_stats["mean"]},
+            std={"u": normalize_stats["std"]},
         )
-        if data_for_stats.ndim == 5:
-          num_trajs, num_time, nx, ny, dim = data_for_stats.shape
-          data_for_stats = data_for_stats.reshape(
-              (num_trajs * num_time, nx, ny, dim)
-          )
-        # Also perform the downsampling.
-        data_for_stats = data_for_stats[
-            :, ::spatial_downsample_factor, ::spatial_downsample_factor, :
-        ]
-      else:
-        data_for_stats = snapshots
+    )
 
-      # This need to be run in CPU. This needs to be done only once.
-      mean = np.mean(data_for_stats, axis=0)
-      std = np.std(data_for_stats, axis=0)
+  if output_name is not None and output_name != "u":
+    if not isinstance(output_name, str):
+      raise ValueError(
+          "The output_name should be a string, but it is a ",
+          type(output_name),
+      )
+    transformations.append(
+        transforms.SelectAs(
+            select_features=["u",],
+            as_features=[output_name,]
+        )
+    )
 
-    # Normalize snapshot so they are distributed appropiately.
-    snapshots -= mean
-    snapshots /= std
-
-    return_stats = {"mean": mean, "std": std}
-
-  source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
-          "u": snapshots,
-      })
-  )
-
-  # Grain fine-tuning.
-  tfgrain.config.update(
-      "tf_lookup_num_parallel_calls", tf_lookup_num_parallel_calls
-  )
-  tfgrain.config.update("tf_interleaved_shuffle", tf_interleaved_shuffle)
-  tfgrain.config.update("tf_lookup_batch_size", tf_lookup_batch_size)
-
-  if batch_size == -1:  # Use full dataset as batch
-    batch_size = len(source)
-
-  loader = tfgrain.TfDataLoader(
+  loader = pygrain.load(
       source=source,
-      sampler=tfgrain.TfDefaultIndexSampler(
-          num_records=len(source),
-          seed=seed,
-          num_epochs=None,  # loads indefinitely.
-          shuffle=True,
-          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
-      ),
-      transformations=[],
-      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+      num_epochs=None,
+      shuffle=shuffle,
+      seed=seed,
+      shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
+      transformations=transformations,
+      batch_size=batch_size,
+      drop_remainder=drop_remainder,
+      worker_count=worker_count,
   )
-  return loader, return_stats
+  return loader, normalize_stats
 
 
 def read_stats(

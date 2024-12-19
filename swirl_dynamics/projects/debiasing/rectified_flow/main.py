@@ -112,36 +112,7 @@ def main(argv):
 
   # TODO: add an utility function to encapsulate all this code.
 
-  if config.tf_grain_hdf5:
-
-    train_dataloader = data_utils.UnpairedDataLoader(
-        batch_size=config.batch_size,
-        dataset_path_a=config.dataset_path_u_lf,
-        dataset_path_b=config.dataset_path_u_hf,
-        seed=config.seed,
-        split="train",
-        spatial_downsample_factor_a=config.spatial_downsample_factor[0],
-        spatial_downsample_factor_b=config.spatial_downsample_factor[1],
-        normalize=config.normalize,
-        tf_lookup_batch_size=config.tf_lookup_batch_size,
-        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
-    )
-
-    eval_dataloader = data_utils.UnpairedDataLoader(
-        batch_size=config.batch_size,
-        dataset_path_a=config.dataset_path_u_lf,
-        dataset_path_b=config.dataset_path_u_hf,
-        seed=config.seed,
-        split="eval",
-        spatial_downsample_factor_a=config.spatial_downsample_factor[0],
-        spatial_downsample_factor_b=config.spatial_downsample_factor[1],
-        normalize=config.normalize,
-        tf_lookup_batch_size=config.tf_lookup_batch_size,
-        tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
-    )
-  elif config.pygrain_zarr:
+  if config.pygrain_zarr:
 
     if "era5_variables" in config:
       era5_variables = config.era5_variables.to_dict()
