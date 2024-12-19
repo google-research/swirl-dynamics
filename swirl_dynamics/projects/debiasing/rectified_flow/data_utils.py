@@ -98,6 +98,101 @@ def maybe_expand_dims(
   return array
 
 
+class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
+  """Source class for a HDF5 file.
+
+  Here we assume the store data is split in subsets with keys : "train",
+  "eval", and "test". Inside each, we have the field "u", which is either a
+  5-tensor with shape [num_trajectories, num_time_stamps, nx, ny, num_fields],
+  or a 4-tensor with shape [num_snapshots, nx, ny, num_fields].
+  We also assume that the statistics are only computed from the "train" split.
+
+  Attributes:
+    source: numpy array with the data.
+    normalize_stats: dictionary with the mean and std statistics of the data.
+  """
+
+  def __init__(
+      self,
+      dataset_path: str,
+      split: Literal["train", "eval", "test"],
+      spatial_downsample_factor: int = 1,
+  ):
+    """Load pre-computed trajectories stored in hdf5 file.
+
+    Args:
+      dataset_path: Absolute path to dataset file.
+      split: Data split, of the following: train, eval, or test.
+      spatial_downsample_factor: reduce spatial resolution by factor of x.
+
+    Returns:
+      loader, stats (optional): Tuple of dataloader and dictionary containing
+                                mean and std stats (if normalize=True, else dict
+                                contains NoneType values).
+    """
+    # Reads data from the hdf5 file.
+    snapshots = hdf5_utils.read_single_array(
+        dataset_path,
+        f"{split}/u",
+    )
+
+    # If the data is given by trajectories, we scramble the time stamps.
+    if snapshots.ndim == 5:
+      # We assume that the data is 2-dimensional + channels.
+      num_trajs, num_time, nx, ny, dim = snapshots.shape
+      snapshots = snapshots.reshape((num_trajs * num_time, nx, ny, dim))
+    elif snapshots.ndim != 4:
+      raise ValueError(
+          "The dimension of the data should be either a 5- or 4-",
+          "dimensional tensor: two spatial dimension, one chanel ",
+          "dimension and either number of samples, or number of ",
+          "trajectories plus number of time-steps per trajectories.",
+          f" Instead the data is a {snapshots.ndim}-tensor.",
+      )
+
+    # Downsample the data spatially, the data is two-dimensional.
+    snapshots = snapshots[
+        :, ::spatial_downsample_factor, ::spatial_downsample_factor, :
+    ]
+
+    if split != "train":
+      data_for_stats = hdf5_utils.read_single_array(
+          dataset_path,
+          "train/u",
+      )
+      if data_for_stats.ndim == 5:
+        num_trajs, num_time, nx, ny, dim = data_for_stats.shape
+        data_for_stats = data_for_stats.reshape(
+            (num_trajs * num_time, nx, ny, dim)
+        )
+      # Also perform the downsampling.
+      data_for_stats = data_for_stats[
+          :, ::spatial_downsample_factor, ::spatial_downsample_factor, :
+      ]
+    else:
+      data_for_stats = snapshots
+
+    # This need to be run in CPU. This needs to be done only once.
+    mean = np.mean(data_for_stats, axis=0)
+    std = np.std(data_for_stats, axis=0)
+
+    self.source = snapshots
+    self.normalize_stats = {"mean": mean, "std": std}
+
+  def __len__(self) -> int:
+    """Returns the number of samples in the source."""
+    return self.source.shape[0]
+
+  def __getitem__(self, record_key: SupportsIndex) -> Mapping[str, np.ndarray]:
+    """Returns the data record for a given record key."""
+    idx = record_key.__index__()
+
+    if idx >= self.__len__():
+      raise IndexError("Index out of range.")
+    # here we return a dictionary with "u"
+    return {"u": self.source[idx]}
+
+
 class UnpairedDataLoader:
   """Unpaired dataloader for loading samples from two distributions."""
 
