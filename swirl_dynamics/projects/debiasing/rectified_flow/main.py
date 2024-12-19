@@ -41,7 +41,6 @@ _ERA5_VARIABLES = {
     "mean_sea_level_pressure": None,
     "10m_magnitude_of_wind": None,
 }
-_ERA5_WIND_COMPONENTS = {}
 
 _LENS2_MEMBER_INDEXER = {"member": "cmip6_1001_001"}
 _LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "Z200", "Z500", "PSL", "WSPDSRFAV")
@@ -118,11 +117,6 @@ def main(argv):
       era5_variables = config.era5_variables.to_dict()
     else:
       era5_variables = _ERA5_VARIABLES
-
-    if "era5_wind_components" in config:
-      era5_wind_components = config.era5_wind_components.to_dict()
-    else:
-      era5_wind_components = _ERA5_WIND_COMPONENTS
 
     if "lens2_member_indexer" in config:
       if "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader:
@@ -249,7 +243,6 @@ def main(argv):
           input_member_indexer=lens2_member_indexer,
           input_variable_names=lens2_variable_names,
           output_variables=era5_variables,
-          output_wind_components=era5_wind_components,
           seed=config.seed,
           batch_size=config.batch_size_eval,
           drop_remainder=True,
@@ -261,7 +254,6 @@ def main(argv):
           input_member_indexer=lens2_member_indexer,
           input_variable_names=lens2_variable_names,
           output_variables=era5_variables,
-          output_wind_components=era5_wind_components,
           seed=config.seed,
           batch_size=config.batch_size_eval,
           drop_remainder=True,
@@ -278,7 +270,6 @@ def main(argv):
               input_member_indexer=lens2_member_indexer,
               input_variable_names=lens2_variable_names,
               output_variables=era5_variables,
-              output_wind_components=era5_wind_components,
               seed=config.seed,
               batch_size=config.batch_size_eval,
               drop_remainder=True,
@@ -295,7 +286,6 @@ def main(argv):
               input_member_indexer=lens2_member_indexer,
               input_variable_names=lens2_variable_names,
               output_variables=era5_variables,
-              output_wind_components=era5_wind_components,
               seed=config.seed,
               batch_size=config.batch_size_eval,
               drop_remainder=True,
@@ -310,7 +300,6 @@ def main(argv):
           date_range=config.data_range_train,
           shuffle=config.shuffle,
           variables=era5_variables,
-          wind_components=era5_wind_components,
           seed=config.seed,
           batch_size=config.batch_size,
           drop_remainder=True,
@@ -334,7 +323,6 @@ def main(argv):
           seed=config.seed,
           batch_size=config.batch_size_eval,
           variables=era5_variables,
-          wind_components=era5_wind_components,
           drop_remainder=True,
           worker_count=config.num_workers,
       )
@@ -367,7 +355,6 @@ def main(argv):
       train_dataloader = data_utils.create_lens2_era5_loader(
           date_range=config.data_range_train,
           output_variables=era5_variables,
-          output_wind_components=era5_wind_components,
           input_member_indexer=lens2_member_indexer,
           input_variable_names=lens2_variable_names,
           shuffle=config.shuffle,
@@ -379,7 +366,6 @@ def main(argv):
       eval_dataloader = data_utils.create_lens2_era5_loader(
           date_range=config.data_range_eval,
           output_variables=era5_variables,
-          output_wind_components=era5_wind_components,
           input_member_indexer=lens2_member_indexer,
           input_variable_names=lens2_variable_names,
           shuffle=config.shuffle,

@@ -34,14 +34,10 @@ DynamicsFn = Callable[[Array, Array, PyTree], Array]
 _ERA5_VARIABLES = types.MappingProxyType({
     "2m_temperature": None,
     "specific_humidity": {"level": 1000},
-    "geopotential": {"level": [200, 500]},
     "mean_sea_level_pressure": None,
+    "10m_magnitude_of_wind": None,
 })
 
-_ERA5_WIND_COMPONENTS = types.MappingProxyType({
-    "10m_u_component_of_wind": None,
-    "10m_v_component_of_wind": None,
-})
 
 # pylint: disable=line-too-long
 _ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
@@ -1479,9 +1475,6 @@ def create_era5_loader(
     variables: (
         dict[str, dict[str, Any] | None] | types.MappingProxyType
     ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    wind_components: (
-        dict[str, dict[str, Any]] | types.MappingProxyType
-    ) = _ERA5_WIND_COMPONENTS,  # pylint: disable=dangerous-default-value
     dataset_path: epath.PathLike = _ERA5_DATASET_PATH,
     stats_path: epath.PathLike = _ERA5_STATS_PATH,
     shuffle: bool = False,
@@ -1496,7 +1489,6 @@ def create_era5_loader(
   Args:
     date_range: Range in years of the data considered.
     variables: The names of the variables in the Zarr file to be included.
-    wind_components: Dictionary with the wind components to be considered.
     dataset_path: The path to the dataset.
     stats_path: The path to the files with the precomputed statistics, which
       included the mean and standard deviation.
@@ -1515,7 +1507,7 @@ def create_era5_loader(
   source = SingleSource(
       date_range=date_range,
       dataset_path=dataset_path,
-      variables=variables | wind_components,
+      variables=variables,
       dims_order=["time", "longitude", "latitude", "level"],
       time_stamps=time_stamps,
   )
@@ -1529,42 +1521,10 @@ def create_era5_loader(
           std=read_stats(stats_path, variables, "std"),
       )
   )
-  if wind_components:
-    transformations.append(
-        transforms.ComputeWindSpeedExact(
-            u_field="10m_u_component_of_wind",
-            v_field="10m_v_component_of_wind",
-            speed_field="10m_magnitude_of_wind",
-            mean=read_stats(
-                stats_path,
-                {
-                    "10m_magnitude_of_wind": wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "mean",
-            ),
-            std=read_stats(
-                stats_path,
-                {
-                    "10m_magnitude_of_wind": wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "std",
-            ),
-            output_field="wind_speed",
-            remove_inputs=True,
-        ),
-    )
-  input_fields = (
-      (*variables.keys(), "wind_speed")
-      if wind_components
-      else (*variables.keys(),)
-  )
+
   transformations.append(
       transforms.Concatenate(
-          input_fields=input_fields,
+          input_fields=(*variables.keys(),),
           output_field="x_1",
           axis=-1,
           remove_inputs=True,
@@ -1698,15 +1658,11 @@ def create_default_era5_loader(
       "geopotential": {"level": [200, 500]},
       "mean_sea_level_pressure": None,
   }
-  wind_components = {
-      "10m_u_component_of_wind": None,
-      "10m_v_component_of_wind": None,
-  }
 
   source = SingleSource(
       date_range=date_range,
       dataset_path=dataset_path,
-      variables=variables | wind_components,
+      variables=variables,
       dims_order=["time", "longitude", "latitude", "level"],
   )
   transformations = [
@@ -1714,31 +1670,6 @@ def create_default_era5_loader(
           input_fields=variables.keys(),
           mean=read_stats(stats_path, variables, "mean"),
           std=read_stats(stats_path, variables, "std"),
-      ),
-      transforms.ComputeWindSpeedExact(
-          u_field="10m_u_component_of_wind",
-          v_field="10m_v_component_of_wind",
-          speed_field="10m_magnitude_of_wind",
-          mean=read_stats(
-              stats_path,
-              {
-                  "10m_magnitude_of_wind": wind_components[
-                      "10m_u_component_of_wind"
-                  ]
-              },
-              "mean",
-          ),
-          std=read_stats(
-              stats_path,
-              {
-                  "10m_magnitude_of_wind": wind_components[
-                      "10m_u_component_of_wind"
-                  ]
-              },
-              "std",
-          ),
-          output_field="wind_speed",
-          remove_inputs=True,
       ),
       transforms.Concatenate(
           input_fields=(*variables.keys(), "wind_speed"),
@@ -1856,10 +1787,6 @@ def create_chunked_era5_loader(
       "geopotential": {"level": [200, 500]},
       "mean_sea_level_pressure": None,
   }
-  wind_components = {
-      "10m_u_component_of_wind": None,
-      "10m_v_component_of_wind": None,
-  }
 
   # TODO: add a if else here to use either single or contiguous
   # data sets.
@@ -1867,7 +1794,7 @@ def create_chunked_era5_loader(
       date_range=date_range,
       dataset_path=dataset_path,
       batch_size=batch_size,
-      variables=variables | wind_components,
+      variables=variables,
       dims_order=["time", "longitude", "latitude", "level"],
   )
   transformations = [
@@ -1875,31 +1802,6 @@ def create_chunked_era5_loader(
           input_fields=variables.keys(),
           mean=read_stats(stats_path, variables, "mean", use_batched=True),
           std=read_stats(stats_path, variables, "std", use_batched=True),
-      ),
-      transforms.ComputeWindSpeedExact(
-          u_field="10m_u_component_of_wind",
-          v_field="10m_v_component_of_wind",
-          speed_field="10m_magnitude_of_wind",
-          mean=read_stats(
-              stats_path,
-              {
-                  "10m_magnitude_of_wind": wind_components[
-                      "10m_u_component_of_wind"
-                  ]
-              },
-              "mean",
-          ),
-          std=read_stats(
-              stats_path,
-              {
-                  "10m_magnitude_of_wind": wind_components[
-                      "10m_u_component_of_wind"
-                  ]
-              },
-              "std",
-          ),
-          output_field="wind_speed",
-          remove_inputs=True,
       ),
       transforms.Concatenate(
           input_fields=(*variables.keys(), "wind_speed"),
@@ -2009,9 +1911,6 @@ def create_lens2_era5_loader(
     output_variables: (
         dict[str, dict[str, Any] | None] | types.MappingProxyType
     ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    output_wind_components: (
-        dict[str, dict[str, Any]] | types.MappingProxyType
-    ) = _ERA5_WIND_COMPONENTS,  # pylint: disable=dangerous-default-value
     shuffle: bool = False,
     seed: int = 42,
     batch_size: int = 16,
@@ -2032,7 +1931,6 @@ def create_lens2_era5_loader(
     output_dataset_path: Path for the output (era5) dataset.
     output_stats_path: Path of the Zarr file containing the statistics.
     output_variables: Variables in the output dataset to be chosen.
-    output_wind_components: Components of the wind speed.
     shuffle: Whether to randomly pick the data points.
     seed: Random seed for the random number generator.
     batch_size: Size of the batch.
@@ -2051,7 +1949,7 @@ def create_lens2_era5_loader(
       input_variable_names=input_variable_names,
       input_member_indexer=input_member_indexer,
       output_dataset=output_dataset_path,
-      output_variables=output_variables | output_wind_components,
+      output_variables=output_variables,
       resample_at_nan=False,
       dims_order_input=["member", "time", "longitude", "latitude"],
       dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2072,45 +1970,11 @@ def create_lens2_era5_loader(
           std=read_stats(input_stats_path, input_variables, "std"),
       ),
   ]
-  if output_wind_components:
-    transformations.append(
-        transforms.ComputeWindSpeedExactNested(
-            main_field="output",
-            u_field="10m_u_component_of_wind",
-            v_field="10m_v_component_of_wind",
-            speed_field="10m_magnitude_of_wind",
-            mean=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "mean",
-            ),
-            std=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "std",
-            ),
-            output_field="wind_speed",
-            remove_inputs=True,
-        )
-    )
 
-  output_fields = (
-      (*output_variables.keys(), "wind_speed")
-      if output_wind_components
-      else (*output_variables.keys(),)
-  )
   transformations.append(
       transforms.ConcatenateNested(
           main_field="output",
-          input_fields=output_fields,
+          input_fields=(*output_variables.keys(),),
           output_field="x_1",
           axis=-1,
           remove_inputs=True,
@@ -2152,9 +2016,6 @@ def create_lens2_era5_loader_chunked(
     output_variables: (
         dict[str, dict[str, Any] | None] | types.MappingProxyType
     ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    output_wind_components: (
-        dict[str, dict[str, Any]] | types.MappingProxyType
-    ) = _ERA5_WIND_COMPONENTS,  # pylint: disable=dangerous-default-value
     shuffle: bool = False,
     seed: int = 42,
     batch_size: int = 16,
@@ -2175,7 +2036,6 @@ def create_lens2_era5_loader_chunked(
     output_dataset_path: Path for the output (era5) dataset.
     output_stats_path: Path of the Zarr file containing the statistics.
     output_variables: Variables in the output dataset to be chosen.
-    output_wind_components: Components of the wind speed.
     shuffle: Whether to randomly pick the data points.
     seed: Random seed for the random number generator.
     batch_size: Size of the batch.
@@ -2195,7 +2055,7 @@ def create_lens2_era5_loader_chunked(
       input_variable_names=input_variable_names,
       input_member_indexer=input_member_indexer,
       output_dataset=output_dataset_path,
-      output_variables=output_variables | output_wind_components,
+      output_variables=output_variables,
       resample_at_nan=False,
       dims_order_input=["member", "time", "longitude", "latitude"],
       dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2224,45 +2084,11 @@ def create_lens2_era5_loader_chunked(
           ),
       ),
   ]
-  if output_wind_components:
-    transformations.append(
-        transforms.ComputeWindSpeedExactNested(
-            main_field="output",
-            u_field="10m_u_component_of_wind",
-            v_field="10m_v_component_of_wind",
-            speed_field="10m_magnitude_of_wind",
-            mean=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "mean",
-            ),
-            std=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "std",
-            ),
-            output_field="wind_speed",
-            remove_inputs=True,
-        )
-    )
 
-  output_fields = (
-      (*output_variables.keys(), "wind_speed")
-      if output_wind_components
-      else (*output_variables.keys(),)
-  )
   transformations.append(
       transforms.ConcatenateNested(
           main_field="output",
-          input_fields=output_fields,
+          input_fields=(*output_variables.keys(),),
           output_field="x_1",
           axis=-1,
           remove_inputs=True,
@@ -2311,9 +2137,6 @@ def create_ensemble_lens2_era5_loader_chunked(
     output_variables: (
         dict[str, dict[str, Any] | None] | types.MappingProxyType
     ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    output_wind_components: (
-        dict[str, dict[str, Any]] | types.MappingProxyType
-    ) = _ERA5_WIND_COMPONENTS,  # pylint: disable=dangerous-default-value
     shuffle: bool = False,
     random_local_shuffle: bool = True,
     batch_ot_shuffle: bool = False,
@@ -2337,7 +2160,6 @@ def create_ensemble_lens2_era5_loader_chunked(
     output_dataset_path: Path for the output (era5) dataset.
     output_stats_path: Path of the Zarr file containing the statistics.
     output_variables: Variables in the output dataset to be chosen.
-    output_wind_components:
     shuffle: Whether to randomly pick the data points.
     random_local_shuffle: Whether to randomly shuffle the data points.
     batch_ot_shuffle: Whether to shuffle the data points in the batch, by
@@ -2360,7 +2182,7 @@ def create_ensemble_lens2_era5_loader_chunked(
       input_variable_names=input_variable_names,
       input_member_indexer=input_member_indexer,
       output_dataset=output_dataset_path,
-      output_variables=output_variables | output_wind_components,
+      output_variables=output_variables,
       resample_at_nan=False,
       dims_order_input=["member", "time", "longitude", "latitude"],
       dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2393,45 +2215,11 @@ def create_ensemble_lens2_era5_loader_chunked(
           ),
       ),
   ]
-  if output_wind_components:
-    transformations.append(
-        transforms.ComputeWindSpeedExactNested(
-            main_field="output",
-            u_field="10m_u_component_of_wind",
-            v_field="10m_v_component_of_wind",
-            speed_field="10m_magnitude_of_wind",
-            mean=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "mean",
-            ),
-            std=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "std",
-            ),
-            output_field="wind_speed",
-            remove_inputs=True,
-        )
-    )
 
-  output_fields = (
-      (*output_variables.keys(), "wind_speed")
-      if output_wind_components
-      else (*output_variables.keys(),)
-  )
   transformations.append(
       transforms.ConcatenateNested(
           main_field="output",
-          input_fields=output_fields,
+          input_fields=(*output_variables.keys(),),
           output_field="x_1",
           axis=-1,
           remove_inputs=True,
@@ -2487,9 +2275,6 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
     output_variables: (
         dict[str, dict[str, Any] | None] | types.MappingProxyType
     ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    output_wind_components: (
-        dict[str, dict[str, Any]] | types.MappingProxyType
-    ) = _ERA5_WIND_COMPONENTS,  # pylint: disable=dangerous-default-value
     shuffle: bool = False,
     random_local_shuffle: bool = True,
     batch_ot_shuffle: bool = False,
@@ -2515,8 +2300,6 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
     output_dataset_path: Path for the output (era5) dataset.
     output_stats_path: Path of the Zarr file containing the statistics.
     output_variables: Variables in the output dataset to be chosen.
-    output_wind_components: Variables including the wind componen to be
-      included in the output.
     shuffle: Whether to shuffle the data points.
     random_local_shuffle: Whether to shuffle the data points in the batch.
     batch_ot_shuffle: Whether to shuffle the data points in the batch, by
@@ -2543,7 +2326,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
         input_member_indexer=input_member_indexer,
         input_stats_dataset=input_stats_path,
         output_dataset=output_dataset_path,
-        output_variables=output_variables | output_wind_components,
+        output_variables=output_variables,
         resample_at_nan=False,
         dims_order_input=["member", "time", "longitude", "latitude"],
         dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2560,7 +2343,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
         input_member_indexer=input_member_indexer,
         input_stats_dataset=input_stats_path,
         output_dataset=output_dataset_path,
-        output_variables=output_variables | output_wind_components,
+        output_variables=output_variables,
         resample_at_nan=False,
         dims_order_input=["member", "time", "longitude", "latitude"],
         dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2591,45 +2374,11 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
           input_fields=(*input_variables.keys(),),
       ),
   ]
-  if output_wind_components:
-    transformations.append(
-        transforms.ComputeWindSpeedExactNested(
-            main_field="output",
-            u_field="10m_u_component_of_wind",
-            v_field="10m_v_component_of_wind",
-            speed_field="10m_magnitude_of_wind",
-            mean=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "mean",
-            ),
-            std=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "std",
-            ),
-            output_field="wind_speed",
-            remove_inputs=True,
-        )
-    )
 
-  output_fields = (
-      (*output_variables.keys(), "wind_speed")
-      if output_wind_components
-      else (*output_variables.keys(),)
-  )
   transformations.append(
       transforms.ConcatenateNested(
           main_field="output",
-          input_fields=output_fields,
+          input_fields=(*output_variables.keys(),),
           output_field="x_1",
           axis=-1,
           remove_inputs=True,
@@ -2712,9 +2461,6 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
     output_variables: (
         dict[str, dict[str, Any] | None] | types.MappingProxyType
     ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    output_wind_components: (
-        dict[str, dict[str, Any]] | types.MappingProxyType
-    ) = _ERA5_WIND_COMPONENTS,  # pylint: disable=dangerous-default-value
     shuffle: bool = False,
     random_local_shuffle: bool = True,
     batch_ot_shuffle: bool = False,
@@ -2742,8 +2488,6 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
     output_dataset_path: Path for the output (era5) dataset.
     output_stats_path: Path of the Zarr file containing the statistics.
     output_variables: Variables in the output dataset to be chosen.
-    output_wind_components: Variables including the wind componen to be
-      included in the output.
     shuffle: Whether to shuffle the data points.
     random_local_shuffle: Whether to shuffle the data points in the batch.
     batch_ot_shuffle: Whether to shuffle the data points in the batch, by
@@ -2770,7 +2514,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
         input_member_indexer=input_member_indexer,
         input_stats_dataset=input_stats_path,
         output_dataset=output_dataset_path,
-        output_variables=output_variables | output_wind_components,
+        output_variables=output_variables,
         resample_at_nan=False,
         dims_order_input=["member", "time", "longitude", "latitude"],
         dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2787,7 +2531,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
         input_member_indexer=input_member_indexer,
         input_stats_dataset=input_stats_path,
         output_dataset=output_dataset_path,
-        output_variables=output_variables | output_wind_components,
+        output_variables=output_variables,
         resample_at_nan=False,
         dims_order_input=["member", "time", "longitude", "latitude"],
         dims_order_output=["time", "longitude", "latitude", "level"],
@@ -2818,45 +2562,11 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
           input_fields=(*input_variables.keys(),),
       ),
   ]
-  if output_wind_components:
-    transformations.append(
-        transforms.ComputeWindSpeedExactNested(
-            main_field="output",
-            u_field="10m_u_component_of_wind",
-            v_field="10m_v_component_of_wind",
-            speed_field="10m_magnitude_of_wind",
-            mean=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "mean",
-            ),
-            std=read_stats(
-                output_stats_path,
-                {
-                    "10m_magnitude_of_wind": output_wind_components[
-                        "10m_u_component_of_wind"
-                    ]
-                },
-                "std",
-            ),
-            output_field="wind_speed",
-            remove_inputs=True,
-        )
-    )
 
-  output_fields = (
-      (*output_variables.keys(), "wind_speed")
-      if output_wind_components
-      else (*output_variables.keys(),)
-  )
   transformations.append(
       transforms.ConcatenateNested(
           main_field="output",
-          input_fields=output_fields,
+          input_fields=(*output_variables.keys(),),
           output_field="x_1",
           axis=-1,
           remove_inputs=True,
@@ -3154,10 +2864,6 @@ def create_lens2_era5_loader_default(
       "geopotential": {"level": [200, 500]},
       "mean_sea_level_pressure": None,
   }
-  output_wind_components = {
-      "10m_u_component_of_wind": None,
-      "10m_v_component_of_wind": None,
-  }
 
   source = DataSource(
       date_range=date_range,
@@ -3165,7 +2871,7 @@ def create_lens2_era5_loader_default(
       input_variable_names=input_variable_names,
       input_member_indexer=input_member_indexer,
       output_dataset=output_dataset_path,
-      output_variables=output_variables | output_wind_components,
+      output_variables=output_variables,
       resample_at_nan=False,
       dims_order_input=["member", "time", "longitude", "latitude"],
       dims_order_output=["time", "longitude", "latitude", "level"],
@@ -3184,32 +2890,6 @@ def create_lens2_era5_loader_default(
           input_fields=(*input_variables.keys(),),
           mean=read_stats(input_stats_path, input_variables, "mean"),
           std=read_stats(input_stats_path, input_variables, "std"),
-      ),
-      transforms.ComputeWindSpeedExactNested(
-          main_field="output",
-          u_field="10m_u_component_of_wind",
-          v_field="10m_v_component_of_wind",
-          speed_field="10m_magnitude_of_wind",
-          mean=read_stats(
-              output_stats_path,
-              {
-                  "10m_magnitude_of_wind": output_wind_components[
-                      "10m_u_component_of_wind"
-                  ]
-              },
-              "mean",
-          ),
-          std=read_stats(
-              output_stats_path,
-              {
-                  "10m_magnitude_of_wind": output_wind_components[
-                      "10m_u_component_of_wind"
-                  ]
-              },
-              "std",
-          ),
-          output_field="wind_speed",
-          remove_inputs=True,
       ),
       transforms.ConcatenateNested(
           main_field="output",

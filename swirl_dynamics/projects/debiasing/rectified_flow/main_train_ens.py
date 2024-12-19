@@ -46,8 +46,6 @@ _ERA5_VARIABLES = {
     "10m_magnitude_of_wind": None,
 }
 
-_ERA5_WIND_COMPONENTS = {}
-
 # For the training of ensemble data, the indexer is a tuple of dictionaries.
 # For evaluation and inference is a tuple of strings.
 _LENS2_MEMBER_INDEXER = (
@@ -139,11 +137,6 @@ def main(argv):
   else:
     era5_variables = _ERA5_VARIABLES
 
-  if "era5_wind_components" in config:
-    era5_wind_components = config.era5_wind_components.to_dict()
-  else:
-    era5_wind_components = _ERA5_WIND_COMPONENTS
-
   if "lens2_member_indexer" in config:
     # TODO: Clean this. Kept for backwards compatibility.
     if (
@@ -230,7 +223,6 @@ def main(argv):
           input_variable_names=lens2_variable_names,
           input_member_indexer=lens2_member_indexer,
           output_variables=era5_variables,
-          output_wind_components=era5_wind_components,
           output_dataset_path=config.era5_dataset_path,
           output_stats_path=config.era5_stats_path,
       )
@@ -248,7 +240,6 @@ def main(argv):
           input_variable_names=lens2_variable_names,
           input_member_indexer=lens2_member_indexer,
           output_variables=era5_variables,
-          output_wind_components=era5_wind_components,
           output_dataset_path=config.era5_dataset_path,
           output_stats_path=config.era5_stats_path,
       )
@@ -261,7 +252,6 @@ def main(argv):
               input_variable_names=lens2_variable_names,
               input_member_indexer=lens2_member_indexer,
               output_variables=era5_variables,
-              output_wind_components=era5_wind_components,
           )
       )
 
@@ -273,7 +263,6 @@ def main(argv):
               input_variable_names=lens2_variable_names,
               input_member_indexer=lens2_member_indexer,
               output_variables=era5_variables,
-              output_wind_components=era5_wind_components,
           )
       )
 

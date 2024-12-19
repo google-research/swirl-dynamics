@@ -55,8 +55,6 @@ _ERA5_VARIABLES = {
     "10m_magnitude_of_wind": None,
 }
 
-_ERA5_WIND_COMPONENTS = {}
-
 # This is modified to be a tuple of strings, from a tuple of dictionaries of the
 # form : ({"member": "cmip6_1001_001"},)
 _LENS2_MEMBER_INDEXER = ("cmip6_1001_001",)
@@ -101,11 +99,6 @@ def build_data_loaders(
       if "era5_variables" not in config
       else config.era5_variables.to_dict()
   )
-  era5_wind_components = (
-      _ERA5_WIND_COMPONENTS
-      if "era5_wind_components" not in config
-      else config.era5_wind_components.to_dict()
-  )
   lens2_variable_names = (
       _LENS2_VARIABLE_NAMES
       if "lens2_variable_names" not in config
@@ -132,7 +125,6 @@ def build_data_loaders(
       input_variable_names=lens2_variable_names,
       input_member_indexer=lens2_member_indexer,
       output_variables=era5_variables,
-      output_wind_components=era5_wind_components,
       output_dataset_path=_ERA5_DATASET_PATH,
       output_stats_path=_ERA5_STATS_PATH,
       time_stamps=True,
