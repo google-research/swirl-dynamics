@@ -1586,6 +1586,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
     drop_remainder: bool = True,
     worker_count: int | None = 0,
     time_stamps: bool = False,
+    normalize_stats: bool = True,
     overlapping_chunks: bool = False,
     num_epochs: int | None = None,
 ):
@@ -1615,16 +1616,18 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       dataset and the batchsize.
     worker_count: Number of workers for parallelizing the data loading.
     time_stamps: Whether to include the time stamps in the output.
+    normalize_stats: Whether to normalize the stats.
     overlapping_chunks: Whether to use overlapping chunks.
     num_epochs: Number of epochs, by defaults the loader will run forever.
 
   Returns:
   """
+  chunk_size = batch_size // num_chunks
 
   if overlapping_chunks:
     source = DataSourceContiguousNonOverlappingEnsembleWithStats(
         date_range=date_range,
-        batch_size=batch_size,
+        batch_size=chunk_size,
         input_dataset=input_dataset_path,
         input_variable_names=input_variable_names,
         input_member_indexer=input_member_indexer,
@@ -1641,7 +1644,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
   else:
     source = DataSourceContiguousEnsembleWithStats(
         date_range=date_range,
-        batch_size=batch_size,
+        batch_size=chunk_size,
         input_dataset=input_dataset_path,
         input_variable_names=input_variable_names,
         input_member_indexer=input_member_indexer,
@@ -1698,32 +1701,33 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       ),
   )
   # Also concatenating the statistics.
-  empty_dict = {len: {} for len in input_variables.keys()}
-  transformations.append(
-      transforms.StandardizeNested(
-          main_field="input_mean",
-          input_fields=(*input_variables.keys(),),
-          mean=read_stats(
-              input_mean_stats_path, empty_dict, "mean", use_batched=True
-          ),
-          std=read_stats(
-              input_std_stats_path, empty_dict, "mean", use_batched=True
-          ),
-      ),
-  )
+  if normalize_stats:
+    empty_dict = {len: {} for len in input_variables.keys()}
+    transformations.append(
+        transforms.StandardizeNested(
+            main_field="input_mean",
+            input_fields=(*input_variables.keys(),),
+            mean=read_stats(
+                input_mean_stats_path, empty_dict, "mean", use_batched=True
+            ),
+            std=read_stats(
+                input_std_stats_path, empty_dict, "mean", use_batched=True
+            ),
+        ),
+    )
 
-  transformations.append(
-      transforms.StandardizeNested(
-          main_field="input_std",
-          input_fields=(*input_variables.keys(),),
-          mean=read_stats(
-              input_mean_stats_path, empty_dict, "std", use_batched=True
-          ),
-          std=read_stats(
-              input_std_stats_path, empty_dict, "std", use_batched=True
-          ),
-      ),
-  )
+    transformations.append(
+        transforms.StandardizeNested(
+            main_field="input_std",
+            input_fields=(*input_variables.keys(),),
+            mean=read_stats(
+                input_mean_stats_path, empty_dict, "std", use_batched=True
+            ),
+            std=read_stats(
+                input_std_stats_path, empty_dict, "std", use_batched=True
+            ),
+        ),
+    )
 
   transformations.append(
       transforms.ConcatenateNested(
@@ -1763,17 +1767,30 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
         ),
     )
 
-  loader = pygrain.load(
-      source=source,
-      num_epochs=num_epochs,
+  # Performs the batching, the size of the leaves of each batch is given by
+  # [num_chunks, chunk_size, lon, lat, channel].
+  transformations.append(
+      pygrain.Batch(
+          batch_size=num_chunks, drop_remainder=drop_remainder
+      )
+  )
+  # Reshapes the batch to [batch_size, lon, lat, channel].
+  transformations.append(transforms.ReshapeBatch())
+
+  sampler = pygrain.IndexSampler(
+      num_records=len(source),
       shuffle=shuffle,
       seed=seed,
+      num_epochs=num_epochs,
       shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
-      transformations=transformations,
-      batch_size=num_chunks,
-      drop_remainder=drop_remainder,
+  )
+  loader = pygrain.DataLoader(
+      data_source=source,
+      sampler=sampler,
+      operations=transformations,
       worker_count=worker_count,
   )
+
   return loader
 
 
