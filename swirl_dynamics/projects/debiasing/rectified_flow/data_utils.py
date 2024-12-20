@@ -366,7 +366,7 @@ class CommonSource(abc.ABC):
 
   @abc.abstractmethod
   def __len__(self) -> int:
-    """Returns the number of samples in the source."""
+    """Returns the number of samples in each trajectory or ensamble member."""
     pass
 
   @abc.abstractmethod
@@ -435,8 +435,25 @@ class CommonSource(abc.ABC):
     return element
 
 
-class SingleSource:
-  """A data source that loads samples from a single Zarr dataset."""
+class SingleSource(CommonSource):
+  """A source class loading a single sample from a given dataset.
+
+  Each sample has the shape [longitude, latitude, num_fields], where the latest
+  is given by the number of fields in the 'variables' argument in the
+  constructor.
+  """
+
+  def __len__(self) -> int:
+    return self._len
+
+  def _compute_len(self, _time_array: np.ndarray) -> int:
+    return len(_time_array)
+
+  def _compute_time_idx(self, idx: int) -> int:
+    return idx
+
+  def _maybe_expands_dims(self, x: np.ndarray) ->  np.ndarray:
+    return maybe_expand_dims(x, allowed_dims=(2, 3), trigger_expand_dims=2)
 
   def __init__(
       self,
@@ -444,118 +461,52 @@ class SingleSource:
       dataset_path: epath.PathLike,
       variables: Mapping[str, Mapping[str, Any] | None],
       dims_order: Sequence[str] | None = None,
-      resample_at_nan: bool = False,
-      resample_seed: int = 666,
       time_stamps: bool = False,
   ):
-    """Data source constructor.
+    """Data source constructor."""
+    super().__init__(
+        date_range, dataset_path, variables, dims_order, time_stamps
+    )
+    self._len = self._compute_len(self._time_array)
 
-    Args:
-      date_range: The date range (in years) applied.
-      dataset_path: Path for the Zarr dataset.
-      variables: The variables to yield from the input dataset.
-      dims_order: The order of the dimensions.
-      resample_at_nan: Whether to resample when NaN is detected in the data.
-      resample_seed: The random seed for resampling.
-      time_stamps: Whether to add the time stamps to the samples.
-    """
-    date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
-    ds = xrts.open_zarr(dataset_path).sel(time=slice(*date_range))
-    if dims_order:
-      ds = ds.transpose(*dims_order)
-    self._data_arrays = {}
-    for v, indexers in variables.items():
-      self._data_arrays[v] = ds[v].sel(indexers)
 
-    self._date_range = date_range
-    self._time_array = xrts.read(ds["time"]).data
-    self._len = len(self._time_array)
-    self._resample_at_nan = resample_at_nan
-    self._resample_seed = resample_seed
-    self._time_stamps = time_stamps
+class ContiguousSource(CommonSource):
+  """Class to extract a chunk (overlapping) from a given dataset.
 
-  def __len__(self):
+  Each sample has the shape [chunk_size, longitude, latitude, num_fields],
+  where the latest is given by the number of fields in the 'variables' argument
+  in the constructor. Here, the longitude and latitude dimensions can be swaped
+  by setting the 'dims_order' argument in the constructor. In addition, the
+  sample is extracted from the time index [idx, idx + chunk_size).
+  """
+
+  def __len__(self) -> int:
     return self._len
 
-  def __getitem__(self, record_key: SupportsIndex) -> dict[str, np.ndarray]:
-    """Returns the data record for a given key."""
-    idx = record_key.__index__()
-    if not idx < self._len:
-      raise ValueError(f"Index out of range: {idx} / {self._len - 1}")
+  def _compute_len(self, _time_array: np.ndarray, chunk_size: int) -> int:
+    return len(_time_array) - chunk_size + 1
 
-    item = self.get_item(idx)
+  def _compute_time_idx(self, idx: int) -> slice:
+    return slice(idx, idx + self._chunk_size)
 
-    if self._resample_at_nan:
-      while np.array([np.isnan(val).any() for val in item.values()]).any():
-        logging.info("NaN detected")
-
-        rng = np.random.default_rng(self._resample_seed + idx)
-        resample_idx = rng.integers(0, len(self))
-        item = self.get_item(resample_idx)
-
-    return item
-
-  def get_item(self, idx: int) -> dict[str, np.ndarray]:
-    item = {}
-    for v, da in self._data_arrays.items():
-      array = xrts.read(da.isel(time=idx)).data
-      assert array.ndim == 2 or array.ndim == 3
-      item[v] = np.expand_dims(array, axis=-1) if array.ndim == 2 else array
-
-    if self._time_stamps:
-      item["time_stamp"] = self._time_array[idx]
-    return item
-
-
-class ContiguousSource:
-  """A data source that loads a single dataset by contiguous chunks."""
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    return maybe_expand_dims(x, allowed_dims=(3, 4), trigger_expand_dims=3)
 
   def __init__(
       self,
       date_range: tuple[str, str],
-      batch_size: int,
+      chunk_size: int,
       dataset_path: epath.PathLike,
       variables: Mapping[str, Mapping[str, Any] | None],
       dims_order: Sequence[str] | None = None,
-      time_stamp: bool = False,
+      time_stamps: bool = False,
   ):
     """Data source constructor."""
-    date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
-    ds = xrts.open_zarr(dataset_path).sel(time=slice(*date_range))
-
-    if dims_order:
-      ds = ds.transpose(*dims_order)
-    self._data_arrays = {}
-
-    for v, indexers in variables.items():
-      self._data_arrays[v] = ds[v].sel(indexers)
-
-    self._batch_size = batch_size
-    self._time_stamp = time_stamp
-    self._date_range = date_range
-    # TODO: remove this a bit.
-    self._time_array = xrts.read(ds["time"]).data
-    self._len = len(self._time_array) - self._batch_size
-
-  def __len__(self):
-    """Returns the length of the data source."""
-    return self._len
-
-  def __getitem__(self, record_key: SupportsIndex) -> dict[str, np.ndarray]:
-    """Returns the data record for a given key."""
-    idx = record_key.__index__()
-    if not idx < self._len:
-      raise ValueError(f"Index out of range: {idx} / {self._len - 1}")
-
-    example = {}
-    for v, da in self._data_arrays.items():
-      array = xrts.read(da.isel(time=slice(idx, idx + self._batch_size))).data
-      assert array.ndim == 3 or array.ndim == 4
-      example[v] = np.expand_dims(array, axis=-1) if array.ndim == 3 else array
-
-      if self._time_stamp:
-        example["time_stamp"] = self._time_array[idx]
-    return example
+    super().__init__(
+        date_range, dataset_path, variables, dims_order, time_stamps
+    )
+    self._chunk_size = chunk_size
+    self._len = self._compute_len(self._time_array, chunk_size)
 
 
 class DataSource:
@@ -1868,7 +1819,7 @@ def create_chunked_era5_loader(
   source = ContiguousSource(
       date_range=date_range,
       dataset_path=dataset_path,
-      batch_size=batch_size,
+      chunk_size=batch_size,
       variables=variables,
       dims_order=["time", "longitude", "latitude", "level"],
   )
@@ -1940,7 +1891,7 @@ def create_chunked_lens2_loader(
 
   source = ContiguousSource(
       date_range=date_range,
-      batch_size=batch_size,
+      chunk_size=batch_size,
       dataset_path=dataset_path,
       variables=variables,
       dims_order=["member", "time", "longitude", "latitude"],
