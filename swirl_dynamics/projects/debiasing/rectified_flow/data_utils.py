@@ -14,6 +14,7 @@
 
 """Utilities for loading samples from initial/target sets from hdf5 files."""
 
+import abc
 from collections.abc import Callable, Mapping, Sequence
 import types
 from typing import Any, Literal, SupportsIndex
@@ -358,6 +359,80 @@ def read_stats(
       stats = np.expand_dims(stats, axis=0)
     out[var] = stats
   return out
+
+
+class CommonSource(abc.ABC):
+  """A common class for both single and contiguous data sources."""
+
+  @abc.abstractmethod
+  def __len__(self) -> int:
+    """Returns the number of samples in the source."""
+    pass
+
+  @abc.abstractmethod
+  def _compute_len(self, *args) -> int:
+    """Compute the length of the data source."""
+    pass
+
+  @abc.abstractmethod
+  def _compute_time_idx(self, idx: int) -> int | tuple[int, ...] | slice:
+    """Compute the time index for the data arrays."""
+    pass
+
+  @abc.abstractmethod
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    """Checks the dimensions and expands last one if needed."""
+    pass
+
+  def __init__(
+      self,
+      date_range: tuple[str, str],
+      dataset_path: epath.PathLike,
+      variables: Mapping[str, Mapping[str, Any] | None],
+      dims_order: Sequence[str] | None = None,
+      time_stamps: bool = False,
+  ) -> None:
+    """Data source constructor with all the shared logic.
+
+    Args:
+      date_range: The date range (in days) applied. Data not falling in this
+        range is ignored.
+      dataset_path: The path of a zarr dataset containing the data.
+      variables: The variables to yield from the dataset.
+      dims_order: Order of the variables for the dataset.
+      time_stamps: Whether to add the time stamps to the samples.
+    """
+    date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
+    ds = xrts.open_zarr(dataset_path).sel(time=slice(*date_range))
+
+    if dims_order:
+      ds = ds.transpose(*dims_order)
+    self._data_arrays = {}
+
+    for v, indexers in variables.items():
+      self._data_arrays[v] = ds[v].sel(indexers)
+
+    self._time_stamp = time_stamps
+    self._date_range = date_range
+    self._time_array = xrts.read(ds["time"]).data
+
+  def __getitem__(self, record_key: SupportsIndex) -> dict[str, np.ndarray]:
+    """Returns the data record for a given key."""
+    idx = record_key.__index__()
+    if not idx < self.__len__():
+      raise ValueError(f"Index out of range: {idx} / {self.__len__() - 1}")
+
+    element = {}
+    # Computes the time index for the data arrays using the abstract method.
+    time_idx = self._compute_time_idx(idx)
+
+    for v, da in self._data_arrays.items():
+      array = xrts.read(da.isel(time=time_idx)).data
+      element[v] = self._maybe_expands_dims(array)
+
+      if self._time_stamp:
+        element["time_stamp"] = self._time_array[time_idx]
+    return element
 
 
 class SingleSource:
