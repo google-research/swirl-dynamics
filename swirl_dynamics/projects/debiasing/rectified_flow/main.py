@@ -109,8 +109,6 @@ def main(argv):
       and config.input_shapes[0][-1] == config.out_channels
   )
 
-  # TODO: add an utility function to encapsulate all this code.
-
   if config.pygrain_zarr:
 
     if "era5_variables" in config:
@@ -119,11 +117,7 @@ def main(argv):
       era5_variables = _ERA5_VARIABLES
 
     if "lens2_member_indexer" in config:
-      if "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader:
-        # This will be a tuple of dictionaries.
-        lens2_member_indexer = config.lens2_member_indexer
-      else:
-        lens2_member_indexer = config.lens2_member_indexer.to_dict()
+      lens2_member_indexer = config.lens2_member_indexer.to_dict()
     else:
       lens2_member_indexer = _LENS2_MEMBER_INDEXER
 
@@ -132,45 +126,7 @@ def main(argv):
     else:
       lens2_variable_names = _LENS2_VARIABLE_NAMES
 
-    if "default_loaders" in config and config.default_loaders:
-
-      era5_loader_train = data_utils.create_default_era5_loader(
-          date_range=config.data_range_train,
-          shuffle=config.shuffle,
-          seed=config.seed,
-          batch_size=config.batch_size,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-
-      lens2_loader_train = data_utils.create_default_lens2_loader(
-          date_range=config.data_range_train,
-          shuffle=config.shuffle,
-          seed=config.seed,
-          batch_size=config.batch_size,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-
-      era5_loader_eval = data_utils.create_default_era5_loader(
-          date_range=config.data_range_eval,
-          shuffle=config.shuffle,
-          seed=config.seed,
-          batch_size=config.batch_size_eval,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-
-      lens2_loader_eval = data_utils.create_default_lens2_loader(
-          date_range=config.data_range_eval,
-          shuffle=config.shuffle,
-          seed=config.seed,
-          batch_size=config.batch_size_eval,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-
-    elif "dummy_loaders" in config and config.dummy_loaders:
+    if "dummy_loaders" in config and config.dummy_loaders:
       # Dummy data.
       fake_batch_lens2 = {
           "x_0": jax.numpy.zeros(
@@ -234,67 +190,6 @@ def main(argv):
           worker_count=config.num_workers,
       )
 
-    elif "chunked_aligned_loader" and config.chunked_aligned_loader:
-      logging.info("Using chunked aligned loaders.")
-
-      lens2_era5_loader_train = data_utils.create_lens2_era5_loader_chunked(
-          date_range=config.data_range_train,
-          shuffle=config.shuffle,
-          input_member_indexer=lens2_member_indexer,
-          input_variable_names=lens2_variable_names,
-          output_variables=era5_variables,
-          seed=config.seed,
-          batch_size=config.batch_size_eval,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-      lens2_era5_loader_eval = data_utils.create_lens2_era5_loader_chunked(
-          date_range=config.data_range_eval,
-          shuffle=config.shuffle,
-          input_member_indexer=lens2_member_indexer,
-          input_variable_names=lens2_variable_names,
-          output_variables=era5_variables,
-          seed=config.seed,
-          batch_size=config.batch_size_eval,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-
-    elif "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader:
-      logging.info("Using ensemble chunked aligned loaders.")
-
-      lens2_era5_loader_train = (
-          data_utils.create_ensemble_lens2_era5_loader_chunked(
-              date_range=config.data_range_train,
-              shuffle=config.shuffle,
-              input_member_indexer=lens2_member_indexer,
-              input_variable_names=lens2_variable_names,
-              output_variables=era5_variables,
-              seed=config.seed,
-              batch_size=config.batch_size_eval,
-              drop_remainder=True,
-              random_local_shuffle=config.random_local_shuffle,
-              batch_ot_shuffle=config.batch_ot_shuffle,
-              worker_count=config.num_workers,
-              num_chunks=config.num_chunks,
-          )
-      )
-      lens2_era5_loader_eval = (
-          data_utils.create_ensemble_lens2_era5_loader_chunked(
-              date_range=config.data_range_eval,
-              shuffle=config.shuffle,
-              input_member_indexer=lens2_member_indexer,
-              input_variable_names=lens2_variable_names,
-              output_variables=era5_variables,
-              seed=config.seed,
-              batch_size=config.batch_size_eval,
-              drop_remainder=True,
-              random_local_shuffle=config.random_local_shuffle,
-              batch_ot_shuffle=config.batch_ot_shuffle,
-              worker_count=config.num_workers,
-              num_chunks=config.num_chunks,
-          )
-      )
     else:
       era5_loader_train = data_utils.create_era5_loader(
           date_range=config.data_range_train,
@@ -350,40 +245,6 @@ def main(argv):
           era5_loader=era5_loader_eval, lens2_loader=lens2_loader_eval  # pylint: disable=undefined-variable
       )
 
-    elif "date_aligned" in config and config.date_aligned:
-      logging.info("Using date aligned loaders.")
-      train_dataloader = data_utils.create_lens2_era5_loader(
-          date_range=config.data_range_train,
-          output_variables=era5_variables,
-          input_member_indexer=lens2_member_indexer,
-          input_variable_names=lens2_variable_names,
-          shuffle=config.shuffle,
-          seed=config.seed,
-          batch_size=config.batch_size,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-      eval_dataloader = data_utils.create_lens2_era5_loader(
-          date_range=config.data_range_eval,
-          output_variables=era5_variables,
-          input_member_indexer=lens2_member_indexer,
-          input_variable_names=lens2_variable_names,
-          shuffle=config.shuffle,
-          seed=config.seed,
-          batch_size=config.batch_size_eval,
-          drop_remainder=True,
-          worker_count=config.num_workers,
-      )
-    elif ("chunked_aligned_loader" and config.chunked_aligned_loader) or (
-        "ens_chunked_aligned_loader" and config.ens_chunked_aligned_loader
-    ):
-      logging.info("Using chunked aligned loaders.")
-      train_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
-          loader=lens2_era5_loader_train  # pylint: disable=undefined-variable
-      )
-      eval_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
-          loader=lens2_era5_loader_eval  # pylint: disable=undefined-variable
-      )
     else:
       # Then create the mixed dataloaders here.
       train_dataloader = data_utils.DualLens2Era5Dataset(
