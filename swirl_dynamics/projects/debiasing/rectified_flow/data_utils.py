@@ -1941,17 +1941,31 @@ def create_lens2_loader_chunked_with_normalized_stats(
         ),
     )
 
-  loader = pygrain.load(
-      source=source,
-      num_epochs=num_epochs,
+  # Performs the batching as the size of the leaves of each batch is given by
+  # [num_chunks, chunk_size, lon, lat, channel]. We need to reshape the batch
+  # to [batch_size, lon, lat, channel].
+  transformations.append(
+      pygrain.Batch(
+          batch_size=num_chunks, drop_remainder=drop_remainder
+      )
+  )
+  # Reshapes the batch to [batch_size, lon, lat, channel].
+  transformations.append(transforms.ReshapeBatch())
+
+  sampler = pygrain.IndexSampler(
+      num_records=len(source),
       shuffle=shuffle,
       seed=seed,
+      num_epochs=num_epochs,
       shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
-      transformations=transformations,
-      batch_size=num_chunks,
-      drop_remainder=drop_remainder,
+  )
+  loader = pygrain.DataLoader(
+      data_source=source,
+      sampler=sampler,
+      operations=transformations,
       worker_count=worker_count,
   )
+
   return loader
 
 
