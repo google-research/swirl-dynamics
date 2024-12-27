@@ -112,7 +112,7 @@ def build_data_loaders(
         else config.lens2_member_indexer.to_dict()
     )
 
-  loader = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
+  dataloader = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       date_range=date_range,
       batch_size=batch_size,
       shuffle=False,
@@ -128,11 +128,10 @@ def build_data_loaders(
       output_dataset_path=_ERA5_DATASET_PATH,
       output_stats_path=_ERA5_STATS_PATH,
       time_stamps=True,
-      overlapping_chunks=True,
+      overlapping_chunks=False,  # We use non-overlapping chunks for eval.
       num_epochs=1,
   )
 
-  dataloader = data_utils.AlignedChunkedLens2Era5Dataset(loader=loader)
   return dataloader
 
 

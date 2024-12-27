@@ -27,6 +27,7 @@ from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import pygrain_transforms as transforms
 import xarray_tensorstore as xrts
 
+
 Array = jax.Array
 PyTree = Any
 DynamicsFn = Callable[[Array, Array, PyTree], Array]
@@ -514,7 +515,7 @@ class DataSourceContiguousEnsembleWithStats:
   def __init__(
       self,
       date_range: tuple[str, str],
-      batch_size: int,
+      chunk_size: int,
       input_dataset: epath.PathLike,
       input_variable_names: Sequence[str],
       input_member_indexer: tuple[Mapping[str, Any], ...],
@@ -529,6 +530,7 @@ class DataSourceContiguousEnsembleWithStats:
           "latitude",
           "stats",
       ),
+      overlapping_chunks: bool = True,
       resample_at_nan: bool = False,
       resample_seed: int = 9999,
       time_stamps: bool = False,
@@ -538,7 +540,7 @@ class DataSourceContiguousEnsembleWithStats:
     Args:
       date_range: The date range (in days) applied. Data not falling in this
         range is ignored.
-      batch_size: Size of the batch.
+      chunk_size: Size of the chunk.
       input_dataset: The path of a zarr dataset containing the input data.
       input_variable_names: The variables to yield from the input dataset.
       input_member_indexer: The name of the ensemble member to sample from.
@@ -549,6 +551,7 @@ class DataSourceContiguousEnsembleWithStats:
       dims_order_input: Order of the variables for the input.
       dims_order_output: Order of the variables for the output.
       dims_order_input_stats: Order of the variables for the input statistics.
+      overlapping_chunks: Whether to sample overlapping chunks.
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
@@ -596,16 +599,23 @@ class DataSourceContiguousEnsembleWithStats:
     # self._dates = get_common_times(input_ds, date_range)
     # The times can be slightly off due to the leap years.
     self._indexes = [ind["member"] for ind in input_member_indexer]
-    self._len_time = (
-        np.min([input_ds.dims["time"], output_ds.dims["time"]]) - batch_size
-    )
+    if overlapping_chunks:
+      self._len_time = (
+          np.min([input_ds.dims["time"], output_ds.dims["time"]]) - chunk_size
+      )
+    else:
+      # Each chunk is fixed so they don't overlap.
+      self._len_time = (
+          np.min([input_ds.dims["time"], output_ds.dims["time"]]) // chunk_size
+      )
     self._len = len(self._indexes) * self._len_time
     self._input_time_array = xrts.read(input_ds["time"]).data
     self._output_time_array = xrts.read(output_ds["time"]).data
     self._resample_at_nan = resample_at_nan
     self._resample_seed = resample_seed
     self._time_stamps = time_stamps
-    self._batch_size = batch_size
+    self._chunk_size = chunk_size
+    self._overlapping_chunks = overlapping_chunks
 
   def __len__(self):
     return self._len
@@ -633,73 +643,56 @@ class DataSourceContiguousEnsembleWithStats:
 
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
-
     member = self._indexes[idx_member]
-    sample_input = {}
-    mean_input = {}
-    std_input = {}
 
-    for v, da in self._input_arrays.items():
-      array = xrts.read(
-          da[member].isel(time=slice(idx_time, idx_time + self._batch_size))
-      ).data
-
-      assert array.ndim == 3 or array.ndim == 4
-      sample_input[v] = (
-          np.expand_dims(array, axis=-1) if array.ndim == 3 else array
+    if self._overlapping_chunks:
+      time_slice = slice(idx_time, idx_time + self._chunk_size)
+    else:
+      time_slice = slice(
+          idx_time * self._chunk_size, (idx_time + 1) * self._chunk_size
       )
 
-    for v, da in self._input_stats_arrays.items():
+    sample_input, mean_input, std_input = {}, {}, {}
+    # sample output doens't have stats. It is normalized at the loader level.
+    sample_output = {}
+
+    for var_key, da in self._input_arrays.items():
+      array = xrts.read(
+          da[member].isel(time=time_slice)
+      ).data
+      sample_input[var_key] = maybe_expand_dims(array, (3, 4), 3)
+
+    for var_key, da in self._input_stats_arrays.items():
       mean_array = xrts.read(da[member].sel(stats="mean")).data
 
       # As there is no time dimension yet the mean and std are either
       # 2- or 3-tensors.
-      assert mean_array.ndim == 2 or mean_array.ndim == 3
-      mean_array = (
-          np.expand_dims(mean_array, axis=-1)
-          if mean_array.ndim == 2
-          else mean_array
-      )
-      mean_input[v] = np.tile(
-          mean_array, (self._batch_size,) + (1,) * mean_array.ndim
+      mean_array = maybe_expand_dims(mean_array, (2, 3), 2)
+      mean_input[var_key] = np.tile(
+          mean_array, (self._chunk_size,) + (1,) * mean_array.ndim
       )
 
       std_array = xrts.read(da[member].sel(stats="std")).data
-
-      assert std_array.ndim == 2 or std_array.ndim == 3
-      std_array = (
-          np.expand_dims(std_array, axis=-1)
-          if std_array.ndim == 2
-          else std_array
-      )
-      std_input[v] = np.tile(
-          std_array, (self._batch_size,) + (1,) * std_array.ndim
+      std_array = maybe_expand_dims(std_array, (2, 3), 2)
+      std_input[var_key] = np.tile(
+          std_array, (self._chunk_size,) + (1,) * std_array.ndim
       )
 
     item["input"] = sample_input
     item["input_mean"] = mean_input
     item["input_std"] = std_input
 
-    sample_output = {}
-    # TODO encapsulate these functions.
-    for v, da in self._output_arrays.items():
+    for var_key, da in self._output_arrays.items():
       array = xrts.read(
-          da.isel(time=slice(idx_time, idx_time + self._batch_size))
+          da.isel(time=time_slice)
       ).data
-      assert array.ndim == 3 or array.ndim == 4
-      sample_output[v] = (
-          np.expand_dims(array, axis=-1) if array.ndim == 3 else array
-      )
+      sample_output[var_key] = maybe_expand_dims(array, (3, 4), 3)
 
     item["output"] = sample_output
 
     if self._time_stamps:
-      item["input_time_stamp"] = self._input_time_array[
-          idx_time : idx_time + self._batch_size
-      ]
-      item["output_time_stamp"] = self._output_time_array[
-          idx_time : idx_time + self._batch_size
-      ]
+      item["input_time_stamp"] = self._input_time_array[time_slice]
+      item["output_time_stamp"] = self._output_time_array[time_slice]
 
     return item
 
@@ -813,13 +806,11 @@ class DataSourceContiguousEnsembleNonOverlappingWithStatsLENS2:
 
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
-
     member = self._indexes[idx_member]
-    sample_input = {}
-    mean_input = {}
-    std_input = {}
 
-    for v, da in self._input_arrays.items():
+    sample_input, mean_input, std_input = {}, {}, {}
+
+    for var_key, da in self._input_arrays.items():
       array = xrts.read(
           da[member].isel(
               time=slice(
@@ -828,35 +819,19 @@ class DataSourceContiguousEnsembleNonOverlappingWithStatsLENS2:
           )
       ).data
 
-      assert array.ndim == 3 or array.ndim == 4
-      sample_input[v] = (
-          np.expand_dims(array, axis=-1) if array.ndim == 3 else array
-      )
+      sample_input[var_key] = maybe_expand_dims(array, (3, 4), 3)
 
-    for v, da in self._input_stats_arrays.items():
+    for var_key, da in self._input_stats_arrays.items():
       mean_array = xrts.read(da[member].sel(stats="mean")).data
-
-      # there is no time dimension yet,
-      # so the mean and std are either 2- or 3-tensors
-      assert mean_array.ndim == 2 or mean_array.ndim == 3
-      mean_array = (
-          np.expand_dims(mean_array, axis=-1)
-          if mean_array.ndim == 2
-          else mean_array
-      )
-      mean_input[v] = np.tile(
+      # There is no time dimension yet.
+      mean_array = maybe_expand_dims(mean_array, (2, 3), 2)
+      mean_input[var_key] = np.tile(
           mean_array, (self._batch_size,) + (1,) * mean_array.ndim
       )
 
       std_array = xrts.read(da[member].sel(stats="std")).data
-
-      assert std_array.ndim == 2 or std_array.ndim == 3
-      std_array = (
-          np.expand_dims(std_array, axis=-1)
-          if std_array.ndim == 2
-          else std_array
-      )
-      std_input[v] = np.tile(
+      std_array = maybe_expand_dims(std_array, (2, 3), 2)
+      std_input[var_key] = np.tile(
           std_array, (self._batch_size,) + (1,) * std_array.ndim
       )
 
@@ -915,7 +890,6 @@ def create_era5_loader(
   )
 
   transformations = []
-
   transformations.append(
       transforms.Standardize(
           input_fields=variables.keys(),
@@ -923,7 +897,6 @@ def create_era5_loader(
           std=read_stats(stats_path, variables, "std"),
       )
   )
-
   transformations.append(
       transforms.Concatenate(
           input_fields=(*variables.keys(),),
@@ -994,7 +967,6 @@ def create_lens2_loader(
       time_stamps=time_stamps,
   )
 
-  # Adding the different transformations.
   transformations = []
   transformations.append(
       transforms.Standardize(
@@ -1028,6 +1000,11 @@ def create_lens2_loader(
 
 def create_chunked_era5_loader(
     date_range: tuple[str, str],
+    dataset_path: epath.PathLike = _ERA5_DATASET_PATH,  # pylint: disable=dangerous-default-value
+    stats_path: epath.PathLike = _ERA5_STATS_PATH,  # pylint: disable=dangerous-default-value
+    variables: (
+        dict[str, dict[str, Any] | None] | types.MappingProxyType
+    ) = _ERA5_VARIABLES,
     shuffle: bool = False,
     seed: int = 42,
     batch_size: int = 16,
@@ -1039,6 +1016,9 @@ def create_chunked_era5_loader(
 
   Args:
     date_range: Range for the data used in the dataloader.
+    dataset_path: Path for the dataset.
+    stats_path: Path of the Zarr file containing the statistics.
+    variables: The names of the variables in the Zarr file to be included.
     shuffle: Do we shuffle the data or the samples are done sequentially.
     seed: Random seed for the random number generator.
     batch_size: The size of each contiguous chunks.
@@ -1050,24 +1030,23 @@ def create_chunked_era5_loader(
   Returns:
     A pygrain dataloader with the ERA5 data set.
   """
-  dataset_path = "/weatherbench/datasets/era5_daily_mean/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-  stats_path = "/wanzy/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
-  variables = {
-      "2m_temperature": None,
-      "specific_humidity": {"level": 1000},
-      "geopotential": {"level": [200, 500]},
-      "mean_sea_level_pressure": None,
-  }
 
-  # TODO: add a if else here to use either single or contiguous
-  # data sets.
+  if batch_size % num_chunks != 0:
+    raise ValueError(
+        f"Batch size ({batch_size}) must be a multiple of the number of chunks "
+        f"({num_chunks})."
+    )
+
+  chunk_size = batch_size // num_chunks
+
   source = ContiguousSource(
       date_range=date_range,
       dataset_path=dataset_path,
-      chunk_size=batch_size,
+      chunk_size=chunk_size,
       variables=variables,
       dims_order=["time", "longitude", "latitude", "level"],
   )
+
   transformations = [
       transforms.Standardize(
           input_fields=variables.keys(),
@@ -1132,11 +1111,18 @@ def create_chunked_lens2_loader(
     A pygrain dataloader with the LENS2 data set.
   """
 
+  if batch_size % num_chunks != 0:
+    raise ValueError(
+        f"Batch size ({batch_size}) must be a multiple of the number of chunks "
+        f"({num_chunks})."
+    )
+
+  chunk_size = batch_size // num_chunks
   variables = {v: member_indexer for v in variable_names}
 
   source = ContiguousSource(
       date_range=date_range,
-      chunk_size=batch_size,
+      chunk_size=chunk_size,
       dataset_path=dataset_path,
       variables=variables,
       dims_order=["member", "time", "longitude", "latitude"],
@@ -1224,10 +1210,9 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
   Returns:
     A pygrain loader with the LENS2 and ERA5 data set.
   """
-  del overlapping_chunks  # Unused.
   source = DataSourceContiguousEnsembleWithStats(
       date_range=date_range,
-      batch_size=batch_size,
+      chunk_size=batch_size,
       input_dataset=input_dataset_path,
       input_variable_names=input_variable_names,
       input_member_indexer=input_member_indexer,
@@ -1238,6 +1223,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
       dims_order_input=["member", "time", "longitude", "latitude"],
       dims_order_output=["time", "longitude", "latitude", "level"],
       dims_order_input_stats=["member", "longitude", "latitude", "stats"],
+      overlapping_chunks=overlapping_chunks,
       resample_seed=9999,
       time_stamps=time_stamps,
   )
@@ -1305,6 +1291,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
 
   if random_local_shuffle:
     # TODO: Add the option to shuffle the statistics.
+    # Only input data is shuffled, along with the input statistics.
     transformations.append(
         transforms.RandomShuffleChunk(
             input_fields=("x_0", "channel:mean", "channel:std"),
@@ -1396,12 +1383,11 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
 
   Returns:
   """
-  del overlapping_chunks  # Unused.
   chunk_size = batch_size // num_chunks
 
   source = DataSourceContiguousEnsembleWithStats(
       date_range=date_range,
-      batch_size=chunk_size,
+      chunk_size=chunk_size,
       input_dataset=input_dataset_path,
       input_variable_names=input_variable_names,
       input_member_indexer=input_member_indexer,
@@ -1412,6 +1398,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       dims_order_input=["member", "time", "longitude", "latitude"],
       dims_order_output=["time", "longitude", "latitude", "level"],
       dims_order_input_stats=["member", "longitude", "latitude", "stats"],
+      overlapping_chunks=overlapping_chunks,
       resample_seed=9999,
       time_stamps=time_stamps,
   )
@@ -1421,6 +1408,8 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
   input_variables = {v: member_indexer for v in input_variable_names}
 
   transformations = [
+      # We don't load the stats of ERA5 in the source so we read from a file the
+      # statistics, and normalize the output.
       transforms.StandardizeNested(
           main_field="output",
           input_fields=(*output_variables.keys(),),
@@ -1431,6 +1420,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
               output_stats_path, output_variables, "std", use_batched=True
           ),
       ),
+      # For the input, the statistics are already in the source.
       transforms.StandardizeNestedWithStats(
           main_field="input",
           mean_field="input_mean",
@@ -1457,7 +1447,8 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
           remove_inputs=True,
       ),
   )
-  # Also concatenating the statistics.
+  # Also concatenating and normalizing the statistics.
+
   if normalize_stats:
     empty_dict = {len: {} for len in input_variables.keys()}
     transformations.append(
@@ -1506,11 +1497,13 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
   )
 
   if random_local_shuffle:
-    # TODO: Add the option to shuffle the statistics.
+    # TODO: Add the option to shuffle the statistics in the case
+    # that the statistics are taken from different members. In this case is fine
+    # as the chunks are all coming from the same LENS2 member.
     transformations.append(
         transforms.RandomShuffleChunk(
             input_fields=("x_0", "channel:mean", "channel:std"),
-            batch_size=batch_size,
+            batch_size=chunk_size,
         ),
     )
   elif batch_ot_shuffle:
@@ -1518,7 +1511,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
         transforms.BatchOT(
             input_field="x_0",
             output_field="x_1",
-            batch_size=batch_size,
+            batch_size=chunk_size,
             mean_input_field="channel:mean",
             std_input_field="channel:std",
         ),
@@ -1573,6 +1566,8 @@ def create_lens2_loader_chunked_with_normalized_stats(
     num_epochs: int | None = None,
 ):
   """Creates a loader for LENS2 dataset with non-overlapping chunks.
+
+  This dataloader is mainly used for evaluation and inference.
 
   Args:
     date_range: Date range for the data used in the dataloader.

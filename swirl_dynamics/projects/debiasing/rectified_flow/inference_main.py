@@ -99,7 +99,7 @@ def build_data_loaders(
         else config.lens2_member_indexer.to_dict()
     )
 
-  loader = data_utils.create_lens2_loader_chunked_with_normalized_stats(
+  dataloader = data_utils.create_lens2_loader_chunked_with_normalized_stats(
       date_range=date_range,
       batch_size=batch_size,
       shuffle=False,
@@ -115,7 +115,6 @@ def build_data_loaders(
       num_epochs=1,  # This is the loops stops automatically.
   )
 
-  dataloader = data_utils.AlignedChunkedLens2Era5Dataset(loader=loader)
   return dataloader
 
 

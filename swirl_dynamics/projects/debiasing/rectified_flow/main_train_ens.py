@@ -145,6 +145,9 @@ def main(argv):
     ) or (
         "climatological_data_loader" in config
         and config.climatological_data_loader
+    ) or (
+        "climatological_chunked_data_loader" in config
+        and config.climatological_chunked_data_loader
     ):
       # This will be a tuple of dictionaries.
       lens2_member_indexer = config.lens2_member_indexer
@@ -204,73 +207,53 @@ def main(argv):
             output_climatology=config.era5_stats_path,
         )
     )
+
   else:
-    if "norm_stats_loader" in config and config.norm_stats_loader:
-      # Choosing if the stats are normalized. On by default.
-      logging.info("Using normalized stats")
-      loader_train = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
-          date_range=config.data_range_train,
-          batch_size=config.batch_size,
-          shuffle=True,
-          num_chunks=config.num_chunks,
-          worker_count=config.num_workers,
-          random_local_shuffle=config.random_local_shuffle,
-          batch_ot_shuffle=config.batch_ot_shuffle,
-          input_dataset_path=config.lens2_dataset_path,
-          input_stats_path=config.lens2_stats_path,
-          input_mean_stats_path=config.lens2_mean_stats_path,
-          input_std_stats_path=config.lens2_std_stats_path,
-          input_variable_names=lens2_variable_names,
-          input_member_indexer=lens2_member_indexer,
-          output_variables=era5_variables,
-          output_dataset_path=config.era5_dataset_path,
-          output_stats_path=config.era5_stats_path,
-      )
-      loader_eval = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
-          date_range=config.data_range_eval,
-          batch_size=config.batch_size_eval,
-          shuffle=True,
-          worker_count=config.num_workers,
-          random_local_shuffle=config.random_local_shuffle,
-          batch_ot_shuffle=config.batch_ot_shuffle,
-          input_dataset_path=config.lens2_dataset_path,
-          input_stats_path=config.lens2_stats_path,
-          input_mean_stats_path=config.lens2_mean_stats_path,
-          input_std_stats_path=config.lens2_std_stats_path,
-          input_variable_names=lens2_variable_names,
-          input_member_indexer=lens2_member_indexer,
-          output_variables=era5_variables,
-          output_dataset_path=config.era5_dataset_path,
-          output_stats_path=config.era5_stats_path,
-      )
+    if "norm_stats_loader" in config:
+      norm_stats_loader = config.norm_stats_loader
     else:
-      loader_train = (
-          data_utils.create_ensemble_lens2_era5_loader_chunked_with_stats(
-              date_range=config.data_range_train,
-              batch_size=config.batch_size,
-              shuffle=True,
-              input_variable_names=lens2_variable_names,
-              input_member_indexer=lens2_member_indexer,
-              output_variables=era5_variables,
-          )
-      )
+      # By default, the stats are normalized.
+      norm_stats_loader = True
 
-      loader_eval = (
-          data_utils.create_ensemble_lens2_era5_loader_chunked_with_stats(
-              date_range=config.data_range_eval,
-              batch_size=config.batch_size_eval,
-              shuffle=True,
-              input_variable_names=lens2_variable_names,
-              input_member_indexer=lens2_member_indexer,
-              output_variables=era5_variables,
-          )
-      )
-
-    train_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
-        loader=loader_train
+    logging.info("Using normalized stats")
+    train_dataloader = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
+        date_range=config.data_range_train,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_chunks=config.num_chunks,
+        worker_count=config.num_workers,
+        random_local_shuffle=config.random_local_shuffle,
+        batch_ot_shuffle=config.batch_ot_shuffle,
+        input_dataset_path=config.lens2_dataset_path,
+        input_stats_path=config.lens2_stats_path,
+        input_mean_stats_path=config.lens2_mean_stats_path,
+        input_std_stats_path=config.lens2_std_stats_path,
+        input_variable_names=lens2_variable_names,
+        input_member_indexer=lens2_member_indexer,
+        output_variables=era5_variables,
+        output_dataset_path=config.era5_dataset_path,
+        output_stats_path=config.era5_stats_path,
+        normalize_stats=norm_stats_loader,
+        overlapping_chunks=config.overlapping_chunks,
     )
-    eval_dataloader = data_utils.AlignedChunkedLens2Era5Dataset(
-        loader=loader_eval
+    eval_dataloader = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
+        date_range=config.data_range_eval,
+        batch_size=config.batch_size_eval,
+        shuffle=True,
+        worker_count=config.num_workers,
+        random_local_shuffle=config.random_local_shuffle,
+        batch_ot_shuffle=config.batch_ot_shuffle,
+        input_dataset_path=config.lens2_dataset_path,
+        input_stats_path=config.lens2_stats_path,
+        input_mean_stats_path=config.lens2_mean_stats_path,
+        input_std_stats_path=config.lens2_std_stats_path,
+        input_variable_names=lens2_variable_names,
+        input_member_indexer=lens2_member_indexer,
+        output_variables=era5_variables,
+        output_dataset_path=config.era5_dataset_path,
+        output_stats_path=config.era5_stats_path,
+        normalize_stats=norm_stats_loader,
+        overlapping_chunks=config.overlapping_chunks,
     )
 
   if "bfloat16" in config and config.bfloat16:
