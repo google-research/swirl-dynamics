@@ -67,7 +67,7 @@ TIME_START=2094
 TIME_STOP=2097
 OUTPUT_PATH=${FORCING_DATASET}/baselines/bcsd_with_prates_from_canesm5_${TIME_START}_${TIME_STOP}.zarr
 
-python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/input_pipelines/bcsd.py \
+python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/analysis/bcsd.py \
   --input_data=${INPUT_DATA} \
   --input_data_clim=${INPUT_DATA_CLIM} \
   --filtered_target_clim=${FILTERED_TARGET_CLIM} \
