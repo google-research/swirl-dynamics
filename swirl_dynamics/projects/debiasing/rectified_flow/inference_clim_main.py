@@ -117,7 +117,7 @@ def build_data_loaders(
 
   # TODO: Use the paths from the config file.
   dataloader = (
-      dataloaders.create_ensemble_lens2_loader_with_climatology_for_inference(
+      dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
           date_range=date_range,
           batch_size=batch_size,
           shuffle=False,
@@ -127,6 +127,7 @@ def build_data_loaders(
           input_std_stats_path=_LENS2_STD_CLIMATOLOGY_PATH,
           input_variable_names=lens2_variable_names,
           input_member_indexer=lens2_member_indexer,
+          output_dataset_path=_ERA5_DATASET_PATH,
           output_climatology=_ERA5_STATS_PATH,
           output_variables=era5_variables,
           time_stamps=True,

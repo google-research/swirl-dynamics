@@ -24,6 +24,7 @@ from etils import epath
 import grain.python as pygrain
 import jax
 import numpy as np
+from swirl_dynamics.projects.debiasing.rectified_flow import data_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import pygrain_transforms as transforms
 import xarray_tensorstore as xrts
 
@@ -296,7 +297,7 @@ class CommonSourceEnsemble(abc.ABC):
     return self._output_coords
 
 
-class DataSourceEnsembleWithClimatology:
+class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
   """A data source that loads paired daily ERA5- with ensemble LENS2 data."""
 
   def __init__(
@@ -334,214 +335,176 @@ class DataSourceEnsembleWithClimatology:
       output_variables: The variables to yield from the output dataset.
       output_climatology: The path of a zarr dataset containing the output
         statistics.
-      dims_order_input: Order of the variables for the input.
-      dims_order_output: Order of the variables for the output.
+      dims_order_input: Order of the dimensions (time, member, lat, lon, fields)
+        of the input variables. If None, the dimensions are not changed from the
+        order in the xarray dataset.
+      dims_order_output: Order of the dimensions (time, member, lat, lon,
+        fields) of the input variables. If None, the dimensions are not changed
+        from the order in the xarray dataset.
       dims_order_input_stats: Order of the variables for the input statistics.
       dims_order_output_stats: Order of the variables for the output statistics.
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
     """
-
-    # Using lens as input, they need to be modified.
-    input_variables = {v: input_member_indexer for v in input_variable_names}
-
-    # Computing the date_range
-    date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
-
-    # Open the datasets
-    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))
-    output_ds = xrts.open_zarr(output_dataset).sel(time=slice(*date_range))
-    # These contain the climatologies
-    input_stats_ds = xrts.open_zarr(input_climatology)
-    output_stats_ds = xrts.open_zarr(output_climatology)
-
-    # Transpose the datasets if necessary
-    if dims_order_input:
-      input_ds = input_ds.transpose(*dims_order_input)
-    if dims_order_output:
-      output_ds = output_ds.transpose(*dims_order_output)
-    if dims_order_output_stats:
-      output_stats_ds = output_stats_ds.transpose(*dims_order_output_stats)
-    if dims_order_input_stats:
-      input_stats_ds = input_stats_ds.transpose(*dims_order_input_stats)
-
-    # selecting the input_arrays
-    self._input_arrays = {}
-    for v, indexers in input_variables.items():
-      self._input_arrays[v] = {}
-      for index in indexers:
-        idx = tuple(index.values())[0]
-        self._input_arrays[v][idx] = input_ds[v].sel(index)
-
-    # Building the dictionary of xarray datasets to be used for the climatology.
-    # Climatological mean of LENS2.
-    self._input_mean_arrays = {}
-    for v, indexers in input_variables.items():
-      self._input_mean_arrays[v] = {}
-      for index in indexers:
-        idx = tuple(index.values())[0]
-        self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index)
-
-    # Climatological std of LENS2.
-    self._input_std_arrays = {}
-    for v, indexers in input_variables.items():
-      self._input_std_arrays[v] = {}
-      for index in indexers:
-        idx = tuple(index.values())[0]
-        self._input_std_arrays[v][idx] = input_stats_ds[v + "_std"].sel(index)
-
-    # Build the output arrays for the different output variables.
-    self._output_arrays = {}
-    for v, indexers in output_variables.items():
-      self._output_arrays[v] = output_ds[v].sel(
-          indexers
-      )  # pytype : disable=wrong-arg-types
-
-    # Build the output arrays for the different output variables.
-    # Climatological mean of ERA5.
-    self._output_mean_arrays = {}
-    for v, indexers in output_variables.items():
-      self._output_mean_arrays[v] = output_stats_ds[v].sel(
-          indexers
-      )  # pytype : disable=wrong-arg-types
-
-    # Climatological std of ERA5.
-    self._output_std_arrays = {}
-    for v, indexers in output_variables.items():
-      self._output_std_arrays[v] = output_stats_ds[v + "_std"].sel(
-          indexers
-      )  # pytype : disable=wrong-arg-types
-
-    self._output_coords = output_ds.coords
-
-    # The times can be slightly off due to the leap years.
-    # Member index.
-    self._indexes = [ind["member"] for ind in input_member_indexer]
-    self._len_time = np.min([input_ds.dims["time"], output_ds.dims["time"]])
-    self._len = len(self._indexes) * self._len_time
-    self._input_time_array = xrts.read(input_ds["time"]).data
-    self._output_time_array = xrts.read(output_ds["time"]).data
-    self._resample_at_nan = resample_at_nan
-    self._resample_seed = resample_seed
-    self._time_stamps = time_stamps
+    super().__init__(
+        date_range,
+        input_dataset,
+        input_variable_names,
+        input_member_indexer,
+        input_climatology,
+        output_dataset,
+        output_variables,
+        output_climatology,
+        dims_order_input,
+        dims_order_output,
+        dims_order_input_stats,
+        dims_order_output_stats,
+        resample_at_nan,
+        resample_seed,
+        time_stamps)
+    self._len = self._compute_len()
 
   def __len__(self):
     return self._len
 
-  def __getitem__(self, record_key: SupportsIndex) -> Mapping[str, Any]:
-    """Retrieves record and retry if NaN found."""
-    idx = record_key.__index__()
-    if not idx < self._len:
-      raise ValueError(f"Index out of range: {idx} / {self._len - 1}")
+  def _compute_len(self) -> int:
+    return len(self._indexes) * self._len_time
 
-    item = self.get_item(idx)
+  def _compute_indices(self, idx: int) -> tuple[str, np.datetime64, int]:
+    # Checking the index for the member and time (of the year)
+    idx_member = idx // self._len_time
+    idx_time = idx % self._len_time
+    member = self._indexes[idx_member]
+    date = self._input_time_array[idx_time]
+    dayofyear = int((
+        date - np.datetime64(str(date.astype("datetime64[Y]")))
+    ) / np.timedelta64(1, "D") + 1)
 
-    if self._resample_at_nan:
-      while np.isnan(item["input"]).any() or np.isnan(item["output"]).any():
+    # Checks the validity of dayofyear.
+    if dayofyear <= 0 or dayofyear > 366:
+      raise ValueError(f"Invalid day of the year: {dayofyear}")
 
-        rng = np.random.default_rng(self._resample_seed + idx)
-        resample_idx = rng.integers(0, len(self))
-        item = self.get_item(resample_idx)
+    return (member, date, dayofyear)
 
-    return item
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    return data_utils.maybe_expand_dims(
+        x, allowed_dims=(2, 3), trigger_expand_dims=2
+    )
 
-  def get_item(self, idx: int) -> Mapping[str, Any]:
-    """Returns the data record for a given index."""
-    item = {}
 
+class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
+  """A data source loads contiguous chunks of data loosely paired by date."""
+
+  def __init__(
+      self,
+      date_range: tuple[str, str],
+      chunk_size: int,
+      input_dataset: epath.PathLike,
+      input_variable_names: Sequence[str],
+      input_member_indexer: tuple[Mapping[str, Any], ...],
+      input_climatology: epath.PathLike,
+      output_dataset: epath.PathLike,
+      output_variables: Mapping[str, Any],
+      output_climatology: epath.PathLike,
+      dims_order_input: Sequence[str] | None = None,
+      dims_order_output: Sequence[str] | None = None,
+      dims_order_input_stats: Sequence[str] | None = None,
+      dims_order_output_stats: Sequence[str] | None = None,
+      resample_at_nan: bool = False,
+      resample_seed: int = 9999,
+      time_stamps: bool = False,
+  ):
+    """Data source constructor.
+
+    Args:
+      date_range: The date range (in days) applied. Data not falling in this
+        range is ignored.
+      chunk_size: The size of the chunks to be used.
+      input_dataset: The path of a zarr dataset containing the input data.
+      input_variable_names: The variables to yield from the input dataset.
+      input_member_indexer: The name of the ensemble member to sample from, it
+        should be tuple of dictionaries with the key "member" and the value the
+        name of the member, to adhere to xarray formating, For example:
+        [{"member": "cmip6_1001_001"}, {"member": "cmip6_1021_002"}, ...]
+      input_climatology: The path of a zarr dataset containing the input
+        statistics.
+      output_dataset: The path of a zarr dataset containing the output data.
+      output_variables: The variables to yield from the output dataset.
+      output_climatology: The path of a zarr dataset containing the output
+        statistics.
+      dims_order_input: Order of the dimensions (time, member, lat, lon, fields)
+        of the input variables. If None (the default), the dimensions are not
+        changed from the order in the xarray dataset
+      dims_order_output: Order of the dimensions (time, member, lat, lon, field)
+        of the output variables. If None, the dimensions are not changed from
+        the order in the xarray dataset
+      dims_order_input_stats: Order of the dimensions of the variables for the
+        input statistics. If None, the dimensions are not changed from the
+        order in the xarray dataset
+      dims_order_output_stats: Order of the dimensions of the variables for the
+        output statistics. If None, the dimensions are not changed from the
+        order in the xarray dataset
+      resample_at_nan: Whether to resample when NaN is detected in the data.
+      resample_seed: The random seed for resampling.
+      time_stamps: Whether to add the time stamps to the samples.
+    """
+    super().__init__(
+        date_range,
+        input_dataset,
+        input_variable_names,
+        input_member_indexer,
+        input_climatology,
+        output_dataset,
+        output_variables,
+        output_climatology,
+        dims_order_input,
+        dims_order_output,
+        dims_order_input_stats,
+        dims_order_output_stats,
+        resample_at_nan,
+        resample_seed,
+        time_stamps)
+    # Reduce the length of each member in time to accommodate for the chunks.
+    self._len_time = self._len_time - chunk_size
+    self._chunk_size = chunk_size
+    self._len = self._compute_len()
+
+  def __len__(self):
+    return self._len
+
+  def _compute_len(self) -> int:
+    return len(self._indexes) * self._len_time
+
+  def _compute_indices(
+      self, idx: int
+  ) -> tuple[str, Sequence[np.datetime64], Sequence[int]]:
     # Checking the index for the member and time (of the year)
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
 
     member = self._indexes[idx_member]
-    date = self._input_time_array[idx_time]
+    dates = self._input_time_array[idx_time: idx_time + self._chunk_size]
     # computing day of the year.
-    dayofyear = (
+    daysofyear = [int((
         date - np.datetime64(str(date.astype("datetime64[Y]")))
-    ) / np.timedelta64(1, "D") + 1
-    if dayofyear <= 0 or dayofyear > 366:
-      raise ValueError(f"Invalid day of the year: {dayofyear}")
+    ) / np.timedelta64(1, "D") + 1) for date in dates]
 
-    sample_input = {}
-    mean_input = {}
-    std_input = {}
-    mean_output = {}
-    std_output = {}
+    # Checks for uniqueness of dates and daysofyear.
+    if len(dates) != len(set(dates)):
+      raise ValueError(f"Dates are not unique: {dates}")
+    if len(daysofyear) != len(set(daysofyear)):
+      raise ValueError(f"Dates are not unique: {daysofyear}")
 
-    for v, da in self._input_arrays.items():
+    return (member, dates, daysofyear)
 
-      array = xrts.read(da[member].sel(time=date)).data
-
-      # Array is either two-or three-dimensional.
-      assert array.ndim == 2 or array.ndim == 3
-      sample_input[v] = (
-          np.expand_dims(array, axis=-1) if array.ndim == 2 else array
-      )
-
-    for v, da in self._input_mean_arrays.items():
-      mean_array = xrts.read(da[member].sel(dayofyear=int(dayofyear))).data
-      mean_input[v] = (
-          np.expand_dims(mean_array, axis=-1)
-          if mean_array.ndim == 2
-          else mean_array
-      )
-
-    for v, da in self._input_std_arrays.items():
-      std_array = xrts.read(da[member].sel(dayofyear=int(dayofyear))).data
-      std_input[v] = (
-          np.expand_dims(std_array, axis=-1)
-          if std_array.ndim == 2
-          else std_array
-      )
-
-    item["input"] = sample_input
-    item["input_mean"] = mean_input
-    item["input_std"] = std_input
-
-    sample_output = {}
-    # TODO encapsulate these functions.
-    for v, da in self._output_arrays.items():
-      array = xrts.read(da.sel(time=date)).data
-      assert array.ndim == 2 or array.ndim == 3
-      sample_output[v] = (
-          np.expand_dims(array, axis=-1) if array.ndim == 2 else array
-      )
-
-    for v, da in self._output_mean_arrays.items():
-      mean_array = xrts.read(da.sel(dayofyear=int(dayofyear))).data
-      assert mean_array.ndim == 2 or mean_array.ndim == 3
-      mean_output[v] = (
-          np.expand_dims(mean_array, axis=-1)
-          if mean_array.ndim == 2
-          else mean_array
-      )
-
-    for v, da in self._output_std_arrays.items():
-      std_array = xrts.read(da.sel(dayofyear=int(dayofyear))).data
-      # Adds an extra dimension is
-      assert std_array.ndim == 2 or std_array.ndim == 3
-      std_output[v] = (
-          np.expand_dims(std_array, axis=-1)
-          if std_array.ndim == 2
-          else std_array
-      )
-
-    item["output"] = sample_output
-    item["output_mean"] = mean_output
-    item["output_std"] = std_output
-
-    if self._time_stamps:
-      item["input_time_stamp"] = date
-      item["input_member"] = member
-
-    return item
-
-  def get_output_coords(self):
-    """Returns the coordinates of the output dataset."""
-    return self._output_coords
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    return data_utils.maybe_expand_dims(
+        x, allowed_dims=(3, 4), trigger_expand_dims=3
+    )
 
 
+# TODO: This class is redundant remove.
 class DataSourceEnsembleWithClimatologyInference:
   """An inferece data source that loads ensemble LENS2 data."""
 
@@ -577,9 +540,15 @@ class DataSourceEnsembleWithClimatologyInference:
       output_variables: The variables to yield from the output dataset.
       output_climatology: The path of a zarr dataset containing the output
         statistics.
-      dims_order_input: Order of the variables for the input.
-      dims_order_input_stats: Order of the variables for the input statistics.
-      dims_order_output_stats: Order of the variables for the output statistics.
+      dims_order_input: Order of the dimensions (time, member, lat, lon, fields)
+        of the input variables. If None, the dimensions are not changed from the
+        order in the xarray dataset
+      dims_order_input_stats: Order of the dimensions (member, lat, lon, fields)
+        of the statistics of the input variables. If None, the dimensions are
+        not changed from the order in the xarray dataset
+      dims_order_output_stats: Order of the dimensions (member, lat, lon, field)
+        of the statistics of the output variables. If None, the dimensions are
+        not changed from the order in the xarray dataset
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
@@ -701,28 +670,16 @@ class DataSourceEnsembleWithClimatologyInference:
     for v, da in self._input_arrays.items():
 
       array = xrts.read(da[member].sel(time=date)).data
-
       # Array is either two-or three-dimensional.
-      assert array.ndim == 2 or array.ndim == 3
-      sample_input[v] = (
-          np.expand_dims(array, axis=-1) if array.ndim == 2 else array
-      )
+      sample_input[v] = data_utils.maybe_expand_dims(array, (2, 3), 2)
 
     for v, da in self._input_mean_arrays.items():
       mean_array = xrts.read(da[member].sel(dayofyear=int(dayofyear))).data
-      mean_input[v] = (
-          np.expand_dims(mean_array, axis=-1)
-          if mean_array.ndim == 2
-          else mean_array
-      )
+      mean_input[v] = data_utils.maybe_expand_dims(mean_array, (2, 3), 2)
 
     for v, da in self._input_std_arrays.items():
       std_array = xrts.read(da[member].sel(dayofyear=int(dayofyear))).data
-      std_input[v] = (
-          np.expand_dims(std_array, axis=-1)
-          if std_array.ndim == 2
-          else std_array
-      )
+      std_input[v] = data_utils.maybe_expand_dims(std_array, (2, 3), 2)
 
     item["input"] = sample_input
     item["input_mean"] = mean_input
@@ -730,22 +687,11 @@ class DataSourceEnsembleWithClimatologyInference:
 
     for v, da in self._output_mean_arrays.items():
       mean_array = xrts.read(da.sel(dayofyear=int(dayofyear))).data
-      assert mean_array.ndim == 2 or mean_array.ndim == 3
-      mean_output[v] = (
-          np.expand_dims(mean_array, axis=-1)
-          if mean_array.ndim == 2
-          else mean_array
-      )
+      mean_output[v] = data_utils.maybe_expand_dims(mean_array, (2, 3), 2)
 
     for v, da in self._output_std_arrays.items():
       std_array = xrts.read(da.sel(dayofyear=int(dayofyear))).data
-      # Adds an extra dimension is
-      assert std_array.ndim == 2 or std_array.ndim == 3
-      std_output[v] = (
-          np.expand_dims(std_array, axis=-1)
-          if std_array.ndim == 2
-          else std_array
-      )
+      std_output[v] = data_utils.maybe_expand_dims(std_array, (2, 3), 2)
 
     item["output_mean"] = mean_output
     item["output_std"] = std_output
@@ -889,6 +835,8 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       ),
   )
 
+  # Concatenating the statistics.
+  # The input statistics are normalized, as they are fed to the model.
   transformations.append(
       transforms.ConcatenateNested(
           main_field="input_mean",
@@ -908,152 +856,8 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       ),
   )
 
-  loader = pygrain.load(
-      source=source,
-      num_epochs=num_epochs,
-      shuffle=shuffle,
-      seed=seed,
-      shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
-      transformations=transformations,
-      batch_size=batch_size,
-      drop_remainder=drop_remainder,
-      worker_count=worker_count,
-  )
-  return loader
-
-
-def create_ensemble_lens2_loader_with_climatology_for_inference(
-    date_range: tuple[str, str],
-    input_dataset_path: epath.PathLike = _LENS2_DATASET_PATH,  # pylint: disable=dangerous-default-value
-    input_climatology: epath.PathLike = _LENS2_STATS_PATH,  # pylint: disable=dangerous-default-value
-    input_mean_stats_path: epath.PathLike = _LENS2_MEAN_CLIMATOLOGY_PATH,
-    input_std_stats_path: epath.PathLike = _LENS2_STD_CLIMATOLOGY_PATH,
-    input_member_indexer: (
-        tuple[dict[str, str], ...] | tuple[types.MappingProxyType, ...]
-    ) = _LENS2_MEMBER_INDEXER,
-    input_variable_names: Sequence[str] = _LENS2_VARIABLE_NAMES,
-    output_climatology: epath.PathLike = _ERA5_STATS_PATH,  # pylint: disable=dangerous-default-value
-    output_variables: (
-        dict[str, dict[str, Any] | None] | types.MappingProxyType
-    ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
-    shuffle: bool = False,
-    seed: int = 42,
-    batch_size: int = 4,
-    drop_remainder: bool = True,
-    worker_count: int | None = 0,
-    time_stamps: bool = False,
-    num_epochs: int | None = 1,
-):
-  """Creates a loader for LENS2 with climatology for inference.
-
-  Args:
-    date_range: Date range for the data used in the dataloader.
-    input_dataset_path: Path for the input (lens2) dataset.
-    input_climatology: Path of the Zarr file containing the statistics.
-    input_mean_stats_path: Path of the Zarr file containing the mean statistics
-      of the climatology (both mean and std).
-    input_std_stats_path: Path of the Zarr file containing the std statistics of
-      the climatology (both mean and std).
-    input_member_indexer: The index for the ensemble members from which the data
-      is extracted. LENS2 dataset has 100 ensemble members under different
-      modelling choices.
-    input_variable_names: Input variables to be included in the batch.
-    output_climatology: Path of the Zarr file containing the climatologies.
-    output_variables: Variables in the output dataset to be chosen.
-    shuffle: Whether to shuffle the data points.
-    seed: Random seed for the random number generator.
-    batch_size: batch size for the contiguous chunk.
-    drop_remainder: Whether to drop the reminder between the full length of the
-      dataset and the batchsize.
-    worker_count: Number of workers for parallelizing the data loading.
-    time_stamps: Whether to include the time stamps in the output.
-    num_epochs: Number of epochs, by defaults the loader will run forever.
-
-  Returns:
-  """
-
-  source = DataSourceEnsembleWithClimatologyInference(
-      date_range=date_range,
-      input_dataset=input_dataset_path,
-      input_variable_names=input_variable_names,
-      input_member_indexer=input_member_indexer,
-      input_climatology=input_climatology,
-      output_variables=output_variables,
-      output_climatology=output_climatology,
-      resample_at_nan=False,
-      dims_order_input=["member", "time", "longitude", "latitude"],
-      resample_seed=9999,
-      time_stamps=time_stamps,
-  )
-
-  member_indexer = input_member_indexer[0]
-  # Just the first one to extract the statistics.
-  input_variables = {v: member_indexer for v in input_variable_names}
-
-  transformations = [
-      transforms.StandardizeNestedWithStats(
-          main_field="input",
-          mean_field="input_mean",
-          std_field="input_std",
-          input_fields=(*input_variables.keys(),),
-      ),
-  ]
-
-  transformations.append(
-      transforms.ConcatenateNested(
-          main_field="input",
-          input_fields=(*input_variables.keys(),),
-          output_field="x_0",
-          axis=-1,
-          remove_inputs=True,
-      ),
-  )
-  # Also concatenating the statistics.
-  transformations.append(
-      transforms.StandardizeNested(
-          main_field="input_mean",
-          input_fields=(*input_variables.keys(),),
-          mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "mean",
-          ),
-          std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "mean",
-          ),
-      ),
-  )
-
-  transformations.append(
-      transforms.StandardizeNested(
-          main_field="input_std",
-          input_fields=(*input_variables.keys(),),
-          mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "std",
-          ),
-          std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "std",
-          ),
-      ),
-  )
-
-  transformations.append(
-      transforms.ConcatenateNested(
-          main_field="input_mean",
-          input_fields=(*input_variables.keys(),),
-          output_field="channel:mean",
-          axis=-1,
-          remove_inputs=True,
-      ),
-  )
-  transformations.append(
-      transforms.ConcatenateNested(
-          main_field="input_std",
-          input_fields=(*input_variables.keys(),),
-          output_field="channel:std",
-          axis=-1,
-          remove_inputs=True,
-      ),
-  )
-
+  # The output statistics are raw, as they are used to return the samples to the
+  # original scale (mostly during inference).
   transformations.append(
       transforms.ConcatenateNested(
           main_field="output_mean",
@@ -1085,3 +889,208 @@ def create_ensemble_lens2_loader_with_climatology_for_inference(
       worker_count=worker_count,
   )
   return loader
+
+
+def create_ensemble_lens2_era5_chunked_loader_with_climatology(
+    date_range: tuple[str, str],
+    input_dataset_path: epath.PathLike = _LENS2_DATASET_PATH,  # pylint: disable=dangerous-default-value
+    input_climatology: epath.PathLike = _LENS2_STATS_PATH,  # pylint: disable=dangerous-default-value
+    input_mean_stats_path: epath.PathLike = _LENS2_MEAN_CLIMATOLOGY_PATH,
+    input_std_stats_path: epath.PathLike = _LENS2_STD_CLIMATOLOGY_PATH,
+    input_member_indexer: (
+        tuple[dict[str, str], ...] | tuple[types.MappingProxyType, ...]
+    ) = _LENS2_MEMBER_INDEXER,
+    input_variable_names: Sequence[str] = _LENS2_VARIABLE_NAMES,
+    output_dataset_path: epath.PathLike = _ERA5_DATASET_PATH,
+    output_climatology: epath.PathLike = _ERA5_STATS_PATH,  # pylint: disable=dangerous-default-value
+    output_variables: (
+        dict[str, dict[str, Any] | None] | types.MappingProxyType
+    ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
+    shuffle: bool = False,
+    seed: int = 42,
+    batch_size: int = 32,
+    chunk_size: int = 8,
+    drop_remainder: bool = True,
+    worker_count: int | None = 0,
+    time_stamps: bool = False,
+    num_epochs: int | None = None,
+):
+  """Creates a loader for ERA5 and LENS2 aligned by date.
+
+  Args:
+    date_range: Date range for the data used in the dataloader.
+    input_dataset_path: Path for the input (lens2) dataset.
+    input_climatology: Path of the Zarr file containing the statistics.
+    input_mean_stats_path: Path of the Zarr file containing the mean statistics
+      of the climatology (both mean and std).
+    input_std_stats_path: Path of the Zarr file containing the std statistics of
+      the climatology (both mean and std).
+    input_member_indexer: The index for the ensemble members from which the data
+      is extracted. LENS2 dataset has 100 ensemble members under different
+      modelling choices.
+    input_variable_names: Input variables to be included in the batch.
+    output_dataset_path: Path for the output (era5) dataset.
+    output_climatology: Path of the Zarr file containing the climatologies.
+    output_variables: Variables in the output dataset to be chosen.
+    shuffle: Whether to shuffle the data points.
+    seed: Random seed for the random number generator.
+    batch_size: Total batch size (from all aggregating all chunks).
+    chunk_size: Size of the chunk for the contiguous data.
+    drop_remainder: Whether to drop the reminder between the full length of the
+      dataset and the batchsize.
+    worker_count: Number of workers for parallelizing the data loading.
+    time_stamps: Whether to include the time stamps in the output.
+    num_epochs: Number of epochs, by defaults the loader will run forever.
+
+  Returns:
+  """
+  if batch_size % chunk_size != 0:
+    raise ValueError(
+        "Batch size must be a multiple of the chunk size."
+    )
+  num_chunks = batch_size // chunk_size
+
+  source = ContiguousDataSourceEnsembleWithClimatology(
+      date_range=date_range,
+      chunk_size=chunk_size,
+      input_dataset=input_dataset_path,
+      input_variable_names=input_variable_names,
+      input_member_indexer=input_member_indexer,
+      input_climatology=input_climatology,
+      output_dataset=output_dataset_path,
+      output_variables=output_variables,
+      output_climatology=output_climatology,
+      resample_at_nan=False,
+      dims_order_input=["member", "time", "longitude", "latitude"],
+      dims_order_output=["time", "longitude", "latitude", "level"],
+      resample_seed=9999,
+      time_stamps=time_stamps,
+  )
+
+  member_indexer = input_member_indexer[0]
+  # Just the first one to extract the statistics.
+  input_variables = {v: member_indexer for v in input_variable_names}
+
+  transformations = [
+      transforms.StandardizeNestedWithStats(
+          main_field="output",
+          mean_field="output_mean",
+          std_field="output_std",
+          input_fields=(*output_variables.keys(),),
+      ),
+      transforms.StandardizeNestedWithStats(
+          main_field="input",
+          mean_field="input_mean",
+          std_field="input_std",
+          input_fields=(*input_variables.keys(),),
+      ),
+  ]
+
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="output",
+          input_fields=(*output_variables.keys(),),
+          output_field="x_1",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input",
+          input_fields=(*input_variables.keys(),),
+          output_field="x_0",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  # Also standardizing the statistics.
+  transformations.append(
+      transforms.StandardizeNested(
+          main_field="input_mean",
+          input_fields=(*input_variables.keys(),),
+          mean=read_stats_simple(
+              input_mean_stats_path, input_variable_names, "mean",
+          ),
+          std=read_stats_simple(
+              input_std_stats_path, input_variable_names, "mean",
+          ),
+      ),
+  )
+  transformations.append(
+      transforms.StandardizeNested(
+          main_field="input_std",
+          input_fields=(*input_variables.keys(),),
+          mean=read_stats_simple(
+              input_mean_stats_path, input_variable_names, "std",
+          ),
+          std=read_stats_simple(
+              input_std_stats_path, input_variable_names, "std",
+          ),
+      ),
+  )
+  # Concatenating the statistics for the input.
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input_mean",
+          input_fields=(*input_variables.keys(),),
+          output_field="channel:mean",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input_std",
+          input_fields=(*input_variables.keys(),),
+          output_field="channel:std",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  # Concatenating the statistics for the output.
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="output_mean",
+          input_fields=(*output_variables.keys(),),
+          output_field="output_mean",
+          axis=-1,
+          remove_inputs=False,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="output_std",
+          input_fields=(*output_variables.keys(),),
+          output_field="output_std",
+          axis=-1,
+          remove_inputs=False,
+      ),
+  )
+
+  # This block and the source is the only difference with the non-chunked
+  # version.
+  # TODO: Refactor this for better readability.
+  transformations.append(
+      pygrain.Batch(
+          batch_size=num_chunks, drop_remainder=drop_remainder
+      )
+  )
+  # This one goes at the end.
+  # Reshapes the batch to [batch, lon, lat, channel].
+  transformations.append(transforms.ReshapeBatch())
+
+  sampler = pygrain.IndexSampler(
+      num_records=len(source),
+      shuffle=shuffle,
+      seed=seed,
+      num_epochs=num_epochs,
+      shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
+  )
+
+  return pygrain.DataLoader(
+      data_source=source,
+      sampler=sampler,
+      operations=transformations,
+      worker_count=worker_count,
+  )
