@@ -97,10 +97,10 @@ def main(_):
     baseline_name = 'interp_inference'
   elif 'bcsd' in _BASELINE_DATASET_PATH.value:
     baseline_name = 'bcsd_inference'
+  elif 'staresdm' in _BASELINE_DATASET_PATH.value:
+    baseline_name = 'staresdm_inference'
   else:
-    raise ValueError(
-        'Baseline dataset path not recognized as interpolation or bcsd.'
-    )
+    raise ValueError('Baseline dataset path not recognized.')
 
   out_path = os.path.join(
       logs_dir,

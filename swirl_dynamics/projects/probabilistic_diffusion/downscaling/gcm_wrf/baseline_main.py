@@ -75,6 +75,9 @@ import tensorflow as tf
 import xarray as xr
 
 
+# See definitions in eval_lib.py.
+_DEFAULT_DERIVED_VARS = ['WINDSPEED10', 'RH']
+
 _BASELINE_DATASET_PATH = flags.DEFINE_string(
     'baseline_dataset_path',
     None,
@@ -120,7 +123,9 @@ _TIME_DOWNSAMPLE = flags.DEFINE_integer(
     'time_downsample', 4, 'The downsampling factor applied to the data source.'
 )
 _DERIVED_VARS = flags.DEFINE_list(
-    'derived_vars', [], 'List of derived variables to compute for evaluation.'
+    'derived_vars',
+    _DEFAULT_DERIVED_VARS,
+    'List of derived variables to compute for evaluation.',
 )
 
 ArrayMapping = Mapping[str, jax.Array]
@@ -170,10 +175,10 @@ def main(_):
     baseline_name = 'interp_baseline'
   elif 'bcsd' in _BASELINE_DATASET_PATH.value:
     baseline_name = 'bcsd_baseline'
+  elif 'staresdm' in _BASELINE_DATASET_PATH.value:
+    baseline_name = 'staresdm_baseline'
   else:
-    raise ValueError(
-        'Baseline dataset path not recognized as interpolation or bcsd.'
-    )
+    raise ValueError('Baseline dataset path not recognized.')
 
   out_path = os.path.join(
       logs_dir,
