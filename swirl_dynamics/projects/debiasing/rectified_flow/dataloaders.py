@@ -111,9 +111,12 @@ class CommonSourceEnsemble(abc.ABC):
     pass
 
   @abc.abstractmethod
-  def _compute_indices(
-      self, idx
-  ) -> tuple[str, np.datetime64 | Sequence[np.datetime64], int | Sequence[int]]:
+  def _compute_indices(self, idx) -> tuple[
+      str,
+      np.datetime64 | Sequence[np.datetime64],
+      np.datetime64 | Sequence[np.datetime64],
+      int | Sequence[int],
+  ]:
     pass
 
   @abc.abstractmethod
@@ -246,14 +249,14 @@ class CommonSourceEnsemble(abc.ABC):
     item = {}
 
     # Computes the indices.
-    member, date, dayofyear = self._compute_indices(idx)
+    member, date_input, date_output, dayofyear = self._compute_indices(idx)
 
     sample_input, mean_input, std_input = {}, {}, {}
     sample_output, mean_output, std_output = {}, {}, {}
 
     # Loop over the variable key and each dataset, and statistics.
     for var_key, da in self._input_arrays.items():
-      array = xrts.read(da[member].sel(time=date)).data
+      array = xrts.read(da[member].sel(time=date_input)).data
       sample_input[var_key] = self._maybe_expands_dims(array)
 
     for var_key, da in self._input_mean_arrays.items():
@@ -270,7 +273,7 @@ class CommonSourceEnsemble(abc.ABC):
 
     # Loop over the variable key and each dataset, and statistics.
     for var_key, da in self._output_arrays.items():
-      array = xrts.read(da.sel(time=date)).data
+      array = xrts.read(da.sel(time=date_output)).data
       sample_output[var_key] = self._maybe_expands_dims(array)
 
     for var_key, da in self._output_mean_arrays.items():
@@ -287,7 +290,8 @@ class CommonSourceEnsemble(abc.ABC):
 
     if self._time_stamps:
       # Adds the time and the ensemble member corresponding to the data.
-      item["input_time_stamp"] = date
+      item["input_time_stamp"] = date_input
+      item["output_time_stamp"] = date_output
       item["input_member"] = member
 
     return item
@@ -371,7 +375,18 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
   def _compute_len(self) -> int:
     return len(self._indexes) * self._len_time
 
-  def _compute_indices(self, idx: int) -> tuple[str, np.datetime64, int]:
+  def _compute_indices(
+      self, idx: int
+  ) -> tuple[str, np.datetime64, np.datetime64, int]:
+    """Computes the xarray indices for the data.
+
+    Args:
+      idx: The index of the sample.
+
+    Returns:
+      A tuple with the member, the date of the input, the date of the output,
+      and the day of the year.
+    """
     # Checking the index for the member and time (of the year)
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
@@ -385,7 +400,122 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     if dayofyear <= 0 or dayofyear > 366:
       raise ValueError(f"Invalid day of the year: {dayofyear}")
 
-    return (member, date, dayofyear)
+    return (member, date, date, dayofyear)
+
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    return data_utils.maybe_expand_dims(
+        x, allowed_dims=(2, 3), trigger_expand_dims=2
+    )
+
+
+class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
+  """A data source that loads ensemble LENS2 data with climatology."""
+
+  def __init__(
+      self,
+      date_range: tuple[str, str],
+      input_dataset: epath.PathLike,
+      input_variable_names: Sequence[str],
+      input_member_indexer: tuple[Mapping[str, Any], ...],
+      input_climatology: epath.PathLike,
+      output_dataset: epath.PathLike,
+      output_variables: Mapping[str, Any],
+      output_climatology: epath.PathLike,
+      dims_order_input: Sequence[str] | None = None,
+      dims_order_output: Sequence[str] | None = None,
+      dims_order_input_stats: Sequence[str] | None = None,
+      dims_order_output_stats: Sequence[str] | None = None,
+      resample_at_nan: bool = False,
+      resample_seed: int = 9999,
+      time_stamps: bool = False,
+  ):
+    """Data source constructor.
+
+    Args:
+      date_range: The date range (in days) applied. Data not falling in this
+        range is ignored.
+      input_dataset: The path of a zarr dataset containing the input data.
+      input_variable_names: The variables to yield from the input dataset.
+      input_member_indexer: The name of the ensemble member to sample from, it
+        should be tuple of dictionaries with the key "member" and the value the
+        name of the member, to adhere to xarray formating, For example:
+        [{"member": "cmip6_1001_001"}, {"member": "cmip6_1021_002"}, ...]
+      input_climatology: The path of a zarr dataset containing the input
+        statistics.
+      output_dataset: The path of a zarr dataset containing the output data.
+      output_variables: The variables to yield from the output dataset.
+      output_climatology: The path of a zarr dataset containing the output
+        statistics.
+      dims_order_input: Order of the dimensions (time, member, lat, lon, fields)
+        of the input variables. If None, the dimensions are not changed from the
+        order in the xarray dataset.
+      dims_order_output: Order of the dimensions (time, member, lat, lon,
+        fields) of the input variables. If None, the dimensions are not changed
+        from the order in the xarray dataset.
+      dims_order_input_stats: Order of the variables for the input statistics.
+      dims_order_output_stats: Order of the variables for the output statistics.
+      resample_at_nan: Whether to resample when NaN is detected in the data.
+      resample_seed: The random seed for resampling.
+      time_stamps: Wheter to add the time stamps to the samples.
+    """
+    super().__init__(
+        date_range,
+        input_dataset,
+        input_variable_names,
+        input_member_indexer,
+        input_climatology,
+        output_dataset,
+        output_variables,
+        output_climatology,
+        dims_order_input,
+        dims_order_output,
+        dims_order_input_stats,
+        dims_order_output_stats,
+        resample_at_nan,
+        resample_seed,
+        time_stamps)
+
+    # Here the length of the time is the length of the time stamps. As the
+    # output samples times do not play a role in the inference. Only the output
+    # climatology is of interest.
+    self._len_time = len(self._input_time_array)
+    self._len = self._compute_len()
+
+  def __len__(self):
+    return self._len
+
+  def _compute_len(self) -> int:
+    return len(self._indexes) * self._len_time
+
+  def _compute_indices(
+      self, idx: int
+  ) -> tuple[str, np.datetime64, np.datetime64, int]:
+    """Computes the xarray indices for the data.
+
+    Args:
+      idx: The index of the sample.
+
+    Returns:
+      A tuple with the member, the date of the input, the date of the output,
+      and the day of the year.
+    """
+    # Checking the index for the member and time (of the year)
+    idx_member = idx // self._len_time
+    idx_time = idx % self._len_time
+    member = self._indexes[idx_member]
+    date_input = self._input_time_array[idx_time]
+    # We don't need the date of the output. But to conform with the interface,
+    # we set it to be first date of the output.
+    date_output_dummy = self._output_time_array[0]
+    dayofyear = int((
+        date_input - np.datetime64(str(date_input.astype("datetime64[Y]")))
+    ) / np.timedelta64(1, "D") + 1)
+
+    # Checks the validity of dayofyear.
+    if dayofyear <= 0 or dayofyear > 366:
+      raise ValueError(f"Invalid day of the year: {dayofyear}")
+
+    return (member, date_input, date_output_dummy, dayofyear)
 
   def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
     return data_utils.maybe_expand_dims(
@@ -478,7 +608,9 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
 
   def _compute_indices(
       self, idx: int
-  ) -> tuple[str, Sequence[np.datetime64], Sequence[int]]:
+  ) -> tuple[
+      str, Sequence[np.datetime64], Sequence[np.datetime64], Sequence[int]
+  ]:
     # Checking the index for the member and time (of the year)
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
@@ -496,7 +628,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     if len(daysofyear) != len(set(daysofyear)):
       raise ValueError(f"Dates are not unique: {daysofyear}")
 
-    return (member, dates, daysofyear)
+    return (member, dates, dates, daysofyear)
 
   def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
     return data_utils.maybe_expand_dims(
@@ -526,9 +658,10 @@ def create_ensemble_lens2_era5_loader_with_climatology(
     drop_remainder: bool = True,
     worker_count: int | None = 0,
     time_stamps: bool = False,
+    inference_mode: bool = False,
     num_epochs: int | None = None,
 ):
-  """Creates a loader for ERA5 and LENS2 aligned by date.
+  """Creates a loader for ERA5 and LENS2 loosely aligned by date.
 
   Args:
     date_range: Date range for the data used in the dataloader.
@@ -552,26 +685,48 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       dataset and the batchsize.
     worker_count: Number of workers for parallelizing the data loading.
     time_stamps: Whether to include the time stamps in the output.
+    inference_mode: Whether to use the inference dataset, and provide a dummy
+      output.
     num_epochs: Number of epochs, by defaults the loader will run forever.
 
   Returns:
   """
 
-  source = DataSourceEnsembleWithClimatology(
-      date_range=date_range,
-      input_dataset=input_dataset_path,
-      input_variable_names=input_variable_names,
-      input_member_indexer=input_member_indexer,
-      input_climatology=input_climatology,
-      output_dataset=output_dataset_path,
-      output_variables=output_variables,
-      output_climatology=output_climatology,
-      resample_at_nan=False,
-      dims_order_input=["member", "time", "longitude", "latitude"],
-      dims_order_output=["time", "longitude", "latitude", "level"],
-      resample_seed=9999,
-      time_stamps=time_stamps,
-  )
+  # In inference mode, we need to use the inference datset, which returns a
+  # dummy output.
+  if inference_mode:
+    source = DataSourceEnsembleWithClimatologyInference(
+        date_range=date_range,
+        input_dataset=input_dataset_path,
+        input_variable_names=input_variable_names,
+        input_member_indexer=input_member_indexer,
+        input_climatology=input_climatology,
+        output_dataset=output_dataset_path,
+        output_variables=output_variables,
+        output_climatology=output_climatology,
+        resample_at_nan=False,
+        dims_order_input=["member", "time", "longitude", "latitude"],
+        dims_order_output=["time", "longitude", "latitude", "level"],
+        resample_seed=9999,
+        time_stamps=time_stamps,
+    )
+
+  else:
+    source = DataSourceEnsembleWithClimatology(
+        date_range=date_range,
+        input_dataset=input_dataset_path,
+        input_variable_names=input_variable_names,
+        input_member_indexer=input_member_indexer,
+        input_climatology=input_climatology,
+        output_dataset=output_dataset_path,
+        output_variables=output_variables,
+        output_climatology=output_climatology,
+        resample_at_nan=False,
+        dims_order_input=["member", "time", "longitude", "latitude"],
+        dims_order_output=["time", "longitude", "latitude", "level"],
+        resample_seed=9999,
+        time_stamps=time_stamps,
+    )
 
   member_indexer = input_member_indexer[0]
   # Just the first one to extract the statistics.

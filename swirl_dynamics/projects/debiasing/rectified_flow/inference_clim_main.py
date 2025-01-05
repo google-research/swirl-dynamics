@@ -131,6 +131,7 @@ def build_data_loaders(
           output_climatology=_ERA5_STATS_PATH,
           output_variables=era5_variables,
           time_stamps=True,
+          inference_mode=True,  # Using the inference dataset.
           num_epochs=1,  # This is the loops stops automatically.
       )
   )
