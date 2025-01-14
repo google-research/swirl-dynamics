@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Calculate local stats for the gcm-rwf dataset.
+r"""Calculate local stats for the gcm-wrf dataset.
 
 Example usage:
 ```
 INPUT_EXPERIMENT=<parent_dir>/canesm5_r1i1p2f1_ssp370_bc
 
-python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_rwf/input_pipelines/compute_stats.py \
+python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/input_pipelines/compute_stats.py \
     --input_path=${INPUT_EXPERIMENT}/hourly_d02.zarr \
     --output_path=${INPUT_EXPERIMENT}/stats/hourly_d02_1980-2005.zarr \
     --start_year=1980 \
