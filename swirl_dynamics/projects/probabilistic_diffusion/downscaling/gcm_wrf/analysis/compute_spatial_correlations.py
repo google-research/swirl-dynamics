@@ -44,13 +44,13 @@ python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/analy
 
 from collections.abc import Iterable
 import functools
-import typing
 from typing import TypeVar
 
 from absl import app
 from absl import flags
 import apache_beam as beam
 import numpy as np
+from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import beam_utils
 import xarray as xr
 import xarray_beam as xbeam
 from zarr.google import gfile_store
@@ -92,30 +92,6 @@ def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
     return ds
   selection = {TIME_DIM.value: slice(TIME_START.value, TIME_STOP.value)}
   return ds.sel({k: v for k, v in selection.items() if k in ds.dims})
-
-
-# TODO: Move this function to a common library.
-def _get_climatology_mean(
-    climatology: xr.Dataset, variables: list[str], **sel_kwargs
-) -> xr.Dataset:
-  """Returns the climatological mean of the given variables.
-
-  The climatology dataset is assumed to have been produced through
-  the weatherbench2 compute_climatology.py script,
-  (https://github.com/google-research/weatherbench2/blob/main/scripts/compute_climatology.py)
-  and statistics `mean`, and `std`. The convention is that the climatological
-  means do not have a suffix, and standard deviations have a `_std` suffix.
-
-  Args:
-    climatology: The climatology dataset.
-    variables: The variables to extract from the climatology.
-    **sel_kwargs: Additional selection criteria for the variables.
-
-  Returns:
-    The climatological mean of the given variables.
-  """
-  climatology_mean = climatology[variables]
-  return typing.cast(xr.Dataset, climatology_mean.sel(**sel_kwargs).compute())
 
 
 def _combine_stats(
@@ -169,7 +145,7 @@ def compute_moments_chunk(
       drop=True,
   )
   variables = [str(key) for key in dataset.keys()]
-  clim_mean = _get_climatology_mean(clim, variables, **clim_sel)
+  clim_mean = beam_utils.get_climatology_mean(clim, variables, **clim_sel)
 
   dataset = dataset - clim_mean
   count = dataset.notnull() if skipna else xr.ones_like(dataset)

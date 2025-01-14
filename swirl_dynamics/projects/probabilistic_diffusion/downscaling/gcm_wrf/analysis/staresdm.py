@@ -111,6 +111,7 @@ from absl import app
 from absl import flags
 import apache_beam as beam
 import numpy as np
+from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import beam_utils
 import xarray as xr
 import xarray_beam as xbeam
 
@@ -170,54 +171,6 @@ TIME_STOP = flags.DEFINE_string(
 RUNNER = flags.DEFINE_string('runner', None, 'beam.runners.Runner')
 
 
-def _get_climatology_mean(
-    climatology: xr.Dataset, variables: list[str], **sel_kwargs
-) -> xr.Dataset:
-  """Returns the climatological mean of the given variables.
-
-  The climatology dataset is assumed to have been produced through
-  the weatherbench2 compute_climatology.py script,
-  (https://github.com/google-research/weatherbench2/blob/main/scripts/compute_climatology.py)
-  and statistics `mean`, and `std`. The convention is that the climatological
-  means do not have a suffix, and standard deviations have a `_std` suffix.
-
-  Args:
-    climatology: The climatology dataset.
-    variables: The variables to extract from the climatology.
-    **sel_kwargs: Additional selection criteria for the variables.
-
-  Returns:
-    The climatological mean of the given variables.
-  """
-  climatology_mean = climatology[variables]
-  return typing.cast(xr.Dataset, climatology_mean.sel(**sel_kwargs).compute())
-
-
-def _get_climatology_std(
-    climatology: xr.Dataset, variables: list[str], **sel_kwargs
-) -> xr.Dataset:
-  """Returns the climatological standard deviation of the given variables.
-
-  The climatology dataset is assumed to have been produced through
-  the weatherbench2 compute_climatology.py script, and statistics
-  `mean`, and `std`. The convention is that the climatological means do not
-  have a suffix, and standard deviations have a `_std` suffix.
-
-  Args:
-    climatology: The climatology dataset.
-    variables: The variables to extract from the climatology.
-    **sel_kwargs: Additional selection criteria for the variables.
-
-  Returns:
-    The climatological standard deviation of the given variables.
-  """
-  clim_std_dict = {key + '_std': key for key in variables}  # pytype: disable=unsupported-operands
-  climatology_std = climatology[list(clim_std_dict.keys())].rename(
-      clim_std_dict
-  )
-  return typing.cast(xr.Dataset, climatology_std.sel(**sel_kwargs).compute())
-
-
 def _staresdm_on_chunks(
     source: xr.Dataset,
     *,
@@ -272,18 +225,24 @@ def _staresdm_on_chunks(
   )
 
   # Static input low-resolution climatology.
-  input_clim_mean = _get_climatology_mean(input_clim, variables, **sel)
-  input_clim_std = _get_climatology_std(input_clim, variables, **sel)
+  input_clim_mean = beam_utils.get_climatology_mean(
+      input_clim, variables, **sel
+  )
+  input_clim_std = beam_utils.get_climatology_std(input_clim, variables, **sel)
   # Dynamic input low-resolution climatology.
-  input_dynamic_clim_mean = _get_climatology_mean(
+  input_dynamic_clim_mean = beam_utils.get_climatology_mean(
       input_dynamic_clim, variables, **sel
   )
-  input_dynamic_clim_std = _get_climatology_std(
+  input_dynamic_clim_std = beam_utils.get_climatology_std(
       input_dynamic_clim, variables, **sel
   )
   # Target high-resolution climatology.
-  target_clim_mean = _get_climatology_mean(target_clim, variables, **sel)
-  target_clim_std = _get_climatology_std(target_clim, variables, **sel)
+  target_clim_mean = beam_utils.get_climatology_mean(
+      target_clim, variables, **sel
+  )
+  target_clim_std = beam_utils.get_climatology_std(
+      target_clim, variables, **sel
+  )
 
   staresdm = staresdm + target_clim_mean
   staresdm = staresdm + (input_dynamic_clim_mean - input_clim_mean)
