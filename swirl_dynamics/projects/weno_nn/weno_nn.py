@@ -106,7 +106,7 @@ def delta_layer(
 
   # Initializing a global normalization constant if provided.
   if not global_norm:
-    re_norm = jnp.clip(jnp.maximum(delta_1, delta_2), a_min=eps)
+    re_norm = jnp.clip(jnp.maximum(delta_1, delta_2), min=eps)
   else:
     re_norm = global_norm
 
@@ -138,7 +138,7 @@ def weno_z_layer(
   alpha_2 = 1 + jnp.power(delta_4 / (delta_2 + eps), q)
   alpha_3 = 1 + jnp.power(delta_4 / (delta_3 + eps), q)
 
-  re_norm_4 = jnp.clip(jnp.maximum(delta_1, delta_2), a_min=eps)
+  re_norm_4 = jnp.clip(jnp.maximum(delta_1, delta_2), min=eps)
   alpha_4 = 1 + jnp.power(delta_4 / (re_norm_4 + eps), q)
 
   norm = alpha_1 + alpha_2 + alpha_3 + alpha_4

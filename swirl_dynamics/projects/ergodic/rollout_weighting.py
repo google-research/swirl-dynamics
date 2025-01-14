@@ -41,7 +41,7 @@ def geometric(
   """
   assert r < 1, f"Geometric decay factor `r` ({r}) should be less than 1."
   assert clip > 0, f"Minimum weight `clip` ({clip}) should be greater than 0."
-  return jnp.clip(r ** jnp.arange(0, num_time_steps - 1), a_min=clip)
+  return jnp.clip(r ** jnp.arange(0, num_time_steps - 1), min=clip)
 
 
 def inverse_sqrt(num_time_steps: int, clip: float = 10e-4) -> Array:
@@ -55,7 +55,7 @@ def inverse_sqrt(num_time_steps: int, clip: float = 10e-4) -> Array:
     Rollout weights array.
   """
   assert clip > 0, f"Minimum weight `clip` ({clip}) should be greater than 0."
-  return jnp.clip(jnp.arange(1, num_time_steps) ** -0.5, a_min=clip)
+  return jnp.clip(jnp.arange(1, num_time_steps) ** -0.5, min=clip)
 
 
 def inverse_squared(num_time_steps: int, clip: float = 10e-4) -> Array:
@@ -69,7 +69,7 @@ def inverse_squared(num_time_steps: int, clip: float = 10e-4) -> Array:
     Rollout weights array.
   """
   assert clip > 0, f"Minimum weight `clip` ({clip}) should be greater than 0."
-  return jnp.clip(jnp.arange(1, num_time_steps) ** -2.0, a_min=clip)
+  return jnp.clip(jnp.arange(1, num_time_steps) ** -2.0, min=clip)
 
 
 def linear(num_time_steps: int, m: float = 1.0, clip: float = 10e-4) -> Array:
@@ -85,7 +85,7 @@ def linear(num_time_steps: int, m: float = 1.0, clip: float = 10e-4) -> Array:
   """
   assert m > 0, f"Linear decay factor `m` ({m}) should be greater than 0."
   assert clip > 0, f"Minimum weight `clip` ({clip}) should be greater than 0."
-  return jnp.clip((m * jnp.arange(1, num_time_steps)) ** -1.0, a_min=clip)
+  return jnp.clip((m * jnp.arange(1, num_time_steps)) ** -1.0, min=clip)
 
 
 def no_weight(num_time_steps: int) -> Array:
