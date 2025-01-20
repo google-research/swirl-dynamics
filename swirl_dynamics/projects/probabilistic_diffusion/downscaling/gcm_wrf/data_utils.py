@@ -26,6 +26,7 @@ import xarray as xr
 import xarray_tensorstore as xrts
 
 FlatFeatures = MutableMapping[str, Any]
+XarrayLibrary = Any
 
 
 def get_common_times(
@@ -189,6 +190,7 @@ def read_stats(
     variables: Sequence[str],
     field: Literal['mean', 'std'],
     crop_dict: dict[str, Any] | None = None,
+    xr_: XarrayLibrary = xrts,
 ) -> np.ndarray:
   """Reads variable statistics from zarr and returns as a stacked array.
 
@@ -202,11 +204,12 @@ def read_stats(
     field: Statistic to retrieve, either the mean or std.
     crop_dict: A dictionary of dimension indices used to crop the input stats
       dataset. Passed to `xarray.Dataset.isel`.
+    xr_: The xarray library to use to open zarr files.
 
   Returns:
     A stacked array of statistics.
   """
-  ds = xrts.open_zarr(stats_path)
+  ds = xr_.open_zarr(stats_path)
   if crop_dict is not None:
     ds = ds.isel(**crop_dict)
   out = np.stack(
@@ -219,6 +222,7 @@ def read_global_stats(
     stats_path: epath.PathLike,
     variables: Sequence[str],
     field: Literal['mean', 'std'],
+    xr_: XarrayLibrary = xrts,
 ) -> np.ndarray:
   """Reads global variable stats from zarr and returns as a stacked array.
 
@@ -229,11 +233,12 @@ def read_global_stats(
       compute_global_stats.py for how to generate such datasets.
     variables: List of variables from which stats are to be retrieved.
     field: Statistic to retrieve, either the mean or std.
+    xr_: The xarray library to use to open zarr files.
 
   Returns:
     A stacked array of statistics.
   """
-  ds = xrts.open_zarr(stats_path)
+  ds = xr_.open_zarr(stats_path)
 
   if field == 'mean':
     out = np.stack(

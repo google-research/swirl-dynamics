@@ -29,6 +29,7 @@ import xarray as xr
 import xarray_tensorstore as xrts
 
 FlatFeatures = MutableMapping[str, Any]
+XarrayLibrary = Any
 
 # Index range defining the 9 km domain (D2) inside the 45 km domain (D1).
 D2_WITHIN_D1 = {"south_north": range(16, 86), "west_east": range(32, 89)}
@@ -94,6 +95,7 @@ class DataSource:
       resample_at_nan: bool = False,
       resample_seed: int = 9999,
       crop_input: bool = False,
+      xr_: XarrayLibrary = xrts,
   ):
     """Data source constructor.
 
@@ -118,23 +120,24 @@ class DataSource:
       resample_seed: The random seed for resampling.
       crop_input: Whether to crop the input data to only cover the output
         domain.
+      xr_: The xarray library to use to open zarr files.
     """
     date_range = pd.date_range(*date_range, freq=f"{time_downsample}H")
     date_range = _impose_model_calendar(input_dataset, date_range)
-    input_ds = xrts.open_zarr(input_dataset)
+    input_ds = xr_.open_zarr(input_dataset)
     input_ds = data_utils.get_common_times_dataset(input_ds, date_range)
     if crop_input:
       input_ds = input_ds.isel(**D2_WITHIN_D1)
 
     self._input_arrays = [input_ds[v] for v in input_variables]
 
-    output_ds = xrts.open_zarr(output_dataset)
+    output_ds = xr_.open_zarr(output_dataset)
     output_ds = data_utils.get_common_times_dataset(output_ds, date_range)
     self._output_arrays = [output_ds[v] for v in output_variables]
     self._output_coords = output_ds.coords
 
     # Pre-load normalized static features
-    static_input_ds = xrts.open_zarr(static_input_dataset)
+    static_input_ds = xr_.open_zarr(static_input_dataset)
     static_features = [
         (static_input_ds[v] - static_input_ds[v].mean())
         / static_input_ds[v].std()
@@ -146,7 +149,7 @@ class DataSource:
 
     self._dates = data_utils.get_common_times(input_ds, date_range)
     self._len = input_ds.dims["time"]
-    self._time_array = xrts.read(input_ds["time"]).data
+    self._time_array = xr_.read(input_ds["time"]).data
     self._resample_at_nan = resample_at_nan
     self._resample_seed = resample_seed
     self.use_temporal_inputs = use_temporal_inputs
@@ -154,7 +157,7 @@ class DataSource:
     self._forcing, self._forcing_year = None, None
     if forcing_dataset is not None:
       # Pre-load normalized forcing data
-      forcing_ds = xrts.open_zarr(forcing_dataset)
+      forcing_ds = xr_.open_zarr(forcing_dataset)
       self._forcing_year = [date.year for date in forcing_ds.time.values]
       self._forcing = np.stack(
           [
