@@ -149,7 +149,7 @@ class DataSource:
 
     self._dates = data_utils.get_common_times(input_ds, date_range)
     self._len = input_ds.dims["time"]
-    self._time_array = xr_.read(input_ds["time"]).data
+    self._time_array = xrts.read(input_ds["time"]).data
     self._resample_at_nan = resample_at_nan
     self._resample_seed = resample_seed
     self.use_temporal_inputs = use_temporal_inputs
