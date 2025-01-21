@@ -265,6 +265,7 @@ def create_dataset(
     normalization: Literal["local", "global"] = "local",
     forcing_dataset: epath.PathLike | None = None,
     use_temporal_inputs: bool = False,
+    xr_: XarrayLibrary = xrts,
 ):
   """The full GCM-WRF data pipeline."""
   source = DataSource(
@@ -281,6 +282,7 @@ def create_dataset(
       crop_input=crop_input,
       forcing_dataset=forcing_dataset,
       use_temporal_inputs=use_temporal_inputs,
+      xr_=xr_,
   )
   cond_fields = ["input", "static_features"]
   if use_temporal_inputs:
@@ -288,7 +290,7 @@ def create_dataset(
   if forcing_dataset is not None:
     cond_fields.append("forcing")
   masked_fields = copy.copy(cond_fields)
-  in_stat_kwargs = {}
+  in_stat_kwargs = {"xr_": xr_,}
   if normalization == "local":
     read_stats_fn = data_utils.read_stats
     if crop_input:
@@ -313,8 +315,8 @@ def create_dataset(
     transformations.append(
         data_utils.Standardize(
             input_field="output",
-            mean=read_stats_fn(output_stats, output_variables, "mean"),
-            std=read_stats_fn(output_stats, output_variables, "std"),
+            mean=read_stats_fn(output_stats, output_variables, "mean", xr_=xr_),
+            std=read_stats_fn(output_stats, output_variables, "std", xr_=xr_),
         ),
     )
   transformations.extend([
