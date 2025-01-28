@@ -39,6 +39,7 @@ dependencies = [
   "tqdm",
   "xarray",
   "xarray_tensorstore",
+  "pyyaml",
 ]
 
 # `version` is automatically set by flit to use `swirl_dynamics.__version__`
