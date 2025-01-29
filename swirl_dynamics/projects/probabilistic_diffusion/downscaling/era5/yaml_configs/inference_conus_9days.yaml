@@ -1,0 +1,76 @@
+downscale:
+  start_date: "2021-08-01"
+  # The total number of days derives from the number of devices (assumed to be 4 here), the number
+  # of days accounted by a single model instance (segment length) and the number of overlapping days
+  # between contiguous model instances. See `sampling_parallel.TrajectorySamplerParallel` for more
+  # details.
+  total_sample_days: 9
+  input_variables:
+    - "T2m"
+    - "W10m"
+    - "Q1000"
+    - "MSL"
+  output_variables:
+    - "T2m"
+    - "W10m"
+    - "Q1000"
+    - "MSL"
+  longitude_start: 234
+  longitude_end: 294
+  latitude_start: 22.5
+  latitude_end: 52.5
+  # The following paths should be updated to point to the correct data.
+  input_file: "/data/inference/era5_1p5deg_sample_t2m_w10m_q1000_msl.zarr"
+  input_resolution_degrees: 1.5
+  input_stats_file: "/data/inference/era5_1p5deg_clim_t2m_w10m_q1000_msl.zarr"
+  output_zarr_path: "/data/inference/downscale_output_conus_t2m_w10m_q1000_msl.zarr"
+  output_resolution_degrees: 0.25
+  output_stats_file: "/data/inference/era5_0p25deg_clim_conus_t2m_w10m_q1000_msl.zarr"
+
+model:
+  num_days: 3
+  hour_interval: 2
+  skip_interp_method: "linear"
+  num_output_channels: 4
+  sample_resize: null
+  num_latent_channels:
+    - 128
+    - 256
+    - 384
+    - 512
+  downsample_ratio:
+    - 3
+    - 2
+    - 2
+    - 2
+  num_blocks: 4
+  noise_embedding_dim: 128
+  num_input_projection_channels: 128
+  num_output_projection_channels: 128
+  padding: "SAME"
+  use_spatial_attention:
+    - false
+    - false
+    - true
+    - true
+  use_temporal_attention:
+    - false
+    - false
+    - true
+    - true
+  use_positional_encoding: true
+  num_attention_heads: 8
+  normalize_qk: true
+  cond_resize_method: "nearest"
+  cond_embedding_dim: 128
+  checkpoint: "/wanzy/data/genbcsr_release_staging/inference/checkpoints/sr_conus_t2m_w10m_q1000_msl"
+
+sampler:
+  num_overlap_days: 1
+  num_samples: 4
+  start_noise_level: 80.0
+  num_diffusion_steps: 256
+  cfg_strength: 1.0
+  sampler_type: "sde"
+  batch_size: 1
+  seed: 42
