@@ -111,6 +111,11 @@ _CFG_STRENGTH = flags.DEFINE_float(
     None,
     'Classifier-free guidance strength to use for sampling.',
 )
+_RANDOM_MASKOUT_PROBABILITY = flags.DEFINE_float(
+    'random_maskout_probability',
+    0.0,
+    'Probability of randomly masking out input variables.',
+)
 
 
 def main(_):
@@ -250,7 +255,7 @@ def main(_):
       **source_kwargs,
       input_stats=dataset_config.input_stats,
       output_stats=None,  # We want to recover targets without normalization.
-      random_maskout_probability=0.0,
+      random_maskout_probability=_RANDOM_MASKOUT_PROBABILITY.value,
       shuffle=False,
       seed=42,
       batch_size=batch_size,
