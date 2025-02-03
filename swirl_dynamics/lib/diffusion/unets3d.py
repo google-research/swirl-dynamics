@@ -133,17 +133,34 @@ class DStack(nn.Module):
   def __call__(self, x: Array, emb: Array, *, is_training: bool) -> list[Array]:
     # The following should already have been checked at the caller level. Run
     # assserts to verify that it is indeed the case.
-    assert x.ndim == 5
-    assert x.shape[0] == emb.shape[0]
-    assert len(self.use_spatial_attention) == len(self.use_temporal_attention)
-    assert len(self.num_channels) == len(self.num_res_blocks)
-    assert len(self.downsample_ratio) == len(self.num_res_blocks)
+    if x.ndim != 5:
+      raise ValueError("Only accept 5D input (batch, time, x, y, features)! ",
+                       f"Instead we have x.shape: {x.shape}")
+    if x.shape[0] != emb.shape[0]:
+      raise ValueError(
+          "Batch dimension of x and emb must match! x.shape: ",
+          f"{x.shape}, emb.shape: {emb.shape}",
+      )
+    if len(self.use_spatial_attention) != len(self.use_temporal_attention):
+      raise ValueError(
+          "Length of use_spatial_attention and use_temporal_attention must"
+          " match!"
+      )
+    if len(self.num_channels) != len(self.num_res_blocks):
+      raise ValueError(
+          "Length of num_channels and num_res_blocks must match!"
+      )
+    if len(self.downsample_ratio) != len(self.num_res_blocks):
+      raise ValueError(
+          "Length of downsample_ratio and num_res_blocks must match!"
+      )
 
     # Logic.
     spatial_dims = np.asarray(x.shape[2:-1])
     nt = x.shape[1]
     skips = []
 
+    # Spatial projection to tokens.
     h = layers.ConvLayer(
         features=self.num_input_proj_channels,
         kernel_size=(3, 3),
@@ -153,6 +170,7 @@ class DStack(nn.Module):
     )(x)
     skips.append(h)
 
+    # Downsampling.
     for level, channel in enumerate(self.num_channels):
       h = layers.DownsampleConv(
           features=channel,
@@ -162,6 +180,8 @@ class DStack(nn.Module):
       )(h)
       spatial_dims = spatial_dims // self.downsample_ratio[level]
       dims_str = spatial_dims.astype(str)
+
+      # First part of the processing. The rest will be done in the UStack.
       for block_id in range(self.num_res_blocks[level]):
         h = unets.ConvBlock(
             out_channels=channel,
@@ -173,6 +193,7 @@ class DStack(nn.Module):
             param_dtype=self.param_dtype,
             name=f"{nt}xres{'x'.join(dims_str)}.dblock{block_id}",
         )(h, emb, is_training=is_training)
+        # Applies attention in space/time if needed.
         if (
             self.use_spatial_attention[level]
             or self.use_temporal_attention[level]
@@ -225,19 +246,37 @@ class UStack(nn.Module):
   def __call__(
       self, x: Array, emb: Array, skips: list[Array], *, is_training: bool
   ) -> Array:
-    # The following should already have been checked at the caller level. Run
-    # assserts to verify that it is indeed the case.
-    assert x.ndim == 5
-    assert x.shape[0] == emb.shape[0]
-    assert len(self.use_spatial_attention) == len(self.use_temporal_attention)
-    assert len(self.num_channels) == len(self.num_res_blocks)
-    assert len(self.upsample_ratio) == len(self.num_res_blocks)
+    # The following should already have been checked at the caller level.
+    # We add an extra layer of checks here.
+    if x.ndim != 5:
+      raise ValueError("Only accept 5D input (batch, time, x, y, features)! ",
+                       f"Instead we have x.shape: {x.shape}")
+    if x.shape[0] != emb.shape[0]:
+      raise ValueError(
+          "Batch dimension of x and emb must match! x.shape: ",
+          f"{x.shape}, emb.shape: {emb.shape}",
+      )
+    if len(self.use_spatial_attention) != len(self.use_temporal_attention):
+      raise ValueError(
+          "Length of use_spatial_attention and use_temporal_attention must"
+          " match!"
+      )
+    if len(self.num_channels) != len(self.num_res_blocks):
+      raise ValueError(
+          "Length of num_channels and num_res_blocks must match!"
+      )
+    if len(self.upsample_ratio) != len(self.num_res_blocks):
+      raise ValueError(
+          "Length of upsample_ratio and num_res_blocks must match!"
+      )
 
     # Logic.
     spatial_dims = np.asarray(x.shape[-3:-1])
     dims_str = spatial_dims.astype(str)
     nt = x.shape[1]
     h = x
+
+    # Takes the sking and it processes them if needed.
     for level, channel in enumerate(self.num_channels):
       for block_id in range(self.num_res_blocks[level]):
         h = layers.CombineResidualWithSkip(
@@ -245,6 +284,7 @@ class UStack(nn.Module):
         )(residual=h, skip=skips.pop())
         h = unets.ConvBlock(
             out_channels=channel,
+            # This will treat the time dimension as an extra batch dimension.
             kernel_size=(3, 3),
             padding=self.padding,
             dropout=self.dropout_rate,
@@ -274,7 +314,7 @@ class UStack(nn.Module):
               name=f"{nt}xres{'x'.join(dims_str)}.ublock{block_id}.attn",
           )(h, is_training=is_training)
 
-      # upsampling
+      # Upsampling.
       up_ratio = self.upsample_ratio[level]
       h = layers.ConvLayer(
           features=up_ratio**2 * channel,
@@ -399,6 +439,8 @@ class UNet3d(nn.Module):
           f" {x.shape}"
       )
 
+    # If the attention are a single boolean, we broadcast it to the number of
+    # number of levels in the Unet.
     use_spatial_attn = _maybe_broadcast_to_list(
         source=self.use_spatial_attention, reference=self.num_channels
     )
@@ -413,6 +455,8 @@ class UNet3d(nn.Module):
       )
 
     input_size = x.shape[1:-1]
+    # Resizes the input if needed. This steps allows for greater downsampling
+    # flexibility. The output is resized to the original input shape at the end.
     if self.resize_to_shape is not None:
       x = layers.FilteredResize(
           output_size=self.resize_to_shape,
@@ -423,6 +467,8 @@ class UNet3d(nn.Module):
           param_dtype=self.param_dtype,
       )(x)
 
+    # Merges the conditional inputs to the main input. The conditional inputs
+    # are resized to match the spatial shape of the main input.
     cond = {} if cond is None else cond
     x = unets.InterpConvMerge(
         embed_dim=self.cond_embed_dim,
@@ -434,7 +480,9 @@ class UNet3d(nn.Module):
         param_dtype=self.param_dtype,
     )(x, cond)
 
+    # Adds the noise embedding.
     emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)
+    # Downsampling stack.
     skips = DStack(
         num_channels=self.num_channels,
         num_res_blocks=len(self.num_channels) * (self.num_blocks,),
@@ -451,6 +499,7 @@ class UNet3d(nn.Module):
         num_heads=self.num_heads,
         normalize_qk=self.normalize_qk,
     )(x, emb, is_training=is_training)
+    # Upsampling stack.
     h = UStack(
         num_channels=self.num_channels[::-1],
         num_res_blocks=len(self.num_channels) * (self.num_blocks,),
@@ -466,18 +515,21 @@ class UNet3d(nn.Module):
         param_dtype=self.param_dtype,
         normalize_qk=self.normalize_qk,
     )(skips[-1], emb, skips, is_training=is_training)
+
+    # Final convolution.
     h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
     h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=(3, 3),
         padding=self.padding,
-        kernel_init=unets.default_init(),
+        kernel_init=unets.default_init(),  # The kernel has mean almost zero.
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
         name="conv2d_out",
     )(h)
 
+    # If input was resized, resize the output to the original input shape.
     if self.resize_to_shape is not None:
       h = layers.FilteredResize(
           output_size=input_size,
