@@ -172,7 +172,6 @@ def main(argv):
       and config.climatological_data_loader
   ):
     logging.info("Using climatological data loader")
-    # Defines the dataloaders directly.
     train_dataloader = (
         dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
             date_range=config.data_range_train,
@@ -207,47 +206,84 @@ def main(argv):
             output_climatology=config.era5_stats_path,
         )
     )
+
   elif (
       "climatological_chunked_data_loader" in config
       and config.climatological_chunked_data_loader
   ):
     print("Using climatological chunked data loader", flush=True)
-    train_dataloader = (
-        dataloaders.create_ensemble_lens2_era5_chunked_loader_with_climatology(
-            date_range=config.data_range_train,
-            batch_size=config.batch_size,
-            chunk_size=config.chunk_size,
-            shuffle=True,
-            worker_count=config.num_workers,
-            input_dataset_path=config.lens2_dataset_path,
-            input_climatology=config.lens2_stats_path,
-            input_mean_stats_path=config.lens2_mean_stats_path,
-            input_std_stats_path=config.lens2_std_stats_path,
-            input_variable_names=lens2_variable_names,
-            input_member_indexer=lens2_member_indexer,
-            output_variables=era5_variables,
-            output_dataset_path=config.era5_dataset_path,
-            output_climatology=config.era5_stats_path,
-        )
-    )
-    eval_dataloader = (
-        dataloaders.create_ensemble_lens2_era5_chunked_loader_with_climatology(
-            date_range=config.data_range_eval,
-            batch_size=config.batch_size_eval,
-            chunk_size=config.chunk_size,
-            shuffle=True,
-            worker_count=config.num_workers,
-            input_dataset_path=config.lens2_dataset_path,
-            input_climatology=config.lens2_stats_path,
-            input_mean_stats_path=config.lens2_mean_stats_path,
-            input_std_stats_path=config.lens2_std_stats_path,
-            input_variable_names=lens2_variable_names,
-            input_member_indexer=lens2_member_indexer,
-            output_variables=era5_variables,
-            output_dataset_path=config.era5_dataset_path,
-            output_climatology=config.era5_stats_path,
-        )
-    )
+    if "time_coherent" not in config or not config.time_coherent:
+      logging.info("Using non-time-coherent data loader")
+      # Defines the dataloaders directly.
+      train_dataloader = dataloaders.create_ensemble_lens2_era5_chunked_loader_with_climatology(
+          date_range=config.data_range_train,
+          batch_size=config.batch_size,
+          chunk_size=config.chunk_size,
+          shuffle=True,
+          worker_count=config.num_workers,
+          input_dataset_path=config.lens2_dataset_path,
+          input_climatology=config.lens2_stats_path,
+          input_mean_stats_path=config.lens2_mean_stats_path,
+          input_std_stats_path=config.lens2_std_stats_path,
+          input_variable_names=lens2_variable_names,
+          input_member_indexer=lens2_member_indexer,
+          output_variables=era5_variables,
+          output_dataset_path=config.era5_dataset_path,
+          output_climatology=config.era5_stats_path,
+      )
+      eval_dataloader = dataloaders.create_ensemble_lens2_era5_chunked_loader_with_climatology(
+          date_range=config.data_range_eval,
+          batch_size=config.batch_size_eval,
+          chunk_size=config.chunk_size,
+          shuffle=True,
+          worker_count=config.num_workers,
+          input_dataset_path=config.lens2_dataset_path,
+          input_climatology=config.lens2_stats_path,
+          input_mean_stats_path=config.lens2_mean_stats_path,
+          input_std_stats_path=config.lens2_std_stats_path,
+          input_variable_names=lens2_variable_names,
+          input_member_indexer=lens2_member_indexer,
+          output_variables=era5_variables,
+          output_dataset_path=config.era5_dataset_path,
+          output_climatology=config.era5_stats_path,
+      )
+
+    else:
+      logging.info("Using time-coherent data loader")
+      train_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
+          date_range=config.data_range_train,
+          batch_size=config.batch_size,
+          chunk_size=config.chunk_size,
+          shuffle=True,
+          worker_count=config.num_workers,
+          input_dataset_path=config.lens2_dataset_path,
+          input_climatology=config.lens2_stats_path,
+          input_mean_stats_path=config.lens2_mean_stats_path,
+          input_std_stats_path=config.lens2_std_stats_path,
+          input_variable_names=lens2_variable_names,
+          input_member_indexer=lens2_member_indexer,
+          output_variables=era5_variables,
+          time_batch_size=config.time_batch_size,
+          output_dataset_path=config.era5_dataset_path,
+          output_climatology=config.era5_stats_path,
+      )
+      eval_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
+          date_range=config.data_range_eval,
+          batch_size=config.batch_size_eval,
+          chunk_size=config.chunk_size,
+          shuffle=True,
+          worker_count=config.num_workers,
+          input_dataset_path=config.lens2_dataset_path,
+          input_climatology=config.lens2_stats_path,
+          input_mean_stats_path=config.lens2_mean_stats_path,
+          input_std_stats_path=config.lens2_std_stats_path,
+          input_variable_names=lens2_variable_names,
+          input_member_indexer=lens2_member_indexer,
+          output_variables=era5_variables,
+          time_batch_size=config.time_batch_size,
+          output_dataset_path=config.era5_dataset_path,
+          output_climatology=config.era5_stats_path,
+      )
 
   else:
     if "norm_stats_loader" in config:
