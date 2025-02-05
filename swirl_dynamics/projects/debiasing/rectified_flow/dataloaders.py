@@ -203,8 +203,11 @@ class CommonSourceEnsemble(abc.ABC):
       for index in indexers:
         idx = tuple(index.values())[0]
         self._input_arrays[v][idx] = input_ds[v].sel(index)
-        self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index)
-        self._input_std_arrays[v][idx] = input_stats_ds[v + "_std"].sel(index)
+        # We load the arrays with statistics to accelerate the loading.
+        self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index).load()
+        self._input_std_arrays[v][idx] = (
+            input_stats_ds[v + "_std"].sel(index).load()
+        )
 
     # Build the output arrays for the different output variables and statistics.
     self._output_arrays = {}
@@ -212,8 +215,11 @@ class CommonSourceEnsemble(abc.ABC):
     self._output_std_arrays = {}
     for v, indexers in output_variables.items():
       self._output_arrays[v] = output_ds[v].sel(indexers)
-      self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers)
-      self._output_std_arrays[v] = output_stats_ds[v + "_std"].sel(indexers)
+      # We load the arrays with statistics to accelerate the loading.
+      self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers).load()
+      self._output_std_arrays[v] = (
+          output_stats_ds[v + "_std"].sel(indexers).load()
+      )
 
     self._output_coords = output_ds.coords
 
@@ -223,6 +229,10 @@ class CommonSourceEnsemble(abc.ABC):
     self._len_time = np.min([input_ds.dims["time"], output_ds.dims["time"]])
     self._input_time_array = xrts.read(input_ds["time"]).data
     self._output_time_array = xrts.read(output_ds["time"]).data
+    # Common time array (mostly avoid leap years)
+    self._common_time_array = np.intersect1d(
+        self._input_time_array, self._output_time_array
+    )
     self._resample_at_nan = resample_at_nan
     self._resample_seed = resample_seed
     self._time_stamps = time_stamps
@@ -237,7 +247,6 @@ class CommonSourceEnsemble(abc.ABC):
 
     if self._resample_at_nan:
       while np.isnan(item["input"]).any() or np.isnan(item["output"]).any():
-
         rng = np.random.default_rng(self._resample_seed + idx)
         resample_idx = rng.integers(0, len(self))
         item = self.get_item(resample_idx)
@@ -391,7 +400,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
     member = self._indexes[idx_member]
-    date = self._input_time_array[idx_time]
+    date = self._common_time_array[idx_time]
     dayofyear = int((
         date - np.datetime64(str(date.astype("datetime64[Y]")))
     ) / np.timedelta64(1, "D") + 1)
@@ -503,7 +512,7 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
     member = self._indexes[idx_member]
-    date_input = self._input_time_array[idx_time]
+    date_input = self._common_time_array[idx_time]
     # We don't need the date of the output. But to conform with the interface,
     # we set it to be first date of the output.
     date_output_dummy = self._output_time_array[0]
@@ -616,8 +625,9 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     idx_time = idx % self._len_time
 
     member = self._indexes[idx_member]
-    dates = self._input_time_array[idx_time: idx_time + self._chunk_size]
-    # computing day of the year.
+    dates = self._common_time_array[idx_time: idx_time + self._chunk_size]
+
+    # Computes the days of the year.
     daysofyear = [int((
         date - np.datetime64(str(date.astype("datetime64[Y]")))
     ) / np.timedelta64(1, "D") + 1) for date in dates]
@@ -1035,6 +1045,224 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   )
   # This one goes at the end.
   # Reshapes the batch to [batch, lon, lat, channel].
+  transformations.append(transforms.ReshapeBatch())
+
+  sampler = pygrain.IndexSampler(
+      num_records=len(source),
+      shuffle=shuffle,
+      seed=seed,
+      num_epochs=num_epochs,
+      shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
+  )
+
+  return pygrain.DataLoader(
+      data_source=source,
+      sampler=sampler,
+      operations=transformations,
+      worker_count=worker_count,
+  )
+
+
+def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
+    date_range: tuple[str, str],
+    input_dataset_path: epath.PathLike = _LENS2_DATASET_PATH,  # pylint: disable=dangerous-default-value
+    input_climatology: epath.PathLike = _LENS2_STATS_PATH,  # pylint: disable=dangerous-default-value
+    input_mean_stats_path: epath.PathLike = _LENS2_MEAN_CLIMATOLOGY_PATH,
+    input_std_stats_path: epath.PathLike = _LENS2_STD_CLIMATOLOGY_PATH,
+    input_member_indexer: (
+        tuple[dict[str, str], ...] | tuple[types.MappingProxyType, ...]
+    ) = _LENS2_MEMBER_INDEXER,
+    input_variable_names: Sequence[str] = _LENS2_VARIABLE_NAMES,
+    output_dataset_path: epath.PathLike = _ERA5_DATASET_PATH,
+    output_climatology: epath.PathLike = _ERA5_STATS_PATH,  # pylint: disable=dangerous-default-value
+    output_variables: (
+        dict[str, dict[str, Any] | None] | types.MappingProxyType
+    ) = _ERA5_VARIABLES,  # pylint: disable=dangerous-default-value
+    shuffle: bool = False,
+    seed: int = 42,
+    batch_size: int = 32,
+    chunk_size: int = 8,
+    time_batch_size: int = 1,
+    drop_remainder: bool = True,
+    worker_count: int | None = 0,
+    time_stamps: bool = False,
+    num_epochs: int | None = None,
+):
+  """Creates a loader for ERA5 and LENS2 aligned by date.
+
+  Args:
+    date_range: Date range for the data used in the dataloader.
+    input_dataset_path: Path for the input (lens2) dataset.
+    input_climatology: Path of the Zarr file containing the statistics.
+    input_mean_stats_path: Path of the Zarr file containing the mean statistics
+      of the climatology (both mean and std).
+    input_std_stats_path: Path of the Zarr file containing the std statistics of
+      the climatology (both mean and std).
+    input_member_indexer: The index for the ensemble members from which the data
+      is extracted. LENS2 dataset has 100 ensemble members under different
+      modelling choices.
+    input_variable_names: Input variables to be included in the batch.
+    output_dataset_path: Path for the output (era5) dataset.
+    output_climatology: Path of the Zarr file containing the climatologies.
+    output_variables: Variables in the output dataset to be chosen.
+    shuffle: Whether to shuffle the data points.
+    seed: Random seed for the random number generator.
+    batch_size: Total batch size (from all aggregating all chunks).
+    chunk_size: Size of the chunk for the contiguous data.
+    time_batch_size: Size of the time batch.
+    drop_remainder: Whether to drop the reminder between the full length of the
+      dataset and the batchsize.
+    worker_count: Number of workers for parallelizing the data loading.
+    time_stamps: Whether to include the time stamps in the output.
+    num_epochs: Number of epochs, by defaults the loader will run forever.
+
+  Returns:
+  """
+  if batch_size % chunk_size != 0:
+    raise ValueError(
+        "Batch size must be a multiple of the chunk size."
+    )
+  if chunk_size % time_batch_size != 0:
+    raise ValueError(
+        "Chunk size must be a multiple of the time batch size."
+    )
+  # The effective batch size is batch_size // time_batch_size.
+  num_chunks = batch_size // chunk_size
+
+  source = ContiguousDataSourceEnsembleWithClimatology(
+      date_range=date_range,
+      chunk_size=chunk_size,
+      input_dataset=input_dataset_path,
+      input_variable_names=input_variable_names,
+      input_member_indexer=input_member_indexer,
+      input_climatology=input_climatology,
+      output_dataset=output_dataset_path,
+      output_variables=output_variables,
+      output_climatology=output_climatology,
+      resample_at_nan=False,
+      dims_order_input=["member", "time", "longitude", "latitude"],
+      dims_order_output=["time", "longitude", "latitude", "level"],
+      resample_seed=9999,
+      time_stamps=time_stamps,
+  )
+
+  member_indexer = input_member_indexer[0]
+  # Just the first one to extract the statistics.
+  input_variables = {v: member_indexer for v in input_variable_names}
+
+  transformations = [
+      transforms.StandardizeNestedWithStats(
+          main_field="output",
+          mean_field="output_mean",
+          std_field="output_std",
+          input_fields=(*output_variables.keys(),),
+      ),
+      transforms.StandardizeNestedWithStats(
+          main_field="input",
+          mean_field="input_mean",
+          std_field="input_std",
+          input_fields=(*input_variables.keys(),),
+      ),
+  ]
+
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="output",
+          input_fields=(*output_variables.keys(),),
+          output_field="x_1",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input",
+          input_fields=(*input_variables.keys(),),
+          output_field="x_0",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  # Also standardizing the statistics.
+  transformations.append(
+      transforms.StandardizeNested(
+          main_field="input_mean",
+          input_fields=(*input_variables.keys(),),
+          mean=read_stats_simple(
+              input_mean_stats_path, input_variable_names, "mean",
+          ),
+          std=read_stats_simple(
+              input_std_stats_path, input_variable_names, "mean",
+          ),
+      ),
+  )
+  transformations.append(
+      transforms.StandardizeNested(
+          main_field="input_std",
+          input_fields=(*input_variables.keys(),),
+          mean=read_stats_simple(
+              input_mean_stats_path, input_variable_names, "std",
+          ),
+          std=read_stats_simple(
+              input_std_stats_path, input_variable_names, "std",
+          ),
+      ),
+  )
+  # Concatenating the statistics for the input.
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input_mean",
+          input_fields=(*input_variables.keys(),),
+          output_field="channel:mean",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input_std",
+          input_fields=(*input_variables.keys(),),
+          output_field="channel:std",
+          axis=-1,
+          remove_inputs=True,
+      ),
+  )
+  # Concatenating the statistics for the output.
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="output_mean",
+          input_fields=(*output_variables.keys(),),
+          output_field="output_mean",
+          axis=-1,
+          remove_inputs=False,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="output_std",
+          input_fields=(*output_variables.keys(),),
+          output_field="output_std",
+          axis=-1,
+          remove_inputs=False,
+      ),
+  )
+
+  # Reshapes the batch to [new_chunk_size, lon, lat, channel * time_batch_size],
+  # where new_chunk_size = chunk_size // time_batch_size.
+  transformations.append(
+      transforms.TimeToChannel(time_batch_size=time_batch_size)
+  )
+
+  # Here it performs the batching.
+  # [num_chunks, new_chunk_size, lon, lat, channel * time_batch_size]
+  transformations.append(
+      pygrain.Batch(
+          batch_size=num_chunks, drop_remainder=drop_remainder
+      )
+  )
+
+  # Reshapes the batch again.
+  # [num_chunks * new_chunk_size, lon, lat, channel * time_batch_size]
   transformations.append(transforms.ReshapeBatch())
 
   sampler = pygrain.IndexSampler(

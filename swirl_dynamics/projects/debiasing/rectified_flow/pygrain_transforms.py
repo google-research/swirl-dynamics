@@ -346,6 +346,50 @@ class ReshapeBatch(pygrain.MapTransform):
 
 
 @dataclasses.dataclass(frozen=True)
+class TimeToChannel(pygrain.MapTransform):
+  """Reshapes the batch and merges the first two dimensions."""
+
+  time_batch_size: int = 1
+
+  def map(self, features: FlatFeatures) -> FlatFeatures:
+    """Moves the time dimension to the channel dimension, and merges them.
+
+    This is quick hack to including time into the solver. We take each chunk,
+    which has shape [size_chunk, lon, lat, channel], where the size_chunk is
+    the number of timesteps, and we move the time dimension to the channel
+    dimension, so that the shape becomes [lon, lat, size_chunk * channel].
+    This is not the most elegant solution, but it works.
+
+    Args:
+      features: The input features.
+
+    Returns:
+      The features with the first two dimensions merged.
+    """
+    for field in features.keys():
+      if  isinstance(features[field], np.ndarray) and features[field].ndim > 2:
+        # Do not touch the timestamps nor the members.
+
+        chunk_size = features[field].shape[0]
+        new_chunk_size = chunk_size // self.time_batch_size
+        np_field = features[field]
+        # Shape is [new_chunk_size, time_batch_size, lon, lat, channel]
+        np_field = np.reshape(
+            np_field,
+            (new_chunk_size, self.time_batch_size, *np_field.shape[1:]),
+        )
+        # Shape is [new_chunk_size, lon, lat, channel, time_batch_size]
+        np_field = np.moveaxis(np_field, 1, -1)
+        # Shape is [new_chunk_size, lon, lat, channel * time_batch_size]
+        np_field = np.reshape(
+            np_field,
+            (*np_field.shape[:-2], -1),
+        )
+        features[field] = np_field
+    return features
+
+
+@dataclasses.dataclass(frozen=True)
 class ConcatenateNested(pygrain.MapTransform):
   """Creates a new field by concatenating selected fields.
 
