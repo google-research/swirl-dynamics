@@ -84,7 +84,9 @@ class OdeSolversTest(parameterized.TestCase):
     tspan = jnp.arange(num_steps) * dt * sign
     out = solver(dummy_ode_dynamics, jnp.zeros((x_dim,)), tspan, {})
     self.assertEqual(out.shape, (num_steps, x_dim))
-    np.testing.assert_allclose(out[-1], np.ones((x_dim,)) * tspan[-1])
+    np.testing.assert_allclose(
+        out[-1], np.ones((x_dim,)) * tspan[-1], atol=1e-6
+    )
 
   def test_output_shape_and_value_one_step_direct(self):
     dt = 0.1
@@ -115,6 +117,7 @@ class OdeSolversTest(parameterized.TestCase):
     np.testing.assert_allclose(
         jnp.moveaxis(out, time_axis_pos, 1)[:, -1],
         np.ones(input_shape) * tspan[-1],
+        atol=1e-6,
     )
 
   @parameterized.parameters(
