@@ -45,6 +45,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from swirl_dynamics.lib.diffusion import unets
+from swirl_dynamics.lib.diffusion import unets3d
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
@@ -467,6 +468,50 @@ class RescaledUnet(unets.UNet):
       is_training: bool,
   ) -> Array:
     """Runs rescaled Unet with noise input."""
+    if x.shape[-1] != self.out_channels:
+      raise ValueError(
+          f"Number of channels in the input ({x.shape[-1]}) must "
+          "match the number of channels in the output "
+          f"{self.out_channels})."
+      )
+
+    if sigma.ndim < 1:
+      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
+
+    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
+      raise ValueError(
+          "sigma must be 1D and have the same leading (batch) dimension as x"
+          f" ({x.shape[0]})!"
+      )
+
+    time = sigma * self.time_rescale
+
+    f_x = super().__call__(x, time, cond, is_training=is_training)
+
+    return f_x
+
+
+class RescaledUnet3d(unets3d.UNet3d):
+  """Rescaled flow model for the 3D Unet.
+
+  Attributes:
+    time_rescale: Factor for rescaling the time, which normally is in [0, 1] and
+      the input to the UNet which is a noise level, which has a much wider range
+      of values.
+  """
+
+  time_rescale: float = 1000.0
+
+  @nn.compact
+  def __call__(
+      self,
+      x: Array,
+      sigma: Array,
+      cond: dict[str, Array] | None = None,
+      *,
+      is_training: bool,
+  ) -> Array:
+    """Runs rescaled Unet3d with noise input."""
     if x.shape[-1] != self.out_channels:
       raise ValueError(
           f"Number of channels in the input ({x.shape[-1]}) must "

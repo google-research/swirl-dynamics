@@ -512,7 +512,8 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     idx_member = idx // self._len_time
     idx_time = idx % self._len_time
     member = self._indexes[idx_member]
-    date_input = self._common_time_array[idx_time]
+    # Here we _input_time_array, as we will sample from the input dataset.
+    date_input = self._input_time_array[idx_time]
     # We don't need the date of the output. But to conform with the interface,
     # we set it to be first date of the output.
     date_output_dummy = self._output_time_array[0]
