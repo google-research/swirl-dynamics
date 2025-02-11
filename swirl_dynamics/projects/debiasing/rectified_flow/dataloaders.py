@@ -140,6 +140,7 @@ class CommonSourceEnsemble(abc.ABC):
       resample_at_nan: bool = False,
       resample_seed: int = 9999,
       time_stamps: bool = False,
+      load_stats: bool = False,
   ):
     """Data source constructor.
 
@@ -165,6 +166,8 @@ class CommonSourceEnsemble(abc.ABC):
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
+      load_stats: Whether to load the climatology statistics to memory
+        when using.
     """
 
     # Using LENS2 as input, they need to be modified.
@@ -204,10 +207,16 @@ class CommonSourceEnsemble(abc.ABC):
         idx = tuple(index.values())[0]
         self._input_arrays[v][idx] = input_ds[v].sel(index)
         # We load the arrays with statistics to accelerate the loading.
-        self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index).load()
-        self._input_std_arrays[v][idx] = (
-            input_stats_ds[v + "_std"].sel(index).load()
-        )
+        if load_stats:
+          self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index).load()
+          self._input_std_arrays[v][idx] = (
+              input_stats_ds[v + "_std"].sel(index).load()
+          )
+        else:
+          self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index)
+          self._input_std_arrays[v][idx] = (
+              input_stats_ds[v + "_std"].sel(index)
+          )
 
     # Build the output arrays for the different output variables and statistics.
     self._output_arrays = {}
@@ -216,10 +225,16 @@ class CommonSourceEnsemble(abc.ABC):
     for v, indexers in output_variables.items():
       self._output_arrays[v] = output_ds[v].sel(indexers)
       # We load the arrays with statistics to accelerate the loading.
-      self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers).load()
-      self._output_std_arrays[v] = (
-          output_stats_ds[v + "_std"].sel(indexers).load()
-      )
+      if load_stats:
+        self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers).load()
+        self._output_std_arrays[v] = (
+            output_stats_ds[v + "_std"].sel(indexers).load()
+        )
+      else:
+        self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers)
+        self._output_std_arrays[v] = (
+            output_stats_ds[v + "_std"].sel(indexers)
+        )
 
     self._output_coords = output_ds.coords
 
@@ -330,6 +345,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
       resample_at_nan: bool = False,
       resample_seed: int = 9999,
       time_stamps: bool = False,
+      load_stats: bool = True,
   ):
     """Data source constructor.
 
@@ -359,6 +375,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
+      load_stats: Whether to load the statistics to accelerate the loading.
     """
     super().__init__(
         date_range,
@@ -437,6 +454,7 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
       resample_at_nan: bool = False,
       resample_seed: int = 9999,
       time_stamps: bool = False,
+      load_stats: bool = True,
   ):
     """Data source constructor.
 
@@ -466,6 +484,7 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
+      load_stats: Whether to load the statistics to accelerate the loading.
     """
     super().__init__(
         date_range,
@@ -554,6 +573,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
       resample_at_nan: bool = False,
       resample_seed: int = 9999,
       time_stamps: bool = False,
+      load_stats: bool = True,
   ):
     """Data source constructor.
 
@@ -588,6 +608,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Whether to add the time stamps to the samples.
+      load_stats: Whether to load the statistics to accelerate the loading.
     """
     super().__init__(
         date_range,
@@ -1088,6 +1109,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     worker_count: int | None = 0,
     time_stamps: bool = False,
     num_epochs: int | None = None,
+    time_to_channel: bool = True,
 ):
   """Creates a loader for ERA5 and LENS2 aligned by date.
 
@@ -1116,6 +1138,9 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     worker_count: Number of workers for parallelizing the data loading.
     time_stamps: Whether to include the time stamps in the output.
     num_epochs: Number of epochs, by defaults the loader will run forever.
+    time_to_channel: Whether to reshape the batch to [new_chunk_size, lon, lat,
+      channel * time_batch_size], where new_chunk_size = chunk_size //
+      time_batch_size.
 
   Returns:
   """
@@ -1248,14 +1273,23 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       ),
   )
 
-  # Reshapes the batch to [new_chunk_size, lon, lat, channel * time_batch_size],
-  # where new_chunk_size = chunk_size // time_batch_size.
-  transformations.append(
-      transforms.TimeToChannel(time_batch_size=time_batch_size)
-  )
+  if time_to_channel:
+    # Reshapes to [new_chunk_size, lon, lat, channel * time_batch_size],
+    # where new_chunk_size = chunk_size // time_batch_size.
+    transformations.append(
+        transforms.TimeToChannel(time_batch_size=time_batch_size)
+    )
+  else:
+     # Reshapes to [new_chunk_size, time_batch_size, lon, lat, channel],
+     # where new_chunk_size = chunk_size // time_batch_size.
+    transformations.append(
+        transforms.TimeSplit(time_batch_size=time_batch_size)
+    )
 
-  # Here it performs the batching.
-  # [num_chunks, new_chunk_size, lon, lat, channel * time_batch_size]
+  # Here it performs the batching. We can either have the time dimension merged
+  # with the channel dimension or by itself.
+  # [num_chunks, new_chunk_size, lon, lat, channel * time_batch_size] or
+  # [num_chunks, new_chunk_size, time_batch_size, lon, lat, channel]
   transformations.append(
       pygrain.Batch(
           batch_size=num_chunks, drop_remainder=drop_remainder
@@ -1263,7 +1297,8 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   )
 
   # Reshapes the batch again.
-  # [num_chunks * new_chunk_size, lon, lat, channel * time_batch_size]
+  # [num_chunks * new_chunk_size, lon, lat, channel * time_batch_size] or
+  # [num_chunks * new_chunk_size, time_batch_size, lon, lat, channel]
   transformations.append(transforms.ReshapeBatch())
 
   sampler = pygrain.IndexSampler(

@@ -250,6 +250,12 @@ def main(argv):
 
     else:
       logging.info("Using time-coherent data loader")
+      if "use_3d_model" in config and config.use_3d_model:
+        logging.info("Using 3D model")
+        time_to_channel = False
+      else:
+        time_to_channel = True
+
       train_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
           date_range=config.data_range_train,
           batch_size=config.batch_size,
@@ -266,6 +272,7 @@ def main(argv):
           time_batch_size=config.time_batch_size,
           output_dataset_path=config.era5_dataset_path,
           output_climatology=config.era5_stats_path,
+          time_to_channel=time_to_channel
       )
       eval_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
           date_range=config.data_range_eval,
@@ -283,6 +290,7 @@ def main(argv):
           time_batch_size=config.time_batch_size,
           output_dataset_path=config.era5_dataset_path,
           output_climatology=config.era5_stats_path,
+          time_to_channel=time_to_channel
       )
 
   else:
@@ -347,24 +355,43 @@ def main(argv):
   else:
     cond_embed_fn = None
 
-  # Setting up the neural network for the flow model.
-  flow_model = models.RescaledUnet(
-      out_channels=config.out_channels,
-      num_channels=config.num_channels,
-      downsample_ratio=config.downsample_ratio,
-      num_blocks=config.num_blocks,
-      noise_embed_dim=config.noise_embed_dim,
-      padding=config.padding,
-      dropout_rate=config.dropout_rate,
-      use_attention=config.use_attention,
-      resize_to_shape=config.resize_to_shape,
-      use_position_encoding=config.use_position_encoding,
-      num_heads=config.num_heads,
-      normalize_qk=config.normalize_qk,
-      cond_embed_fn=cond_embed_fn,
-      dtype=dtype,
-      param_dtype=param_dtype,
-  )
+  if "use_3d_model" in config and config.use_3d_model:
+    logging.info("Using 3D model")
+    flow_model = models.RescaledUnet3d(
+        out_channels=config.out_channels,
+        num_channels=config.num_channels,
+        downsample_ratio=config.downsample_ratio,
+        num_blocks=config.num_blocks,
+        noise_embed_dim=config.noise_embed_dim,
+        padding=config.padding,
+        dropout_rate=config.dropout_rate,
+        use_spatial_attention=config.use_spatial_attention,
+        use_temporal_attention=config.use_temporal_attention,
+        resize_to_shape=config.resize_to_shape,
+        use_position_encoding=config.use_position_encoding,
+        num_heads=config.num_heads,
+        normalize_qk=config.normalize_qk,
+    )
+
+  else:
+    # Setting up the neural network for the flow model.
+    flow_model = models.RescaledUnet(
+        out_channels=config.out_channels,
+        num_channels=config.num_channels,
+        downsample_ratio=config.downsample_ratio,
+        num_blocks=config.num_blocks,
+        noise_embed_dim=config.noise_embed_dim,
+        padding=config.padding,
+        dropout_rate=config.dropout_rate,
+        use_attention=config.use_attention,
+        resize_to_shape=config.resize_to_shape,
+        use_position_encoding=config.use_position_encoding,
+        num_heads=config.num_heads,
+        normalize_qk=config.normalize_qk,
+        cond_embed_fn=cond_embed_fn,
+        dtype=dtype,
+        param_dtype=param_dtype,
+    )
 
   if "time_sampler" in config and config.time_sampler == "lognorm":
     time_sampler = models.lognormal_sampler()
@@ -390,24 +417,30 @@ def main(argv):
   else:
     weighted_norm = None
 
+  input_shape = config.input_shapes[0][1:]
+  cond_shape = {
+      "channel:mean": config.input_shapes[0][1:],
+      "channel:std": config.input_shapes[0][1:],
+  }
+
+  if "use_3d_model" in config and config.use_3d_model:
+    if len(input_shape) != 4:
+      raise ValueError("Input shape must be 4D for 3D model.")
+    if len(cond_shape["channel:mean"]) != 4:
+      raise ValueError("Conditional shape must be 4D for 3D model.")
+    if len(cond_shape["channel:std"]) != 4:
+      raise ValueError("Conditional shape must be 4D for 3D model.")
+  else:
+    if len(input_shape) != 3:
+      raise ValueError("Input shape must be 3D for 2D model.")
+    if len(cond_shape["channel:mean"]) != 3:
+      raise ValueError("Conditional shape must be 3D for 2D model.")
+    if len(cond_shape["channel:std"]) != 3:
+      raise ValueError("Conditional shape must be 3D for 2D model.")
+
   model = models.ConditionalReFlowModel(
-      input_shape=(
-          config.input_shapes[0][1],
-          config.input_shapes[0][2],
-          config.input_shapes[0][3],
-      ),  # This must agree with the expected sample shape.
-      cond_shape={
-          "channel:mean": (
-              config.input_shapes[0][1],
-              config.input_shapes[0][2],
-              config.input_shapes[0][3],
-          ),
-          "channel:std": (
-              config.input_shapes[0][1],
-              config.input_shapes[0][2],
-              config.input_shapes[0][3],
-          ),
-      },
+      input_shape=input_shape,  # This must agree with the sample shape.
+      cond_shape=cond_shape,
       flow_model=flow_model,
       time_sampling=time_sampler,
       min_train_time=config.min_time,  # It should be close to 0.
