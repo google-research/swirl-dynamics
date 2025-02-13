@@ -15,39 +15,39 @@
 r"""Script to perform downscaling with the time-aligned BCSD method.
 
 This script implements the Bias Correction and Spatial Disaggregation (BCSD)
-method for downscaling, following Wood et al (2002):
-https://doi.org/10.1029/2001JD000659. The methodology is modified to operate on
-a single domain discretization (the high-resolution grid). Finally, the last
-temporal disaggregation step is omitted, following Thrasher et al (2012):
-https://hess.copernicus.org/articles/16/3309/2012/.
+method for downscaling (Wood et al, 2002): https://doi.org/10.1029/2001JD000659.
+This implementation follows the time-aligned BCSD method of Thrasher et al (2012):
+https://doi.org/10.5194/hess-16-3309-2012. The methodology is modified to
+operate on a single domain discretization (the high-resolution grid).
 
 The method assumes we have a low-resolution dataset, its climatology, and the
 spatially filtered and unfiltered climatology of a high-resolution dataset. The
 input low-resolution dataset and all climatologies are assumed to have been
 interpolated to the high-resolution grid for convenience. Nevertheless, the
 low-resolution and filtered high-resolution fields are assumed to have a low
-effective spatial resolution, since interpolation does not yield energy at the
-interpolated lengthscales.
+effective --and similar-- spatial resolution, since interpolation does not yield
+energy at the interpolated lengthscales.
 
-The bias-correction step is performed by computing the percentiles of the input
+The bias correction step is performed by computing the percentiles of the input
 dataset with respect to its climatology, and mapping them to the full field
 values corresponding to the same percentiles in the filtered high-resolution
 climatology.
 
-The spatial disaggregation consists (for most variables) of subtracting the
+The spatial disaggregation consists, for most variables, of subtracting the
 climatological mean of the filtered high-resolution field from the
-bias-corrected low-resolution field, and adding the climatological mean of the
-unfiltered high-resolution field. For some variables (e.g., precipitation), we
-use a multiplicative correction instead: we multiply the bias-corrected
+bias-corrected low-resolution field, and then adding the climatological mean of
+the unfiltered high-resolution field. For some variables, such as precipitation,
+we use a multiplicative correction instead: we multiply the bias-corrected
 low-resolution field by the ratio of the filtered and unfiltered climatological
-means. The variables to be corrected multiplicatively are specified in the
+means. The variables to be corrected multiplicatively are specified by the
 `multiplicative_vars` flag.
 
-Although the temporal disaggregation step is omitted in this script, we describe
-it here for completeness. Let the low-resolution data correspond to time
-averages over periods `T`. In the temporal disaggregation step, for each sample
-resulting from the spatial disaggregation step, we sample a high-resolution data
-sequence over period `T` and the same time of the year as the spatially
+Although the temporal disaggregation step of Wood et al. (2002) is omitted in
+our implementation (Thrasher et al., 2012), we describe it here for completeness.
+Let the low-resolution data correspond to time averages over periods `T`. In the
+temporal disaggregation step, for each sample resulting from the spatial
+disaggregation step, we sample a high-resolution data sequence over period `T`
+and the same time of the year as the spatially
 disaggregated sample. The high--resolution sample sequence is drawn at random
 from the dataset used to construct the high-resolution climatology. Once the
 sample sequence is drawn, we scale it such that the time average over `T`
@@ -57,15 +57,24 @@ as the final BCSD sample.
 Example usage:
 
 ```
-FORCING_DATASET=<parent_dir>/canesm5_r1i1p2f1_ssp370_bc
+# Path to input dataset climatology.
 INPUT_DATA_CLIM=<input_data_clim>
+
+# Path to spatially filtered target climatology.
 FILTERED_TARGET_CLIM=<filtered_target_clim>
+
+# Path to unfiltered target climatology.
 TARGET_CLIM=<target_clim>
 
-INPUT_DATA=${FORCING_DATASET}/hourly_d01_cubic_interpolated_to_d02_with_prates.zarr
+# Path to dataset to be downscaled.
+INPUT_DATA=<parent_dir>/low_resolution_dataset.zarr
+
+# Time range to be downscaled.
 TIME_START=2094
 TIME_STOP=2097
-OUTPUT_PATH=${FORCING_DATASET}/baselines/bcsd_with_prates_from_canesm5_${TIME_START}_${TIME_STOP}.zarr
+
+# Path to the output dataset.
+OUTPUT_PATH=<parent_dir>/bcsd_downscaled_dataset_${TIME_START}_${TIME_STOP}.zarr
 
 python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/analysis/bcsd.py \
   --input_data=${INPUT_DATA} \
