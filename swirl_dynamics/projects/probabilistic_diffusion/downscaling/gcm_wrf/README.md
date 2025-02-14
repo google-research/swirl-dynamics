@@ -81,10 +81,14 @@ is parameterized by a neural network with a UNet architecture. The modeling
 framework used to design the model is `JAX`. The
 [`swirl-dynamics`](https://github.com/google-research/swirl-dynamics) codebase
 contains numerous implementations of popular neural network architectures
-(e.g., UNet, ViT), as well as model templates for probabilistic diffusion.
-The package `orbax` is used for checkpointing. The model was trained and
+(e.g., UNet, ViT), as well as model templates for probabilistic diffusion. The
+package `orbax` is used for checkpointing. The model was trained and
 evaluated using NVIDIA A100 GPUs, so using architectures with similar or greater
 memory (e.g., NVIDIA H100) is recommended to avoid out-of-memory issues.
+
+[This](https://github.com/google-research/swirl-dynamics/blob/main/swirl_dynamics/projects/probabilistic_diffusion/colabs/demo.ipynb) demo Colab notebook illustrates how
+to instantiate, train, and perform inference with probabilistic diffusion models
+using `swirl-dynamics`.
 
 ## License
 
