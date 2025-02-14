@@ -24,11 +24,18 @@ same name as the original variable, but with a `_polyfit_coefficients` suffix.
 Example usage:
 
 ```
+# Path of the input dataset.
 INPUT_PATH=<input_zarr_path>
-OUTPUT_PATH=<output_zarr_path>
+
+# Path of the trend coefficients.
 TREND_PATH=<trend_zarr_path>
+
+# Year range of the computed climatology.
 START_YEAR=2020
 END_YEAR=2090
+
+# Path of the output dataset to be produced.
+OUTPUT_PATH=<output_zarr_path>
 
 python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/analysis/compute_detrended_climatology.py \
   --input_path=${INPUT_PATH} \

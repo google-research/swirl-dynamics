@@ -12,7 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Script to compute time and sample quantiles of downscaled data.
+r"""Script to compute time and sample quantiles of climate data.
+
+The script computes the quantiles of a given zarr dataset over all of its
+non-spatial dimensions. For typical climate datasets that have dimensions
+(time, *extra_dims, *spatial_dims), quantiles are computed over
+(time, *extra_dims) after flattening these dimensions. The script also supports
+quantile computation over multiple bootstrap samples (i.e., multiple resamples
+of the data) to estimate the confidence interval of the quantiles.
+
+Quantiles are computed using the `xr.Dataset.quantile` function. The quantiles
+are computed over spatial chunks separately, and then consolidated into a single
+dataset.
+
 
 Example usage:
 
@@ -62,6 +74,11 @@ WORKING_CHUNKS = flag_utils.DEFINE_chunks(
         'Chunk sizes overriding input chunks to use for computation, '
         'e.g., "south_north=10,west_east=10".'
     ),
+)
+SPATIAL_DIMS = flags.DEFINE_list(
+    'spatial_dims',
+    ['south_north', 'west_east'],
+    help='Spatial dimensions of the input dataset.',
 )
 
 
@@ -216,12 +233,13 @@ def main(argv: list[str]) -> None:
   bootstrap_samples = BOOTSTRAP_SAMPLES.value
   quantiles = [float(q) for q in QUANTILES.value]
   inf, input_chunks = xbeam.open_zarr(INFERENCE_PATH.value)
+  spatial_dims = tuple(SPATIAL_DIMS.value)
 
   # Chunks for temporal and sample reduce
   in_working_chunks = {
       k: -1
       for k in input_chunks.keys()
-      if k != 'west_east' and k != 'south_north'
+      if k not in spatial_dims
   }
   agg_dims = tuple(in_working_chunks.keys())
   # Update with spatial chunks
