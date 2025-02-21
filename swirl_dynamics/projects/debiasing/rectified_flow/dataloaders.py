@@ -501,7 +501,8 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
         dims_order_output_stats,
         resample_at_nan,
         resample_seed,
-        time_stamps)
+        time_stamps,
+        load_stats)
 
     # Here the length of the time is the length of the time stamps. As the
     # output samples times do not play a role in the inference. Only the output

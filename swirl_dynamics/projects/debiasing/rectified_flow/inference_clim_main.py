@@ -39,7 +39,7 @@ import xarray as xr
 
 # pylint: disable=line-too-long
 _ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/lzepedanunez/data/era5/climat/1p5deg_dailymean_7vars_windspeed_clim_daily_1961_to_2000_31_dw.zarr"
+_ERA5_STATS_PATH = "/lzepedanunez/data/era5/climat/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 
 _LENS2_DATASET_PATH = (
     "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
@@ -410,11 +410,16 @@ def main(argv):
   # TODO: Change the pipeline to avoid concatenating
   # ConfigDicts.
   if "era5_variables" in config and config.era5_variables:
+    logging.info("Using era5_variables from config file.")
     era5_variables = config.era5_variables.to_dict()
+    print("ERA5 variables", flush=True)
+    print(era5_variables, flush=True)
   else:
+    logging.info("Using default era5_variables.")
     era5_variables = _ERA5_VARIABLES
 
   if "lens2_variable_names" in config and config.lens2_variable_names:
+    logging.info("Using lens2_variable_names from config file.")
     lens2_variable_names = config.lens2_variable_names
   else:
     lens2_variable_names = _LENS2_VARIABLE_NAMES
@@ -468,13 +473,13 @@ def main(argv):
         ds = {}
         ds["reflow"] = xr.DataArray(
             data_dict["output_array"],
-            dims=["time", "longitud", "latitude", "variables"],
+            dims=["time", "longitude", "latitude", "variables"],
             coords={"time": data_dict["time_stamps"]},
         )
 
         ds = xr.Dataset(ds)
         ds = ds.chunk(
-            {"time": 128, "longitud": -1, "latitude": -1, "variables": -1}
+            {"time": 128, "longitude": -1, "latitude": -1, "variables": -1}
         )
         ds.to_zarr(path_zarr)
         logging.info("Data saved in Zarr format in %s", path_zarr)

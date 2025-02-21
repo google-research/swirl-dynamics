@@ -43,7 +43,7 @@ import xarray as xr
 
 # pylint: disable=line-too-long
 _ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/lzepedanunez/data/era5/climat/1p5deg_dailymean_7vars_windspeed_clim_daily_1961_to_2000_31_dw.zarr"
+_ERA5_STATS_PATH = "/lzepedanunez/data/era5/climat/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 
 _LENS2_DATASET_PATH = (
     "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
@@ -78,7 +78,9 @@ config_flags.DEFINE_config_file(
 
 
 # TODO: Move this to a utils file and add tests.
-def move_time_to_channel(input_array: jax.Array, time_chunk_size: int):
+def move_time_to_channel(
+    input_array: jax.Array, time_chunk_size: int, time_to_channel: bool = True
+):
   """Moves the time dimension to the channel dimension."""
   if input_array.shape[0] % time_chunk_size != 0:
     raise ValueError("Batch dimension should be multiple a time chunk size.")
@@ -89,28 +91,36 @@ def move_time_to_channel(input_array: jax.Array, time_chunk_size: int):
   input_new = jnp.reshape(
       input_array, (new_chunk, time_chunk_size, *input_array.shape[1:])
   )
-  # Shape: (new_chunk, lon, lat, channel, time_chunk_size)
-  input_new = jnp.moveaxis(input_new, 1, -1)
-  # Shape: (new_chunk, lon, lat, new_channel)
-  input_new = jnp.reshape(input_new, (*input_new.shape[:-2], new_channel))
+
+  if time_to_channel:
+    # Shape: (new_chunk, lon, lat, channel, time_chunk_size)
+    input_new = jnp.moveaxis(input_new, 1, -1)
+    # Shape: (new_chunk, lon, lat, new_channel)
+    input_new = jnp.reshape(input_new, (*input_new.shape[:-2], new_channel))
 
   return input_new
 
 
-def move_channel_to_time(input_array: jax.Array, time_chunk_size: int):
+def move_channel_to_time(
+    input_array: jax.Array, time_chunk_size: int, time_to_channel: bool = True
+):
   """Moves the time dimension to the channel dimension."""
   new_chunk = input_array.shape[0] * time_chunk_size
   new_channel = input_array.shape[-1] // time_chunk_size
 
-  # Shape: (batch, lon, lat, new_channel, time_chunk_size)
-  input_new = jnp.reshape(
-      input_array, (*input_array.shape[:-1], new_channel, time_chunk_size)
-  )
-  # Shape: (batch, time_chunk_size, lon, lat, new_channel)
-  input_new = jnp.moveaxis(input_new, -1, 1)
-  # Shape: (new_batch, lon, lat, new_channel)
-  input_new = jnp.reshape(input_new, (new_chunk, *input_new.shape[2:]))
-
+  if time_to_channel:
+    # Shape: (batch, lon, lat, new_channel, time_chunk_size)
+    input_new = jnp.reshape(
+        input_array, (*input_array.shape[:-1], new_channel, time_chunk_size)
+    )
+    # Shape: (batch, time_chunk_size, lon, lat, new_channel)
+    input_new = jnp.moveaxis(input_new, -1, 1)
+    # Shape: (new_batch, lon, lat, new_channel)
+    input_new = jnp.reshape(input_new, (new_chunk, *input_new.shape[2:]))
+  else:
+    input_new = jnp.reshape(
+        input_array, (new_chunk, *input_array.shape[2:])
+    )
   return input_new
 
 
@@ -190,39 +200,46 @@ def build_model(config):
   else:
     cond_embed_fn = None
 
-  flow_model = models.RescaledUnet(
-      out_channels=config.out_channels,
-      num_channels=config.num_channels,
-      downsample_ratio=config.downsample_ratio,
-      num_blocks=config.num_blocks,
-      noise_embed_dim=config.noise_embed_dim,
-      padding=config.padding,
-      dropout_rate=config.dropout_rate,
-      use_attention=config.use_attention,
-      resize_to_shape=config.resize_to_shape,
-      use_position_encoding=config.use_position_encoding,
-      num_heads=config.num_heads,
-      cond_embed_fn=cond_embed_fn,
-      normalize_qk=config.normalize_qk,
-  )
+  if "use_3d_model" in config and config.use_3d_model:
+    logging.info("Using 3D model")
+    flow_model = models.RescaledUnet3d(
+        out_channels=config.out_channels,
+        num_channels=config.num_channels,
+        downsample_ratio=config.downsample_ratio,
+        num_blocks=config.num_blocks,
+        noise_embed_dim=config.noise_embed_dim,
+        padding=config.padding,
+        dropout_rate=config.dropout_rate,
+        use_spatial_attention=config.use_spatial_attention,
+        use_temporal_attention=config.use_temporal_attention,
+        resize_to_shape=config.resize_to_shape,
+        use_position_encoding=config.use_position_encoding,
+        num_heads=config.num_heads,
+        normalize_qk=config.normalize_qk,
+    )
+  else:
+    logging.info("Using 2D model")
+    flow_model = models.RescaledUnet(
+        out_channels=config.out_channels,
+        num_channels=config.num_channels,
+        downsample_ratio=config.downsample_ratio,
+        num_blocks=config.num_blocks,
+        noise_embed_dim=config.noise_embed_dim,
+        padding=config.padding,
+        dropout_rate=config.dropout_rate,
+        use_attention=config.use_attention,
+        resize_to_shape=config.resize_to_shape,
+        use_position_encoding=config.use_position_encoding,
+        num_heads=config.num_heads,
+        cond_embed_fn=cond_embed_fn,
+        normalize_qk=config.normalize_qk,
+    )
 
   model = models.ConditionalReFlowModel(
-      input_shape=(
-          config.input_shapes[0][1],
-          config.input_shapes[0][2],
-          config.input_shapes[0][3],
-      ),  # This must agree with the expected sample shape.
+      input_shape=config.input_shapes[0][1:],
       cond_shape={
-          "channel:mean": (
-              config.input_shapes[0][1],
-              config.input_shapes[0][2],
-              config.input_shapes[0][3],
-          ),
-          "channel:std": (
-              config.input_shapes[0][1],
-              config.input_shapes[0][2],
-              config.input_shapes[0][3],
-          ),
+          "channel:mean": config.input_shapes[0][1:],
+          "channel:std": config.input_shapes[0][1:],
       },
       flow_model=flow_model,
   )
@@ -232,7 +249,7 @@ def build_model(config):
 
 def sampling_from_batch(
     batch, model, trained_state, num_sampling_steps: int,
-    num_time_chunks: int,
+    num_time_chunks: int, time_to_channel: bool = True,
 ) -> jax.Array:
   """Sampling from a batch.
 
@@ -242,6 +259,9 @@ def sampling_from_batch(
     trained_state: The trained state of the model.
     num_sampling_steps: The number of sampling steps for solving the ODE.
     num_time_chunks: The number of time chunks in the batch.
+    time_to_channel: Whether to move the time dimension to the channel
+      dimension. Or just another dimension between the batch and the spatial
+      dimensions.
 
   Returns:
     The sampled output.
@@ -250,10 +270,10 @@ def sampling_from_batch(
   # Setting up the conditional ODE.
   cond = {
       "channel:mean": move_time_to_channel(
-          batch["channel:mean"], num_time_chunks
+          batch["channel:mean"], num_time_chunks, time_to_channel
       ),
       "channel:std": move_time_to_channel(
-          batch["channel:std"], num_time_chunks
+          batch["channel:std"], num_time_chunks, time_to_channel
       ),
   }
 
@@ -273,15 +293,19 @@ def sampling_from_batch(
   )
 
   # Running the integration. Then take the last state.
-  out = integrate_fn(move_time_to_channel(batch["x_0"], num_time_chunks))[-1, :]
+  out = integrate_fn(
+      move_time_to_channel(batch["x_0"], num_time_chunks, time_to_channel)
+  )[-1, :]
 
   # Denormalize the output according to ERA5 Climatology.
   out = out * move_time_to_channel(
-      batch["output_std"], num_time_chunks
-  ) + move_time_to_channel(batch["output_mean"], num_time_chunks)
+      batch["output_std"], num_time_chunks, time_to_channel
+  ) + move_time_to_channel(
+      batch["output_mean"], num_time_chunks, time_to_channel
+  )
 
   # Move the channel dimension to the time dimension.
-  out = move_channel_to_time(out, num_time_chunks)
+  out = move_channel_to_time(out, num_time_chunks, time_to_channel)
 
   return out
 
@@ -366,6 +390,8 @@ def inference_pipeline(
       trained_state=trained_state,
       num_sampling_steps=num_sampling_steps,
       num_time_chunks=config.time_batch_size,  # This is the time chunk size.
+      time_to_channel=config.time_to_channel if "time_to_channel" in config
+      else True,
   )
 
   logging.info("Pmapping the sampling function.")
