@@ -113,11 +113,6 @@ STATISTICS = flags.DEFINE_list(
     ['mean'],
     help='Statistics to compute from "mean", "std", "seeps", "quantile".',
 )
-SPATIAL_DIMS = flags.DEFINE_list(
-    'spatial_dims',
-    ['south_north', 'west_east'],
-    help='Name of the spatial dimensions of the dataset.',
-)
 QUANTILES = flags.DEFINE_list('quantiles', [], 'List of quantiles to compute.')
 NUM_THREADS = flags.DEFINE_integer(
     'num_threads',
@@ -148,29 +143,27 @@ def detrend_chunk(
     obs_chunk: xr.Dataset,
     *,
     trend_ds: xr.Dataset,
-    spatial_dims: tuple[str, str],
     chunks: dict[str, int],
 ) -> tuple[xbeam.Key, xr.Dataset]:
-  """Subtract long-term trend of a chunk of 2D climate data over time.
+  """Subtract long-term trend of a chunk of climate data over time.
 
   Args:
     obs_key: The key indexing the chunk.
     obs_chunk: The dataset chunk, including the entire time series of interest.
     trend_ds: The dataset containing the long-term trend coefficients.
-    spatial_dims: The name of the two spatial dimensions of the dataset.
-    chunks: The chunk sizes of the dataset, which include the `spatial_dims`.
+    chunks: The chunk sizes of the input dataset.
 
   Returns:
     The key and the detrended dataset chunk.
   """
-  offset_1 = obs_key.offsets[spatial_dims[0]]
-  offset_2 = obs_key.offsets[spatial_dims[1]]
-  chunksize_1 = chunks[spatial_dims[0]]
-  chunksize_2 = chunks[spatial_dims[1]]
-  trend_ds = trend_ds.isel(**{
-      spatial_dims[0]: slice(offset_1, offset_1 + chunksize_1),
-      spatial_dims[1]: slice(offset_2, offset_2 + chunksize_2),
-  })
+  offsets_without_time = {
+      k: v for k, v in obs_key.offsets.items() if k != 'time'
+  }
+  # Select the trend coefficients for the same chunk as the data.
+  isel_dict = {
+      k: slice(v, v + chunks[k]) for k, v in offsets_without_time.items()
+  }
+  trend_ds = trend_ds.isel(**isel_dict)
   for obs in list(obs_chunk.keys()):
     coeff = trend_ds[str(obs) + '_polyfit_coefficients']
     obs_chunk[str(obs)] = obs_chunk[str(obs)] - xr.polyval(
@@ -226,7 +219,6 @@ def compute_stat_chunk(
 
 
 def main(argv: list[str]) -> None:
-  spatial_dims = tuple(SPATIAL_DIMS.value)
   obs, input_chunks = xbeam.open_zarr(INPUT_PATH.value)
   ## Assign missing coords
   coords = {
@@ -324,7 +316,6 @@ def main(argv: list[str]) -> None:
             functools.partial(
                 detrend_chunk,
                 trend_ds=trend_ds,
-                spatial_dims=spatial_dims,
                 chunks=in_working_chunks,
             )
         )
