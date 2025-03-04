@@ -142,13 +142,19 @@ def main(argv: list[str]) -> None:
   }
   # Spatial reduce template
   space_reduce_template = xbeam.make_template(obs).isel(
-      {spatial_dims[0]: 0, spatial_dims[1]: 0}, drop=True
+      {dim: 0 for dim in spatial_dims}, drop=True
   )
 
   # Chunks for time reduce
-  time_working_chunks = dict(time=-1)
+  time_working_chunks = {
+      k: v for k, v in reduce_working_chunks.items() if k != 'time'
+  }
+  time_working_chunks['time'] = -1
   # Output chunks
-  output_chunks = dict(moment=1)
+  output_chunks = {
+      k: v for k, v in reduce_working_chunks.items() if k != 'time'
+  }
+  output_chunks['moment'] = 1
 
   # Add new vars to template
   raw_vars = list(space_reduce_template)

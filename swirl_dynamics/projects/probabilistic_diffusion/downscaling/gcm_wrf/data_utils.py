@@ -223,8 +223,15 @@ def read_global_stats(
     variables: Sequence[str],
     field: Literal['mean', 'std'],
     xr_: XarrayLibrary = xrts,
+    **sel_kwargs,
 ) -> np.ndarray:
   """Reads global variable stats from zarr and returns as a stacked array.
+
+  Stacking is done first for each variable along the `level` dimension,
+  if present. Stacking is then done along the `variable` dimension. For
+  example, if the input variables are `[u, t2]`, `u` has levels `[0, 1, 2]` and
+  `t2` has no levels, the output will be an array with shape
+  `[..., 4]`, where the last dimension stacks `[u_0, u_1, u_2, t2]]`.
 
   Args:
     stats_path: The path to the stats zarr dataset. The dataset is assumed to
@@ -234,29 +241,30 @@ def read_global_stats(
     variables: List of variables from which stats are to be retrieved.
     field: Statistic to retrieve, either the mean or std.
     xr_: The xarray library to use to open zarr files.
+    **sel_kwargs: Dictionary passed to `xarray.Dataset.sel` when loading the
+      stats dataset.
 
   Returns:
     A stacked array of statistics.
   """
-  ds = xr_.open_zarr(stats_path)
+  ds = xr_.open_zarr(stats_path).sel(**sel_kwargs)
+  out = []
+  for var in variables:
+    if field == 'mean':
+      var_array = ds[var + '_first'].to_numpy().squeeze()
+    else:
+      var_array = (
+          np.sqrt(ds[var + '_second'] - ds[var + '_first'] * ds[var + '_first'])
+          .to_numpy()
+          .squeeze()
+      )
 
-  if field == 'mean':
-    out = np.stack(
-        [ds[var + '_first'].to_numpy().squeeze() for var in variables], axis=-1
-    )
-  else:
-    out = np.stack(
-        [
-            np.sqrt(
-                ds[var + '_second'] - ds[var + '_first'] * ds[var + '_first']
-            )
-            .to_numpy()
-            .squeeze()
-            for var in variables
-        ],
-        axis=-1,
-    )
-  return out
+    if 'level' in ds[var + '_first'].dims:
+      out.extend(var_array)
+    else:
+      out.append(var_array)
+
+  return np.stack(out, axis=-1)
 
 
 @dataclasses.dataclass(frozen=True)
