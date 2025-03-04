@@ -250,7 +250,9 @@ def main(_):
       num_bins=num_wavenumbers,
       target_resolution=resolution_km,
       field_names=list(output_coords['fields'].values),
-      landmask_dataset=dataset_config.static_input_dataset,
+      landmask=xr.open_zarr(dataset_config.static_input_dataset)[
+          'LANDMASK'
+      ].values.astype(bool),
   )
   evaluator = eval_lib.PairedDownscalingEvaluator(
       models={baseline_name: input_as_output},

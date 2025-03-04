@@ -27,7 +27,6 @@ from skimage import filters
 from swirl_dynamics.lib.metrics import probabilistic_forecast as prob_metrics
 from swirl_dynamics.projects.probabilistic_diffusion import inference
 from swirl_dynamics.templates import evaluate
-import xarray as xr
 
 
 # Duarte et al (2014), https://doi.org/10.1175/MWR-D-13-00368.1, page 4275.
@@ -563,8 +562,7 @@ class PairedDownscalingBenchmark(evaluate.Benchmark):
       data, but can exceed the number of channels in the batch. All additional
       fields are assumed to be derived fields, and computed on-the-fly before
       evaluating the metrics.
-    landmask_dataset: The path to the static dataset containing the variable
-      "LANDMASK", necessary for land-only metrics.
+    landmask: The land mask, necessary for land-only metrics.
   """
 
   num_samples_per_cond: int
@@ -572,7 +570,7 @@ class PairedDownscalingBenchmark(evaluate.Benchmark):
   num_bins: int
   target_resolution: float
   field_names: list[str]
-  landmask_dataset: str
+  landmask: np.ndarray
 
   def __post_init__(self):
     if self.num_samples_per_cond % self.sample_batch_size != 0:
@@ -669,10 +667,9 @@ class PairedDownscalingBenchmark(evaluate.Benchmark):
     crps = prob_metrics.crps(pred, obs, direct_broadcast=False)
     bias = jnp.subtract(jnp.mean(pred, axis=1), obs)
     # Cast to exact shape to avoid issues with clu_metrics.
-    mask = xr.open_zarr(self.landmask_dataset)["LANDMASK"].values.astype(bool)[
-        np.newaxis, :, :, np.newaxis
-    ]
-    mask = jnp.repeat(mask, obs.shape[0], axis=0)
+    mask = jnp.repeat(
+        self.landmask[np.newaxis, :, :, np.newaxis], obs.shape[0], axis=0
+    )
     mask = jnp.repeat(mask, obs.shape[-1], axis=-1)
     if mask.shape != obs.shape:
       raise ValueError(
