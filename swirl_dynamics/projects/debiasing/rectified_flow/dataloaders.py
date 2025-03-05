@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Class with the data loaders the climatology-based models."""
+
 # TODO encapsulate the functionality and streamline the code.
 
 import abc
@@ -20,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 import types
 from typing import Any, Literal, SupportsIndex
 
+from absl import logging
 from etils import epath
 import grain.python as pygrain
 import jax
@@ -85,7 +87,7 @@ def read_stats_simple(
   ds = xrts.open_zarr(dataset)
   out = {}
   for var in variables_names:
-    var_idx = var+"_std" if field == "std" else var
+    var_idx = var + "_std" if field == "std" else var
     stats = ds[var_idx].to_numpy()
     assert stats.ndim == 2 or stats.ndim == 3
     stats = np.expand_dims(stats, axis=-1) if stats.ndim == 2 else stats
@@ -141,6 +143,7 @@ class CommonSourceEnsemble(abc.ABC):
       resample_seed: int = 9999,
       time_stamps: bool = False,
       load_stats: bool = False,
+      max_retries: int = 5,
   ):
     """Data source constructor.
 
@@ -166,8 +169,9 @@ class CommonSourceEnsemble(abc.ABC):
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
-      load_stats: Whether to load the climatology statistics to memory
-        when using.
+      load_stats: Whether to load the climatology statistics to memory when
+        using the data loader. This allows for a faster loading.
+      max_retries: The maximum number of retries for NaN or KeyError.
     """
 
     # Using LENS2 as input, they need to be modified.
@@ -214,9 +218,7 @@ class CommonSourceEnsemble(abc.ABC):
           )
         else:
           self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index)
-          self._input_std_arrays[v][idx] = (
-              input_stats_ds[v + "_std"].sel(index)
-          )
+          self._input_std_arrays[v][idx] = input_stats_ds[v + "_std"].sel(index)
 
     # Build the output arrays for the different output variables and statistics.
     self._output_arrays = {}
@@ -232,9 +234,7 @@ class CommonSourceEnsemble(abc.ABC):
         )
       else:
         self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers)
-        self._output_std_arrays[v] = (
-            output_stats_ds[v + "_std"].sel(indexers)
-        )
+        self._output_std_arrays[v] = output_stats_ds[v + "_std"].sel(indexers)
 
     self._output_coords = output_ds.coords
 
@@ -251,6 +251,7 @@ class CommonSourceEnsemble(abc.ABC):
     self._resample_at_nan = resample_at_nan
     self._resample_seed = resample_seed
     self._time_stamps = time_stamps
+    self._max_retries = max_retries
 
   def __getitem__(self, record_key: SupportsIndex) -> Mapping[str, Any]:
     """Retrieves record and retry if NaN found."""
@@ -258,15 +259,33 @@ class CommonSourceEnsemble(abc.ABC):
     if not idx < self.__len__():
       raise ValueError(f"Index out of range: {idx} / {self.__len__() - 1}")
 
-    item = self.get_item(idx)
+    # Retries if KeyError found.
+    for _ in range(self._max_retries + 1):
+      try:
+        item = self.get_item(idx)
 
-    if self._resample_at_nan:
-      while np.isnan(item["input"]).any() or np.isnan(item["output"]).any():
-        rng = np.random.default_rng(self._resample_seed + idx)
-        resample_idx = rng.integers(0, len(self))
-        item = self.get_item(resample_idx)
+        # Checks for NaN in the data. If there is NaN, resample the index.
+        if self._resample_at_nan and (
+            np.isnan(item["input"]).any() or np.isnan(item["output"]).any()
+        ):
+          logging.warning("NaN found in data, index %d", idx)
+          # Resample the index.
+          idx = np.random.default_rng(self._resample_seed + idx).integers(
+              0, len(self)
+          )
+          continue
 
-    return item
+        return item
+
+      # If KeyError found, resample the index.
+      except KeyError:
+        logging.warning("Key error encountered %d", idx)
+        idx = np.random.default_rng(self._resample_seed + idx).integers(
+            0, len(self)
+        )
+        continue
+
+    raise RuntimeError(f"Failed to get item after {self._max_retries} retries.")
 
   def get_item(self, idx: int) -> Mapping[str, Any]:
     """Returns the data record for a given index."""
@@ -392,7 +411,8 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
         dims_order_output_stats,
         resample_at_nan,
         resample_seed,
-        time_stamps)
+        time_stamps,
+    )
     self._len = self._compute_len()
 
   def __len__(self):
@@ -418,9 +438,11 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     idx_time = idx % self._len_time
     member = self._indexes[idx_member]
     date = self._common_time_array[idx_time]
-    dayofyear = int((
-        date - np.datetime64(str(date.astype("datetime64[Y]")))
-    ) / np.timedelta64(1, "D") + 1)
+    dayofyear = int(
+        (date - np.datetime64(str(date.astype("datetime64[Y]"))))
+        / np.timedelta64(1, "D")
+        + 1
+    )
 
     # Checks the validity of dayofyear.
     if dayofyear <= 0 or dayofyear > 366:
@@ -502,7 +524,8 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
         resample_at_nan,
         resample_seed,
         time_stamps,
-        load_stats)
+        load_stats,
+    )
 
     # Here the length of the time is the length of the time stamps. As the
     # output samples times do not play a role in the inference. Only the output
@@ -537,9 +560,11 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     # We don't need the date of the output. But to conform with the interface,
     # we set it to be first date of the output.
     date_output_dummy = self._output_time_array[0]
-    dayofyear = int((
-        date_input - np.datetime64(str(date_input.astype("datetime64[Y]")))
-    ) / np.timedelta64(1, "D") + 1)
+    dayofyear = int(
+        (date_input - np.datetime64(str(date_input.astype("datetime64[Y]"))))
+        / np.timedelta64(1, "D")
+        + 1
+    )
 
     # Checks the validity of dayofyear.
     if dayofyear <= 0 or dayofyear > 366:
@@ -601,8 +626,8 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
         of the output variables. If None, the dimensions are not changed from
         the order in the xarray dataset
       dims_order_input_stats: Order of the dimensions of the variables for the
-        input statistics. If None, the dimensions are not changed from the
-        order in the xarray dataset
+        input statistics. If None, the dimensions are not changed from the order
+        in the xarray dataset
       dims_order_output_stats: Order of the dimensions of the variables for the
         output statistics. If None, the dimensions are not changed from the
         order in the xarray dataset
@@ -626,7 +651,8 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
         dims_order_output_stats,
         resample_at_nan,
         resample_seed,
-        time_stamps)
+        time_stamps,
+    )
     # Reduce the length of each member in time to accommodate for the chunks.
     self._len_time = self._len_time - chunk_size
     self._chunk_size = chunk_size
@@ -648,12 +674,17 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     idx_time = idx % self._len_time
 
     member = self._indexes[idx_member]
-    dates = self._common_time_array[idx_time: idx_time + self._chunk_size]
+    dates = self._common_time_array[idx_time : idx_time + self._chunk_size]
 
     # Computes the days of the year.
-    daysofyear = [int((
-        date - np.datetime64(str(date.astype("datetime64[Y]")))
-    ) / np.timedelta64(1, "D") + 1) for date in dates]
+    daysofyear = [
+        int(
+            (date - np.datetime64(str(date.astype("datetime64[Y]"))))
+            / np.timedelta64(1, "D")
+            + 1
+        )
+        for date in dates
+    ]
 
     # Checks for uniqueness of dates and daysofyear.
     if len(dates) != len(set(dates)):
@@ -804,10 +835,14 @@ def create_ensemble_lens2_era5_loader_with_climatology(
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "mean",
+              input_mean_stats_path,
+              input_variable_names,
+              "mean",
           ),
           std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "mean",
+              input_std_stats_path,
+              input_variable_names,
+              "mean",
           ),
       ),
   )
@@ -817,10 +852,14 @@ def create_ensemble_lens2_era5_loader_with_climatology(
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "std",
+              input_mean_stats_path,
+              input_variable_names,
+              "std",
           ),
           std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "std",
+              input_std_stats_path,
+              input_variable_names,
+              "std",
           ),
       ),
   )
@@ -935,9 +974,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   Returns:
   """
   if batch_size % chunk_size != 0:
-    raise ValueError(
-        "Batch size must be a multiple of the chunk size."
-    )
+    raise ValueError("Batch size must be a multiple of the chunk size.")
   num_chunks = batch_size // chunk_size
 
   source = ContiguousDataSourceEnsembleWithClimatology(
@@ -1000,10 +1037,14 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "mean",
+              input_mean_stats_path,
+              input_variable_names,
+              "mean",
           ),
           std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "mean",
+              input_std_stats_path,
+              input_variable_names,
+              "mean",
           ),
       ),
   )
@@ -1012,10 +1053,14 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "std",
+              input_mean_stats_path,
+              input_variable_names,
+              "std",
           ),
           std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "std",
+              input_std_stats_path,
+              input_variable_names,
+              "std",
           ),
       ),
   )
@@ -1062,9 +1107,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   # version.
   # TODO: Refactor this for better readability.
   transformations.append(
-      pygrain.Batch(
-          batch_size=num_chunks, drop_remainder=drop_remainder
-      )
+      pygrain.Batch(batch_size=num_chunks, drop_remainder=drop_remainder)
   )
   # This one goes at the end.
   # Reshapes the batch to [batch, lon, lat, channel].
@@ -1146,13 +1189,9 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   Returns:
   """
   if batch_size % chunk_size != 0:
-    raise ValueError(
-        "Batch size must be a multiple of the chunk size."
-    )
+    raise ValueError("Batch size must be a multiple of the chunk size.")
   if chunk_size % time_batch_size != 0:
-    raise ValueError(
-        "Chunk size must be a multiple of the time batch size."
-    )
+    raise ValueError("Chunk size must be a multiple of the time batch size.")
   # The effective batch size is batch_size // time_batch_size.
   num_chunks = batch_size // chunk_size
 
@@ -1216,10 +1255,14 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "mean",
+              input_mean_stats_path,
+              input_variable_names,
+              "mean",
           ),
           std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "mean",
+              input_std_stats_path,
+              input_variable_names,
+              "mean",
           ),
       ),
   )
@@ -1228,10 +1271,14 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
-              input_mean_stats_path, input_variable_names, "std",
+              input_mean_stats_path,
+              input_variable_names,
+              "std",
           ),
           std=read_stats_simple(
-              input_std_stats_path, input_variable_names, "std",
+              input_std_stats_path,
+              input_variable_names,
+              "std",
           ),
       ),
   )
@@ -1281,8 +1328,8 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
         transforms.TimeToChannel(time_batch_size=time_batch_size)
     )
   else:
-     # Reshapes to [new_chunk_size, time_batch_size, lon, lat, channel],
-     # where new_chunk_size = chunk_size // time_batch_size.
+    # Reshapes to [new_chunk_size, time_batch_size, lon, lat, channel],
+    # where new_chunk_size = chunk_size // time_batch_size.
     transformations.append(
         transforms.TimeSplit(time_batch_size=time_batch_size)
     )
@@ -1292,9 +1339,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   # [num_chunks, new_chunk_size, lon, lat, channel * time_batch_size] or
   # [num_chunks, new_chunk_size, time_batch_size, lon, lat, channel]
   transformations.append(
-      pygrain.Batch(
-          batch_size=num_chunks, drop_remainder=drop_remainder
-      )
+      pygrain.Batch(batch_size=num_chunks, drop_remainder=drop_remainder)
   )
 
   # Reshapes the batch again.
