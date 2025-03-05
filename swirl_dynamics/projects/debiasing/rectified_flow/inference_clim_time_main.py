@@ -22,7 +22,7 @@ import functools
 import json
 import logging
 from os import path as osp
-from typing import Any
+from typing import Any, Literal
 
 from absl import app
 from absl import flags
@@ -132,7 +132,7 @@ def build_data_loaders(
     lens2_variable_names: tuple[str, ...] | None = None,
     era5_variables: dict[str, dict[str, Any]] | None = None,
     date_range: tuple[str, str] | None = None,
-    regime="eval",
+    regime: Literal["train", "eval"] = "eval",
 ) -> pygrain.DataLoader:
   """Loads the data loaders.
 
@@ -166,20 +166,31 @@ def build_data_loaders(
         else config.lens2_member_indexer.to_dict()
     )
 
-  # TODO: Use the paths from the config file.
+  # Extract the paths from the config file or use the default values.
+  input_dataset_path = config.get("input_dataset_path", _LENS2_DATASET_PATH)
+  input_climatology = config.get("input_climatology", _LENS2_STATS_PATH)
+  input_mean_stats_path = config.get(
+      "input_mean_stats_path", _LENS2_MEAN_CLIMATOLOGY_PATH
+  )
+  input_std_stats_path = config.get(
+      "input_std_stats_path", _LENS2_STD_CLIMATOLOGY_PATH
+  )
+  output_dataset_path = config.get("output_dataset_path", _ERA5_DATASET_PATH)
+  output_climatology = config.get("output_climatology", _ERA5_STATS_PATH)
+
   dataloader = (
       dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
           date_range=date_range,
           batch_size=batch_size,
           shuffle=False,
-          input_dataset_path=_LENS2_DATASET_PATH,
-          input_climatology=_LENS2_STATS_PATH,
-          input_mean_stats_path=_LENS2_MEAN_CLIMATOLOGY_PATH,
-          input_std_stats_path=_LENS2_STD_CLIMATOLOGY_PATH,
+          input_dataset_path=input_dataset_path,
+          input_climatology=input_climatology,
+          input_mean_stats_path=input_mean_stats_path,
+          input_std_stats_path=input_std_stats_path,
           input_variable_names=lens2_variable_names,
           input_member_indexer=lens2_member_indexer,
-          output_dataset_path=_ERA5_DATASET_PATH,
-          output_climatology=_ERA5_STATS_PATH,
+          output_dataset_path=output_dataset_path,
+          output_climatology=output_climatology,
           output_variables=era5_variables,
           time_stamps=True,
           inference_mode=True,  # Using the inference dataset.
