@@ -27,6 +27,7 @@ python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/input
 ```
 
 """
+from collections.abc import Mapping
 
 from absl import app
 from absl import flags
@@ -112,6 +113,44 @@ def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
   return ds.sel({k: v for k, v in selection.items() if k in ds.dims})
 
 
+def _propagate_missing_coords(
+    dataset_1: xr.Dataset,
+    dataset_2: xr.Dataset,
+    chunks_1: Mapping[str, int],
+    chunks_2: Mapping[str, int],
+) -> tuple[xr.Dataset, dict[str, int]]:
+  """Ensures that the second dataset has the same coordinates as the first.
+
+  This is ensured both for the dataset and the chunking scheme. The function
+  assumes that the first dataset has more coordinates than the second dataset.
+
+  Args:
+    dataset_1: The first dataset.
+    dataset_2: The second dataset.
+    chunks_1: The chunks of the first dataset.
+    chunks_2: The chunks of the second dataset.
+
+  Returns:
+    The updated dataset_2 and the common chunking scheme.
+  """
+  assert len(dataset_1.coords) >= len(dataset_2.coords)
+
+  dataset_2 = dataset_2.assign_coords(
+      {k: v for k, v in dataset_1.coords.items() if k not in dataset_2.coords}
+  )
+  # Get common chunks.
+  chunks = {
+      k: min(
+          max(chunks_1[k], chunks_2[k]),
+          dataset_2.dims[k],
+      )
+      for k in chunks_2
+  }
+  # Get chunks exclusive to the first dataset.
+  chunks.update({k: v for k, v in chunks_1.items() if k not in chunks_2})
+  return dataset_2, chunks
+
+
 def main(argv: list[str]) -> None:
 
   spatial_dims = tuple(SPATIAL_DIMS.value)
@@ -119,30 +158,42 @@ def main(argv: list[str]) -> None:
   source_dataset_1, source_chunks_1 = xbeam.open_zarr(INPUT_PATH_1.value)
   source_dataset_2, source_chunks_2 = xbeam.open_zarr(INPUT_PATH_2.value)
 
+  # In order to load chunks from multiple datasets, we need to make sure
+  # that they have the same coordinates. If the first dataset has more
+  # coordinates, we assign the second dataset the missing coordinates from the
+  # first dataset, and vice versa. Note that this does not affect the dimensions
+  # of the data arrays, which are determined by the actual data.
+  if len(source_dataset_1.coords) > len(source_dataset_2.coords):
+    source_dataset_2, source_chunks = _propagate_missing_coords(
+        source_dataset_1, source_dataset_2, source_chunks_1, source_chunks_2
+    )
+  else:
+    source_dataset_1, source_chunks = _propagate_missing_coords(
+        source_dataset_2, source_dataset_1, source_chunks_2, source_chunks_1
+    )
+
   source_dataset_1 = _impose_data_selection(source_dataset_1)
   source_dataset_2 = _impose_data_selection(source_dataset_2)
   source_dataset_1, source_dataset_2 = data_utils.align_datasets(
       source_dataset_1, source_dataset_2
   )
   source_datasets = [source_dataset_1, source_dataset_2]
-  source_chunks = {
-      k: min(
-          max(source_chunks_1[k], source_chunks_2[k]), source_dataset_1.dims[k]
-      )
-      for k in source_chunks_1
-  }
   in_working_chunks = source_chunks
   in_working_chunks[TIME_DIM.value] = TIME_CHUNK_SIZE.value
   output_chunks = in_working_chunks
 
-  template = (xbeam.make_template(source_dataset_1)).transpose(
-      TIME_DIM.value, spatial_dims[0], spatial_dims[1]
+  template_1 = (xbeam.make_template(source_dataset_1)).transpose(
+      TIME_DIM.value, ..., *spatial_dims
   )
-  new_vars = set(source_dataset_2.data_vars) - set(source_dataset_1.data_vars)
-  for variable in new_vars:
-    template = template.assign(
-        {variable: template[list(source_dataset_1.data_vars)[0]]}
-    )
+  template_2 = (xbeam.make_template(source_dataset_2)).transpose(
+      TIME_DIM.value, ..., *spatial_dims
+  )
+  # Output variables are the union of the two datasets.
+  if METHOD.value == 'merge':
+    template = xr.merge([template_1, template_2])
+  # Output variables for ['add', 'subtract'] methods.
+  else:
+    template = template_1 + template_2
 
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     _ = (
