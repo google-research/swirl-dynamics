@@ -63,6 +63,11 @@ MODE = flags.DEFINE_string(
         ' border.'
     ),
 )
+VARIABLES = flags.DEFINE_list(
+    'variables',
+    None,
+    help='Variables retained in the output dataset.',
+)
 SPATIAL_DIMS = flags.DEFINE_list(
     'spatial_dims',
     ['south_north', 'west_east'],
@@ -108,10 +113,12 @@ def _filter_chunk_in_space(
 
 
 def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
-  if TIME_START.value is None or TIME_STOP.value is None:
-    return ds
-  selection = {TIME_DIM.value: slice(TIME_START.value, TIME_STOP.value)}
-  return ds.sel({k: v for k, v in selection.items() if k in ds.dims})
+  if TIME_START.value or TIME_STOP.value:
+    selection = {TIME_DIM.value: slice(TIME_START.value, TIME_STOP.value)}
+    ds = ds.sel({k: v for k, v in selection.items() if k in ds.dims})
+  if VARIABLES.value:
+    ds = xr.Dataset(ds.get(VARIABLES.value))
+  return ds
 
 
 def main(argv: list[str]) -> None:
@@ -121,7 +128,6 @@ def main(argv: list[str]) -> None:
   source_dataset = _impose_data_selection(source_dataset)
   source_chunks = {k: source_chunks[k] for k in source_chunks}
   in_working_chunks = source_chunks.copy()
-  in_working_chunks['time'] = 1
 
   output_chunks = source_chunks.copy()
   output_chunks['time'] = TIME_CHUNK_SIZE.value
@@ -131,7 +137,9 @@ def main(argv: list[str]) -> None:
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     _ = (
         root
-        | xbeam.DatasetToChunks(source_dataset, in_working_chunks)
+        | xbeam.DatasetToChunks(
+            source_dataset, in_working_chunks, split_vars=True
+        )
         | beam.MapTuple(
             lambda k, v: (  # pylint: disable=g-long-lambda
                 k,
