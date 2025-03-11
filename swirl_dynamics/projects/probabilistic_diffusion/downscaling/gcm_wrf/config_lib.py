@@ -54,6 +54,8 @@ class DatasetConfig(object):
       the atmospheric CO2 concentration. Defaults to None.
     use_temporal_inputs: Whether to use temporal information as input to models.
       Defaults to False.
+    input_levels: The atmospheric levels to use as input to models. Defaults to
+      None.
   """
 
   input_dataset: str
@@ -71,3 +73,4 @@ class DatasetConfig(object):
   normalization: Literal["local", "global"] = "local"
   forcing_dataset: str | None = None
   use_temporal_inputs: bool = False
+  input_levels: list[int] | None = None
