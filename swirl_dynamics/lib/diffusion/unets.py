@@ -151,6 +151,84 @@ class ResConv1x(nn.Module):
     )(residual=x, skip=skip)
 
 
+class ResConv1xGLU(nn.Module):
+  r"""Residual network block with size-1 conv kernels with gated unit.
+
+  This layer performs (with possible biases)
+  $x + W(act_fun(V_1 x + a_1) \odot (V_2 x + a_2)) + b.$
+
+  Attributes:
+    hidden_layer_size: The size of the hidden layer, in order to keep the number
+      of parameters constant, we use the 2/3 reduction on the side of the hidden
+      layer, as such its size should be divisible by 3.
+    out_channels: The number of output channels.
+    act_fun: The activation function.
+    use_bias: Whether to use biases in the convolutions.
+    precision: The precision of the computation.
+    dtype: The data type of the input/output.
+    param_dtype: The data type of the parameters.
+  """
+
+  hidden_layer_size: int
+  out_channels: int
+  act_fun: Callable[[Array], Array] = nn.swish
+  use_bias: bool = True
+  precision: PrecisionLike = None
+  dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.float32
+
+  @nn.compact
+  def __call__(self, x: Array) -> Array:
+    skip = x
+    kernel_size = (x.ndim - 2) * (1,)
+
+    if self.hidden_layer_size % 3 != 0:
+      raise ValueError(
+          "The hidden layer size must be divisible by 3, instead it was :"
+          + str(self.hidden_layer_size)
+      )
+    reduced_hidden_layer_size = int(self.hidden_layer_size * 2 / 3)
+
+    # Compute the hidden component of the gated unit.
+    h = nn.Conv(
+        features=reduced_hidden_layer_size,
+        kernel_size=kernel_size,
+        kernel_init=default_init(1.0),
+        use_bias=self.use_bias,
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
+        name="hidden",
+    )(x)
+    # Compute the gate component of the gated unit.
+    gate = nn.Conv(
+        features=reduced_hidden_layer_size,
+        kernel_size=kernel_size,
+        kernel_init=default_init(1.0),
+        use_bias=self.use_bias,
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
+        name="gate",
+    )(x)
+    # Compute the Hadamard product of the hidden and gate components.
+    x = jnp.multiply(self.act_fun(h), gate)
+    x = nn.Conv(
+        features=self.out_channels,
+        kernel_size=kernel_size,
+        kernel_init=default_init(1.0),
+        use_bias=self.use_bias,
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
+    )(x)
+    return layers.CombineResidualWithSkip(
+        dtype=self.dtype,
+        precision=self.precision,
+        param_dtype=self.param_dtype,
+    )(residual=x, skip=skip)
+
+
 class ConvBlock(nn.Module):
   """A basic two-layer convolution block with adaptive scaling in between.
 

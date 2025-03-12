@@ -20,7 +20,7 @@ resolution, an axial attention block (involving space and/or time) is applied.
 """
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from flax import linen as nn
 import jax
@@ -28,6 +28,7 @@ import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
+from swirl_dynamics.lib.networks import rational_networks
 
 Array = jax.Array
 PrecisionLike = (
@@ -59,6 +60,7 @@ class AxialSelfAttentionBlock(nn.Module):
   num_heads: int | Sequence[int] = 1
   precision: PrecisionLike = None
   normalize_qk: bool = False
+  ffn_type: Literal["dense", "swiglu", "geglu", "rational_glu"] = "dense"
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -101,7 +103,31 @@ class AxialSelfAttentionBlock(nn.Module):
       h = nn.GroupNorm(
           min(h.shape[-1] // 4, 32), name=f"dense_prenorm_axis{axis}"
       )(h)
-      h = nn.Dense(features=h.shape[-1], kernel_init=unets.default_init(1.0))(h)
+
+      # The different types of Feeding Forward Networks (FFNs).
+      if self.ffn_type == "dense":
+        h = nn.Dense(features=h.shape[-1], kernel_init=unets.default_init(1.0))(
+            h
+        )
+      else:
+        if self.ffn_type == "swiglu":
+          act_fun = nn.swish
+        elif self.ffn_type == "geglu":
+          act_fun = nn.gelu
+        elif self.ffn_type == "rational_glu":
+          act_fun = rational_networks.RationalLayer(dtype=self.dtype)
+        else:
+          raise ValueError(f"Unsupported ffn_type: {self.ffn_type}")
+
+        h = unets.ResConv1xGLU(
+            hidden_layer_size=3 * int(h.shape[-1] // 2),
+            out_channels=h.shape[-1],
+            act_fun=act_fun,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+        )(h)
+
     return layers.CombineResidualWithSkip()(residual=h, skip=x)
 
 
@@ -126,6 +152,7 @@ class DStack(nn.Module):
   precision: PrecisionLike = None
   num_heads: int = 8
   normalize_qk: bool = False
+  ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -212,8 +239,10 @@ class DStack(nn.Module):
               dtype=self.dtype,
               param_dtype=self.param_dtype,
               normalize_qk=self.normalize_qk,
+              ffn_type=self.ffn_type,
               name=f"{nt}xres{'x'.join(dims_str)}.dblock{block_id}.attn",
           )(h, is_training=is_training)
+
         skips.append(h)
 
     return skips
@@ -239,6 +268,7 @@ class UStack(nn.Module):
   num_heads: int = 8
   precision: PrecisionLike = None
   normalize_qk: bool = False
+  ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -311,6 +341,7 @@ class UStack(nn.Module):
               dtype=self.dtype,
               param_dtype=self.param_dtype,
               normalize_qk=self.normalize_qk,
+              ffn_type=self.ffn_type,
               name=f"{nt}xres{'x'.join(dims_str)}.ublock{block_id}.attn",
           )(h, is_training=is_training)
 
@@ -377,6 +408,10 @@ class UNet3d(nn.Module):
       attention layers.
     cond_resize_method: Resize method for channel-wise conditioning.
     cond_embed_dim: Embedding dimension for channel-wise conditioning.
+    ffn_type: Type of feed-forward network for attention blocks.
+    precision: Precision for attention blocks.
+    dtype: Data type of the input/output.
+    param_dtype: Parameter data type for the weights of the model.
   """
 
   out_channels: int
@@ -396,6 +431,7 @@ class UNet3d(nn.Module):
   normalize_qk: bool = False
   cond_resize_method: str = "cubic"
   cond_embed_dim: int = 128
+  ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
@@ -493,6 +529,7 @@ class UNet3d(nn.Module):
         use_spatial_attention=use_spatial_attn,
         use_temporal_attention=use_temporal_attn,
         use_position_encoding=self.use_position_encoding,
+        ffn_type=self.ffn_type,
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
@@ -510,6 +547,7 @@ class UNet3d(nn.Module):
         use_spatial_attention=use_spatial_attn[::-1],
         use_temporal_attention=use_temporal_attn[::-1],
         num_heads=self.num_heads,
+        ffn_type=self.ffn_type,
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,

@@ -371,6 +371,7 @@ def main(argv):
         use_position_encoding=config.use_position_encoding,
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
+        ffn_type=config.get("ffn_type", default="dense"),
     )
 
   else:

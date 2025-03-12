@@ -211,6 +211,24 @@ class NetworksTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, x.shape)
 
+  @parameterized.parameters(
+      {"input_shape": (2, 2, 2), "use_bias": True},
+      {"input_shape": (2, 2), "use_bias": False},
+  )
+  def test_shapes_ffn_glu(self, input_shape, use_bias):
+    batch, channels = 2, 4
+    x = np.random.randn(batch, *input_shape, channels)
+    model = diffusion.unets.ResConv1xGLU(
+        hidden_layer_size=3 * int(channels // 2),
+        out_channels=channels,
+        use_bias=use_bias,
+    )
+    out, _ = model.init_with_output(
+        jax.random.PRNGKey(42),
+        x=x,
+    )
+    self.assertEqual(out.shape, x.shape)
+
 
 if __name__ == "__main__":
   absltest.main()

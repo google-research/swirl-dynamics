@@ -15,7 +15,8 @@
 r"""The entry point for running inference loops with climatology.
 
 In this case we suppose that we have a model trained with climatology and
-contiguous time chunks, which are embedded in the channel dimension.
+contiguous time chunks, which are embedded either in an additional dimension or
+in the channel dimension.
 """
 
 import functools
@@ -127,6 +128,7 @@ def move_channel_to_time(
 # Loading the trainers.
 def build_data_loaders(
     config: ml_collections.ConfigDict,
+    config_eval: ml_collections.ConfigDict,
     batch_size: int,
     lens2_member_indexer: tuple[dict[str, str], ...] | None = None,
     lens2_variable_names: tuple[str, ...] | None = None,
@@ -138,6 +140,7 @@ def build_data_loaders(
 
   Args:
     config: The config file used for the training experiment.
+    config_eval: The config file used for the evaluation experiment.
     batch_size: The batch size.
     lens2_member_indexer: The member indexer for the LENS2 dataset, here each
       member indexer is a dictionary with the key "member" and the value is the
@@ -159,6 +162,8 @@ def build_data_loaders(
     elif regime == "eval":
       date_range = config.date_range_eval
 
+  logging.info("Date range: %d, %d", date_range[0], date_range[1])
+
   if lens2_member_indexer is None:
     lens2_member_indexer = (
         _LENS2_MEMBER_INDEXER
@@ -167,20 +172,35 @@ def build_data_loaders(
     )
 
   # Extract the paths from the config file or use the default values.
-  input_dataset_path = config.get("input_dataset_path", _LENS2_DATASET_PATH)
-  input_climatology = config.get("input_climatology", _LENS2_STATS_PATH)
-  input_mean_stats_path = config.get(
-      "input_mean_stats_path", _LENS2_MEAN_CLIMATOLOGY_PATH
+  input_dataset_path = config_eval.get(
+      "input_dataset_path", default=_LENS2_DATASET_PATH
   )
-  input_std_stats_path = config.get(
-      "input_std_stats_path", _LENS2_STD_CLIMATOLOGY_PATH
+  input_climatology = config_eval.get(
+      "input_climatology", default=_LENS2_STATS_PATH
   )
-  output_dataset_path = config.get("output_dataset_path", _ERA5_DATASET_PATH)
-  output_climatology = config.get("output_climatology", _ERA5_STATS_PATH)
+  input_mean_stats_path = config_eval.get(
+      "input_mean_stats_path", default=_LENS2_MEAN_CLIMATOLOGY_PATH
+  )
+  input_std_stats_path = config_eval.get(
+      "input_std_stats_path", default=_LENS2_STD_CLIMATOLOGY_PATH
+  )
+  output_dataset_path = config_eval.get(
+      "output_dataset_path", default=_ERA5_DATASET_PATH
+  )
+  output_climatology = config_eval.get(
+      "output_climatology", default=_ERA5_STATS_PATH
+  )
+
+  logging.info("input_dataset_path: %s", input_dataset_path)
+  logging.info("input_climatology: %s", input_climatology)
+  logging.info("input_mean_stats_path: %s", input_mean_stats_path)
+  logging.info("input_std_stats_path: %s", input_std_stats_path)
+  logging.info("output_dataset_path: %s", output_dataset_path)
+  logging.info("output_climatology: %s", output_climatology)
 
   dataloader = (
       dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
-          date_range=date_range,
+          date_range=(date_range[0], date_range[1],),
           batch_size=batch_size,
           shuffle=False,
           input_dataset_path=input_dataset_path,
@@ -225,6 +245,7 @@ def build_model(config):
         use_temporal_attention=config.use_temporal_attention,
         resize_to_shape=config.resize_to_shape,
         use_position_encoding=config.use_position_encoding,
+        ffn_type=config.get("ffn_type", default="dense"),
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
     )
@@ -323,6 +344,7 @@ def sampling_from_batch(
 
 def inference_pipeline(
     model_dir: str,
+    config_eval: ml_collections.ConfigDict,
     date_range: tuple[str, str] | None = None,
     verbose: bool = False,
     batch_size_eval: int = 16,
@@ -341,6 +363,7 @@ def inference_pipeline(
 
   Args:
     model_dir: The directory with the model to infer.
+    config_eval: The config file for the evaluation.
     date_range: The date range for the evaluation.
     verbose: Whether to print the config file.
     batch_size_eval: The batch size for the evaluation.
@@ -412,7 +435,8 @@ def inference_pipeline(
 
   logging.info("Building the data loader.")
   eval_dataloader = build_data_loaders(
-      config,
+      config=config,
+      config_eval=config_eval,
       batch_size=batch_size_eval * num_devices,
       lens2_member_indexer=lens2_member_indexer,
       lens2_variable_names=lens2_variable_names,
@@ -539,6 +563,7 @@ def main(argv):
       # run the inference pipeline here.
       data_dict = inference_pipeline(
           model_dir=model_dir,
+          config_eval=config,
           date_range=date_range,
           batch_size_eval=batch_size_eval,
           variables=variables,
@@ -558,13 +583,13 @@ def main(argv):
         ds = {}
         ds["reflow"] = xr.DataArray(
             data_dict["output_array"],
-            dims=["time", "longitud", "latitude", "variables"],
+            dims=["time", "longitude", "latitude", "variables"],
             coords={"time": data_dict["time_stamps"]},
         )
 
         ds = xr.Dataset(ds)
         ds = ds.chunk(
-            {"time": 128, "longitud": -1, "latitude": -1, "variables": -1}
+            {"time": 128, "longitude": -1, "latitude": -1, "variables": -1}
         )
         ds.to_zarr(path_zarr)
         logging.info("Data saved in Zarr format in %s", path_zarr)
