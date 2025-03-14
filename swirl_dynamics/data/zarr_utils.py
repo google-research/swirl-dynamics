@@ -20,6 +20,7 @@ from typing import Any
 
 from absl import logging
 from etils import epath
+import numpy as np
 import xarray as xr
 
 filesys = epath.backend.tf_backend
@@ -126,7 +127,7 @@ def aggregated_metrics_to_ds(
   if coords is not None:
     dims = coords.dims
     if len(dims.values()) == len(set(dims.values())):
-      coord_dict = {elem: coords[elem].data for elem in dims.keys()}
+      coord_dict = {elem: coords[elem] for elem in dims.keys()}
       dim_dict = {n_dim: dim_name for dim_name, n_dim in dims.items()}
     else:
       logging.warning(
@@ -138,7 +139,13 @@ def aggregated_metrics_to_ds(
     if 'time' in coords:
       start_time = str(coords['time'].values[0].astype('<M8[h]'))
       end_time = str(coords['time'].values[-1].astype('<M8[h]'))
-      desc = f'Aggregated metrics from {start_time} to {end_time}.'
+      delta = (coords['time'][1] - coords['time'][0]).values
+      delta_in_hours = delta / np.timedelta64(1, 'h')
+
+      desc = (
+          f'Aggregated metrics from {start_time} to {end_time} with'
+          f' {delta_in_hours:g}-hourly frequency.'
+      )
 
   data_vars = {}
   for key, value in data.items():
