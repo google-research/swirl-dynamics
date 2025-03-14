@@ -18,6 +18,9 @@ import functools
 
 import jax
 import jax.numpy as jnp
+import ml_collections
+
+from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.lib.solvers import ode as ode_solvers
 from swirl_dynamics.projects.debiasing.rectified_flow import models as reflow_models
 from swirl_dynamics.templates import models
@@ -305,3 +308,77 @@ def sampling_era5_to_era5_from_batch(
   out = move_channel_to_time(out, time_chunk_size, time_to_channel)
 
   return out
+
+
+def build_model_from_config(
+    config: ml_collections.ConfigDict,
+) -> reflow_models.ReFlowModel:
+  """Builds the model from config file.
+
+  This function is used to build the model from the config file as saved in the
+  training step. This function will become obsolete once the code is migrated to
+  fiddle, but we will keep it for now to be able to load the models saved in
+  previous experiments.
+
+  Args:
+    config: The config file for the model as saved in the training step.
+
+  Returns:
+    The model as a ReflowModel or ConditionalReFlowModel.
+  """
+
+  # Adding the conditional embedding for the FILM layer.
+  conditional_embedding = config.get("conditional_embedding", default=False)
+  use_3d_model = config.get("use_3d_model", default=False)
+  if conditional_embedding:
+    print("Using conditional embedding")
+    cond_embed_fn = unets.EmbConvMerge
+  else:
+    cond_embed_fn = None
+
+  if use_3d_model:
+    print("Using 3D U-ViT model")
+    flow_model = reflow_models.RescaledUnet3d(
+        out_channels=config.out_channels,
+        num_channels=config.num_channels,
+        downsample_ratio=config.downsample_ratio,
+        num_blocks=config.num_blocks,
+        noise_embed_dim=config.noise_embed_dim,
+        padding=config.padding,
+        dropout_rate=config.dropout_rate,
+        use_spatial_attention=config.use_spatial_attention,
+        use_temporal_attention=config.use_temporal_attention,
+        resize_to_shape=config.resize_to_shape,
+        use_position_encoding=config.use_position_encoding,
+        # ffn_type=config.get("ffn_type", default="dense"),
+        num_heads=config.num_heads,
+        normalize_qk=config.normalize_qk,
+    )
+  else:
+    print("Using 2D U-ViT model")
+    flow_model = reflow_models.RescaledUnet(
+        out_channels=config.out_channels,
+        num_channels=config.num_channels,
+        downsample_ratio=config.downsample_ratio,
+        num_blocks=config.num_blocks,
+        noise_embed_dim=config.noise_embed_dim,
+        padding=config.padding,
+        dropout_rate=config.dropout_rate,
+        use_attention=config.use_attention,
+        resize_to_shape=config.resize_to_shape,
+        use_position_encoding=config.use_position_encoding,
+        num_heads=config.num_heads,
+        cond_embed_fn=cond_embed_fn,
+        normalize_qk=config.normalize_qk,
+    )
+
+  model = reflow_models.ConditionalReFlowModel(
+      input_shape=config.input_shapes[0][1:],
+      cond_shape={
+          "channel:mean": config.input_shapes[0][1:],
+          "channel:std": config.input_shapes[0][1:],
+      },
+      flow_model=flow_model,
+  )
+
+  return model
