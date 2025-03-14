@@ -104,10 +104,13 @@ def main(argv):
       ),
   )
 
-  assert (
-      config.input_shapes[0][-1] == config.input_shapes[1][-1]
-      and config.input_shapes[0][-1] == config.out_channels
-  )
+  if (
+      config.input_shapes[0][-1] != config.input_shapes[1][-1]
+      or config.input_shapes[0][-1] != config.out_channels
+  ):
+    raise ValueError(
+        "The number of channels in the input and output must be the same."
+    )
 
   if config.pygrain_zarr:
 
@@ -126,7 +129,7 @@ def main(argv):
     else:
       lens2_variable_names = _LENS2_VARIABLE_NAMES
 
-    if "dummy_loaders" in config and config.dummy_loaders:
+    if config.get("dummy_loaders", default=False):
       # Dummy data.
       fake_batch_lens2 = {
           "x_0": jax.numpy.zeros(
@@ -144,7 +147,7 @@ def main(argv):
           fake_batch_lens2
       )
 
-    elif "chunked_loaders" in config and config.chunked_loaders:
+    elif config.get("chunked_loaders", default=False):
       logging.info("Using chunked loaders.")
       era5_loader_train = data_utils.create_chunked_era5_loader(
           date_range=config.data_range_train,
@@ -234,7 +237,7 @@ def main(argv):
       )
 
     # Creating the DataLoaders.
-    if "chunked_loaders" in config and config.chunked_loaders:
+    if config.get("chunked_loaders", default=False):
 
       # Then create the mixed dataloaders here.
       train_dataloader = data_utils.DualChunkedLens2Era5Dataset(
@@ -275,12 +278,14 @@ def main(argv):
       normalize_qk=config.normalize_qk,
   )
 
-  if "time_sampler" in config and config.time_sampler == "lognorm":
+  if (sampler_type := config.get("time_sampler", None)) == "lognorm":
     time_sampler = models.lognormal_sampler()
-  else:
+  elif sampler_type == "uniform":
     time_sampler = functools.partial(
         jax.random.uniform, dtype=jax.numpy.float32
     )
+  else:
+    raise ValueError(f"Unknown time sampler: {sampler_type}")
 
   model = models.ReFlowModel(
       # TODO: clean this part.

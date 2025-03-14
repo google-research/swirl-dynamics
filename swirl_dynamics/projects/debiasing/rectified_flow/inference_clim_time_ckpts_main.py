@@ -36,10 +36,8 @@ import ml_collections
 from ml_collections import config_flags
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
-from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.projects.debiasing.rectified_flow import dataloaders
 from swirl_dynamics.projects.debiasing.rectified_flow import inference_utils
-from swirl_dynamics.projects.debiasing.rectified_flow import models
 from swirl_dynamics.projects.debiasing.rectified_flow import trainers
 import tensorflow as tf
 import xarray as xr
@@ -173,63 +171,6 @@ def build_data_loaders(
   return dataloader
 
 
-def build_model(config):
-  """Builds the model from config file."""
-
-  # Adding the conditional embedding for the FILM layer.
-  if "conditional_embedding" in config and config.conditional_embedding:
-    logging.info("Using conditional embedding")
-    cond_embed_fn = unets.EmbConvMerge
-  else:
-    cond_embed_fn = None
-
-  if "use_3d_model" in config and config.use_3d_model:
-    logging.info("Using 3D model")
-    flow_model = models.RescaledUnet3d(
-        out_channels=config.out_channels,
-        num_channels=config.num_channels,
-        downsample_ratio=config.downsample_ratio,
-        num_blocks=config.num_blocks,
-        noise_embed_dim=config.noise_embed_dim,
-        padding=config.padding,
-        dropout_rate=config.dropout_rate,
-        use_spatial_attention=config.use_spatial_attention,
-        use_temporal_attention=config.use_temporal_attention,
-        resize_to_shape=config.resize_to_shape,
-        use_position_encoding=config.use_position_encoding,
-        num_heads=config.num_heads,
-        normalize_qk=config.normalize_qk,
-    )
-  else:
-    logging.info("Using 2D model")
-    flow_model = models.RescaledUnet(
-        out_channels=config.out_channels,
-        num_channels=config.num_channels,
-        downsample_ratio=config.downsample_ratio,
-        num_blocks=config.num_blocks,
-        noise_embed_dim=config.noise_embed_dim,
-        padding=config.padding,
-        dropout_rate=config.dropout_rate,
-        use_attention=config.use_attention,
-        resize_to_shape=config.resize_to_shape,
-        use_position_encoding=config.use_position_encoding,
-        num_heads=config.num_heads,
-        cond_embed_fn=cond_embed_fn,
-        normalize_qk=config.normalize_qk,
-    )
-
-  model = models.ConditionalReFlowModel(
-      input_shape=config.input_shapes[0][1:],
-      cond_shape={
-          "channel:mean": config.input_shapes[0][1:],
-          "channel:std": config.input_shapes[0][1:],
-      },
-      flow_model=flow_model,
-  )
-
-  return model
-
-
 def inference_pipeline(
     model_dir: str,
     config_eval: ml_collections.ConfigDict,
@@ -300,7 +241,7 @@ def inference_pipeline(
     )
 
   logging.info("Building the model")
-  model = build_model(config)
+  model = inference_utils.build_model_from_config(config)
 
   try:
     trained_state = trainers.TrainState.restore_from_orbax_ckpt(

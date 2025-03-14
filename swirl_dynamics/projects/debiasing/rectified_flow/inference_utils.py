@@ -328,15 +328,13 @@ def build_model_from_config(
   """
 
   # Adding the conditional embedding for the FILM layer.
-  conditional_embedding = config.get("conditional_embedding", default=False)
-  use_3d_model = config.get("use_3d_model", default=False)
-  if conditional_embedding:
+  if config.get("conditional_embedding", default=False):
     print("Using conditional embedding")
     cond_embed_fn = unets.EmbConvMerge
   else:
     cond_embed_fn = None
 
-  if use_3d_model:
+  if config.get("use_3d_model", default=False):
     print("Using 3D U-ViT model")
     flow_model = reflow_models.RescaledUnet3d(
         out_channels=config.out_channels,
