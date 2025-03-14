@@ -126,10 +126,13 @@ def main(argv):
       ),
   )
 
-  assert (
-      config.input_shapes[0][-1] == config.input_shapes[1][-1]
-      and config.input_shapes[0][-1] == config.out_channels
-  )
+  if (
+      config.input_shapes[0][-1] != config.input_shapes[1][-1]
+      or config.input_shapes[0][-1] != config.out_channels
+  ):
+    raise ValueError(
+        "The number of channels in the input and output must be the same."
+    )
 
   # TODO: Add an utility function to encapsulate all this code.
   if "era5_variables" in config:
@@ -140,14 +143,9 @@ def main(argv):
   if "lens2_member_indexer" in config:
     # TODO: Clean this. Kept for backwards compatibility.
     if (
-        "ens_chunked_aligned_loader" in config
-        and config.ens_chunked_aligned_loader
-    ) or (
-        "climatological_data_loader" in config
-        and config.climatological_data_loader
-    ) or (
-        "climatological_chunked_data_loader" in config
-        and config.climatological_chunked_data_loader
+        config.get("ens_chunked_aligned_loader", default=False)
+        or config.get("climatological_data_loader", default=False)
+        or config.get("climatological_chunked_data_loader", default=False)
     ):
       # This will be a tuple of dictionaries.
       lens2_member_indexer = config.lens2_member_indexer
@@ -156,10 +154,9 @@ def main(argv):
   else:
     lens2_member_indexer = _LENS2_MEMBER_INDEXER
 
-  if "lens2_variable_names" in config:
-    lens2_variable_names = config.lens2_variable_names
-  else:
-    lens2_variable_names = _LENS2_VARIABLE_NAMES
+  lens2_variable_names = config.get(
+      "lens2_variable_names", default=_LENS2_VARIABLE_NAMES
+  )
 
   if jax.process_index() == 0:
     print("ERA5 variables", flush=True)
@@ -207,11 +204,9 @@ def main(argv):
         )
     )
 
-  elif (
-      "climatological_chunked_data_loader" in config
-      and config.climatological_chunked_data_loader
-  ):
+  elif config.get("climatological_chunked_data_loader", default=False):
     print("Using climatological chunked data loader", flush=True)
+
     if "time_coherent" not in config or not config.time_coherent:
       logging.info("Using non-time-coherent data loader")
       # Defines the dataloaders directly.
@@ -250,10 +245,11 @@ def main(argv):
 
     else:
       logging.info("Using time-coherent data loader")
-      if "use_3d_model" in config and config.use_3d_model:
-        logging.info("Using 3D model")
+      if config.get("use_3d_model", default=False):
+        logging.info("Using 3D dataloader.")
         time_to_channel = False
       else:
+        logging.info("Using 2D daloader.")
         time_to_channel = True
 
       train_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
@@ -272,7 +268,7 @@ def main(argv):
           time_batch_size=config.time_batch_size,
           output_dataset_path=config.era5_dataset_path,
           output_climatology=config.era5_stats_path,
-          time_to_channel=time_to_channel
+          time_to_channel=time_to_channel,
       )
       eval_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
           date_range=config.data_range_eval,
@@ -290,7 +286,7 @@ def main(argv):
           time_batch_size=config.time_batch_size,
           output_dataset_path=config.era5_dataset_path,
           output_climatology=config.era5_stats_path,
-          time_to_channel=time_to_channel
+          time_to_channel=time_to_channel,
       )
 
   else:
@@ -349,13 +345,13 @@ def main(argv):
     param_dtype = jax.numpy.float32
 
   # Adds the conditional embedding for the FILM layer.
-  if "conditional_embedding" in config and config.conditional_embedding:
+  if config.get("conditional_embedding", default=False):
     logging.info("Using conditional embedding")
     cond_embed_fn = unets.EmbConvMerge
   else:
     cond_embed_fn = None
 
-  if "use_3d_model" in config and config.use_3d_model:
+  if config.get("use_3d_model", default=False):
     logging.info("Using 3D model")
     flow_model = models.RescaledUnet3d(
         out_channels=config.out_channels,
@@ -394,12 +390,14 @@ def main(argv):
         param_dtype=param_dtype,
     )
 
-  if "time_sampler" in config and config.time_sampler == "lognorm":
+  if (sampler_type := config.get("time_sampler", None)) == "lognorm":
     time_sampler = models.lognormal_sampler()
-  else:
+  elif sampler_type == "uniform":
     time_sampler = functools.partial(
         jax.random.uniform, dtype=jax.numpy.float32
     )
+  else:
+    raise ValueError(f"Unknown time sampler: {sampler_type}")
 
   # Adds the weighted norm for the loss function.
   if "weighted_norm" in config and config.weighted_norm:
