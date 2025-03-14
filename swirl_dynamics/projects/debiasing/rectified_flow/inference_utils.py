@@ -204,6 +204,7 @@ def sampling_era5_to_era5_from_batch(
     trained_state: train_states.BasicTrainState,
     num_sampling_steps: int,
     time_chunk_size: int,
+    dims_geopotential: tuple[int, ...],
     time_to_channel: bool = True,
 ) -> jax.Array:
   """Sampling from a batch using a reflow model.
@@ -230,6 +231,10 @@ def sampling_era5_to_era5_from_batch(
     trained_state: The trained state of the model.
     num_sampling_steps: The number of sampling steps for solving the ODE.
     time_chunk_size: The size of the time chunks in the batch.
+    dims_geopotential: The indices of the fields corresponding to the
+      geopotentials. They needs to be normalized by the universal gravitational
+      constant. This is necessary as ERA5 and LENS2 use different units for the
+      geopotentials.
     time_to_channel: Whether to move the time dimension to the channel
       dimension. Or just another dimension between the batch and the spatial
       dimensions.
@@ -292,6 +297,13 @@ def sampling_era5_to_era5_from_batch(
       batch["x_1"], time_chunk_size, time_to_channel
   )
   denorm = era5_norm_era5 * era5_std + era5_mean
+  # Normalize by the universal gravitational constant the geopotentials.
+  norm_factor_geo_pot = jnp.ones(
+      (lens2_std.ndim - 1) * (1,) + (lens2_std.shape[-1],)
+  )
+  norm_factor_geo_pot = norm_factor_geo_pot.at[..., dims_geopotential].set(9.8)
+  denorm = denorm / norm_factor_geo_pot
+  # Normalize using the lens2 statistics.
   era5_norm_lens2 = (denorm - lens2_mean) / lens2_std
 
   # Running the integration. Then take the last state.
