@@ -724,8 +724,29 @@ def create_ensemble_lens2_era5_loader_with_climatology(
     time_stamps: bool = False,
     inference_mode: bool = False,
     num_epochs: int | None = None,
-):
+) -> pygrain.DataLoader:
   """Creates a loader for ERA5 and LENS2 loosely aligned by date.
+
+  The loader will have the following keys in the batch:
+    - x_0: The input (LENS2) data normalized using the input climatology.
+    - x_1: The output (ERA5) data normalized using the output climatology.
+    - channel:mean: The normalized mean of the LENS2 input, which is fed to the
+      model as a conditioning field.
+    - channel:std:  The normalized standard deviation of the LENS2 input, which
+      is fed to the model as a conditioning field.
+    - input_mean: The (unnormalized) climatoligical mean of the input
+      distribution.
+    - input_std: The (unnormalized) climatoligical standard deviation of the
+      input distribution.
+    - output_mean: The (unnormalized) climatoligical mean of the output
+      distribution.
+    - output_std: The (unnormalized) climatoligical standard deviation of the
+      output distribution.
+
+    Additionally, if time_stamps is True:
+    - input_time_stamp: The time stamp of the input sample.
+    - output_time_stamp: The time stamp of the output sample.
+
 
   Args:
     date_range: Date range for the data used in the dataloader.
@@ -754,6 +775,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
     num_epochs: Number of epochs, by defaults the loader will run forever.
 
   Returns:
+    A pygrain loader.
   """
 
   # In inference mode, we need to use the inference datset, which returns a
@@ -829,10 +851,11 @@ def create_ensemble_lens2_era5_loader_with_climatology(
           remove_inputs=True,
       ),
   )
-  # Also concatenating the statistics.
+  # Also normalizing the statistics.
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNestedToNewField(
           main_field="input_mean",
+          main_output_field="channel:mean",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
               input_mean_stats_path,
@@ -848,8 +871,9 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   )
 
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNestedToNewField(
           main_field="input_std",
+          main_output_field="channel:std",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
               input_mean_stats_path,
@@ -868,20 +892,40 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   # The input statistics are normalized, as they are fed to the model.
   transformations.append(
       transforms.ConcatenateNested(
-          main_field="input_mean",
+          main_field="channel:mean",
           input_fields=(*input_variables.keys(),),
           output_field="channel:mean",
           axis=-1,
-          remove_inputs=True,
+          remove_inputs=False,
+      ),
+  )
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="channel:std",
+          input_fields=(*input_variables.keys(),),
+          output_field="channel:std",
+          axis=-1,
+          remove_inputs=False,
+      ),
+  )
+
+  # We also concatenate the raw input statistics.
+  transformations.append(
+      transforms.ConcatenateNested(
+          main_field="input_mean",
+          input_fields=(*input_variables.keys(),),
+          output_field="input_mean",
+          axis=-1,
+          remove_inputs=False,
       ),
   )
   transformations.append(
       transforms.ConcatenateNested(
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
-          output_field="channel:std",
+          output_field="input_std",
           axis=-1,
-          remove_inputs=True,
+          remove_inputs=False,
       ),
   )
 

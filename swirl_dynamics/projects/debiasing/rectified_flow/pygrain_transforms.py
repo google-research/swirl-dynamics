@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """PyGrain transforms for LENS2 and ERA5 datasets."""
+
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 from typing import Any, KeysView, Literal
@@ -72,6 +73,33 @@ class StandardizeNested(pygrain.MapTransform):
   def map(self, features: FlatFeatures) -> FlatFeatures:
     for field in self.input_fields:
       features[self.main_field][field] = (
+          features[self.main_field][field] - self.mean[field]
+      ) / self.std[field]
+    return features
+
+
+@dataclasses.dataclass(frozen=True)
+class StandardizeNestedToNewField(pygrain.MapTransform):
+  """Standardize variables pixel-wise using pre-computed mean and std.
+
+  This version standardizes the features and write them in a new field, while
+  keeping the nested fields. This is useful for the inference pipeline when
+  using the climatology, as we want to normalize the statistics but we want to
+  keep the unnnormalized climatology for post-processing.
+  This version is written for the data aligned loader.
+  """
+
+  main_field: str
+  main_output_field: str
+  input_fields: Sequence[str]
+  mean: Mapping[str, np.ndarray]
+  std: Mapping[str, np.ndarray]
+
+  def map(self, features: FlatFeatures) -> FlatFeatures:
+    # Creates a new field which will contain the standardized features.
+    features[self.main_output_field] = {}
+    for field in self.input_fields:
+      features[self.main_output_field][field] = (
           features[self.main_field][field] - self.mean[field]
       ) / self.std[field]
     return features
@@ -230,7 +258,6 @@ class SelectAs(pygrain.MapTransform):
   Note: If the names of the features in the original dictionary are not among
     select_features, they will be removed from the dictionary, unless they are
     an internal feature, i.e., their key starts by '_'.
-
   """
 
   select_features: Sequence[str]
@@ -367,7 +394,7 @@ class TimeToChannel(pygrain.MapTransform):
       The features with the first two dimensions merged.
     """
     for field in features.keys():
-      if  isinstance(features[field], np.ndarray) and features[field].ndim > 2:
+      if isinstance(features[field], np.ndarray) and features[field].ndim > 2:
         # Do not touch the timestamps nor the members.
 
         chunk_size = features[field].shape[0]
@@ -411,7 +438,7 @@ class TimeSplit(pygrain.MapTransform):
       The features with the first two dimensions merged.
     """
     for field in features.keys():
-      if  isinstance(features[field], np.ndarray) and features[field].ndim > 2:
+      if isinstance(features[field], np.ndarray) and features[field].ndim > 2:
         # Do not touch the timestamps nor the members.
 
         chunk_size = features[field].shape[0]

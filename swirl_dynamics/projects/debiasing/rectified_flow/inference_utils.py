@@ -32,8 +32,8 @@ def move_time_to_channel(
   Args:
     input_array: The input array to move the time dimension.
     time_chunk_size: The size of the time chunks in the batch.
-    time_to_channel: Whether to move the time dimension to the channel
-      dimension or add it to another dimension between the batch and the spatial
+    time_to_channel: Whether to move the time dimension to the channel dimension
+      or add it to another dimension between the batch and the spatial
       dimensions.
 
   Returns:
@@ -106,9 +106,10 @@ def sampling_from_batch(
 
   Here the batch is expected to have the following keys:
     - x_0: The initial state of the ODE.
-    - channel:mean: The mean of the noise added to the initial state.
-    - channel:std: The standard deviation of the noise added to the initial
-      state.
+    - channel:mean: The normalized mean of the LENS2 input, which is fed to the
+      model as a conditioning field.
+    - channel:std:  The normalized standard deviation of the LENS2 input, which
+      is fed to the model as a conditioning field.
     - output_mean: The mean of the output distribution.
     - output_std: The standard deviation of the output distribution.
 
@@ -178,6 +179,120 @@ def sampling_from_batch(
   out = integrate_fn(
       move_time_to_channel(batch["x_0"], time_chunk_size, time_to_channel)
   )[-1, :]
+
+  # Denormalize the output according to output (ERA5) climatology.
+  # In the case we use the reverse flow, the output is the LENS3 climatology.
+  # This needs to be changed outside this function by modifying the statistics.
+  out = out * move_time_to_channel(
+      batch["output_std"], time_chunk_size, time_to_channel
+  ) + move_time_to_channel(
+      batch["output_mean"], time_chunk_size, time_to_channel
+  )
+
+  # Move the channel dimension to the time dimension.
+  out = move_channel_to_time(out, time_chunk_size, time_to_channel)
+
+  return out
+
+
+def sampling_era5_to_era5_from_batch(
+    batch: models.BatchType,
+    model: reflow_models.ReFlowModel | reflow_models.ConditionalReFlowModel,
+    trained_state: train_states.BasicTrainState,
+    num_sampling_steps: int,
+    time_chunk_size: int,
+    time_to_channel: bool = True,
+) -> jax.Array:
+  """Sampling from a batch using a reflow model.
+
+  Here the batch is expected to have the following keys:
+    - x_1: The initial state of the ODE corresponding to a normalized ERA5
+      sample.
+    - channel:mean: The normalized mean of the LENS2 input, which is fed to the
+      model as a conditioning field.
+    - channel:std:  The normalized standard deviation of the LENS2 input, which
+      is fed to the model as a conditioning field.
+    - output_mean: The mean of the output distribution.
+    - output_std: The standard deviation of the output distribution.
+    - input_mean: The mean (unnormalized) of the input distribution.
+    - input_std: The standard deviation  (unnormalized) of the input
+      distribution.
+
+  The output is expected to have the same shape as the input given by
+  batch["x_1"].
+
+  Args:
+    batch: The batch to sample from.
+    model: The model that encapsulates the flow model.
+    trained_state: The trained state of the model.
+    num_sampling_steps: The number of sampling steps for solving the ODE.
+    time_chunk_size: The size of the time chunks in the batch.
+    time_to_channel: Whether to move the time dimension to the channel
+      dimension. Or just another dimension between the batch and the spatial
+      dimensions.
+
+  Returns:
+    The sampled output.
+  """
+  # Checks the keys in the batch.
+  if "channel:mean" not in batch or "channel:std" not in batch:
+    raise ValueError("Batch does not contain the channel:mean or channel:std.")
+  if "input_mean" not in batch or "input_std" not in batch:
+    raise ValueError("Batch does not contain the input_mean or input_std.")
+  if "output_mean" not in batch or "output_std" not in batch:
+    raise ValueError("Batch does not contain the output_mean or output_std.")
+  if "x_1" not in batch:
+    raise ValueError("Batch does not contain the x_1 field.")
+
+  # Setting up the conditional ODE for the sampling.
+  cond = {
+      "channel:mean": move_time_to_channel(
+          batch["channel:mean"], time_chunk_size, time_to_channel
+      ),
+      "channel:std": move_time_to_channel(
+          batch["channel:std"], time_chunk_size, time_to_channel
+      ),
+  }
+
+  # Extracts the (unnormalized) climatology for the input and output.
+  lens2_std = move_time_to_channel(
+      batch["input_std"], time_chunk_size, time_to_channel
+  )
+  lens2_mean = move_time_to_channel(
+      batch["input_mean"], time_chunk_size, time_to_channel
+  )
+  era5_std = move_time_to_channel(
+      batch["output_std"], time_chunk_size, time_to_channel
+  )
+  era5_mean = move_time_to_channel(
+      batch["output_mean"], time_chunk_size, time_to_channel
+  )
+
+  latent_dynamics_fn = ode_solvers.nn_module_to_dynamics(
+      model.flow_model,
+      autonomous=False,
+      cond=cond,
+      is_training=False,
+  )
+
+  integrator = ode_solvers.RungeKutta4()
+  integrate_fn = functools.partial(
+      integrator,
+      latent_dynamics_fn,
+      tspan=jnp.arange(0.0, 1.0, 1.0 / num_sampling_steps),
+      params=trained_state.model_variables,
+  )
+
+  # Denormalizes the input according to the output (ERA5) climatology and it
+  # normalizes according to the input (LENS2) climatology.
+  era5_norm_era5 = move_time_to_channel(
+      batch["x_1"], time_chunk_size, time_to_channel
+  )
+  denorm = era5_norm_era5 * era5_std + era5_mean
+  era5_norm_lens2 = (denorm - lens2_mean) / lens2_std
+
+  # Running the integration. Then take the last state.
+  out = integrate_fn(era5_norm_lens2)[-1, :]
 
   # Denormalize the output according to output (ERA5) Climatology.
   out = out * move_time_to_channel(
