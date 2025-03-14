@@ -27,6 +27,7 @@ def samples_to_dataset(
     field_names: list[str],
     times: pd.DatetimeIndex,
     spatial_dims: tuple[str, str] = ('south_north', 'west_east'),
+    spatial_coords: dict[str, xr.DataArray] | None = None,
 ) -> xr.Dataset:
   """Packages inference output samples as an xarray.Dataset.
 
@@ -37,18 +38,19 @@ def samples_to_dataset(
       the `samples` array.
     times: The time stamps of the samples.
     spatial_dims: The name of the spatial dimensions of the samples.
+    spatial_coords: The spatial coordinates of the samples.
 
   Returns:
     The inference results as an xarray.Dataset with dimensions [`time`,
     `sample`, *spatial_dims], and data variables for each field.
   """
-  dims = [
-      'time',
-      'sample',
-      *spatial_dims,
-  ]
+  dims = ['time', 'sample', *spatial_dims]
   num_samples, n_south_north, n_west_east = samples.shape[1:4]
-
+  if spatial_coords is None:
+    spatial_coords = {
+        spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
+        spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
+    }
   data_vars = {}
   for i, field_name in enumerate(field_names):
     data_vars[field_name] = (dims, samples[..., i])
@@ -58,8 +60,7 @@ def samples_to_dataset(
       coords={
           'time': (['time'], times),
           'sample': (['sample'], range(num_samples)),
-          spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
-          spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
+          **spatial_coords,
       },
       attrs=dict(description='Conditionally downscaled samples.'),
   )
@@ -72,6 +73,7 @@ def batch_to_dataset(
     field_names: list[str],
     times: pd.DatetimeIndex,
     spatial_dims: tuple[str, str] = ('south_north', 'west_east'),
+    spatial_coords: dict[str, xr.DataArray] | None = None,
 ) -> xr.Dataset:
   """Packages batch inputs or targets as an xarray.Dataset.
 
@@ -82,6 +84,7 @@ def batch_to_dataset(
       the `inference` array.
     times: The time stamps of the data snapshots.
     spatial_dims: The name of the spatial dimensions of the data.
+    spatial_coords: The spatial coordinates of the data.
 
   Returns:
     The results as an xarray.Dataset with dimensions [`time`, *spatial_dims],
@@ -89,6 +92,11 @@ def batch_to_dataset(
   """
   dims = ['time', *spatial_dims]
   n_south_north, n_west_east = batch.shape[1:3]
+  if spatial_coords is None:
+    spatial_coords = {
+        spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
+        spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
+    }
 
   data_vars = {}
   for i, field_name in enumerate(field_names):
@@ -98,8 +106,7 @@ def batch_to_dataset(
       data_vars=data_vars,
       coords={
           'time': (['time'], times),
-          spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
-          spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
+          **spatial_coords,
       },
   )
   return ds
