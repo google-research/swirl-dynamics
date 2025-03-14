@@ -17,6 +17,9 @@ r"""The entry point for running inference loops with climatology.
 In this case we suppose that we have a model trained with climatology and
 contiguous time chunks, which are embedded either in an additional dimension or
 in the channel dimension.
+
+In addition, we add a checkpointing mechanism to save the intermediate results
+of the inference loop.
 """
 
 import functools
@@ -32,6 +35,7 @@ import jax
 import ml_collections
 from ml_collections import config_flags
 import numpy as np
+from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.projects.debiasing.rectified_flow import dataloaders
 from swirl_dynamics.projects.debiasing.rectified_flow import inference_utils
@@ -114,15 +118,12 @@ def build_data_loaders(
     elif regime == "eval":
       date_range = config.date_range_eval
 
-  logging.info("Date range: %d, %d", date_range[0], date_range[1])
-
   if lens2_member_indexer is None:
     lens2_member_indexer = (
         _LENS2_MEMBER_INDEXER
         if "lens2_member_indexer" not in config
         else config.lens2_member_indexer.to_dict()
     )
-  # TODO: Also handle the era5 variables here.
 
   # Extract the paths from the config file or use the default values.
   input_dataset_path = config_eval.get(
@@ -152,10 +153,7 @@ def build_data_loaders(
   logging.info("output_climatology: %s", output_climatology)
 
   dataloader = dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
-      date_range=(
-          date_range[0],
-          date_range[1],
-      ),
+      date_range=date_range,
       batch_size=batch_size,
       shuffle=False,
       input_dataset_path=input_dataset_path,
@@ -199,7 +197,6 @@ def build_model(config):
         use_temporal_attention=config.use_temporal_attention,
         resize_to_shape=config.resize_to_shape,
         use_position_encoding=config.use_position_encoding,
-        ffn_type=config.get("ffn_type", default="dense"),
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
     )
@@ -236,6 +233,7 @@ def build_model(config):
 def inference_pipeline(
     model_dir: str,
     config_eval: ml_collections.ConfigDict,
+    workdir_path: str,
     date_range: tuple[str, str] | None = None,
     verbose: bool = False,
     batch_size_eval: int = 16,
@@ -255,6 +253,7 @@ def inference_pipeline(
   Args:
     model_dir: The directory with the model to infer.
     config_eval: The config file for the evaluation.
+    workdir_path: The path to the work directory for saving the checkpoints.
     date_range: The date range for the evaluation.
     verbose: Whether to print the config file.
     batch_size_eval: The batch size for the evaluation.
@@ -271,10 +270,10 @@ def inference_pipeline(
   del verbose  # Not used for now.
 
   # Using the default values.
-  if not lens2_member_indexer:
+  if lens2_member_indexer is None:
     logging.info("Using the default lens2_member_indexer")
     lens2_member_indexer = _LENS2_MEMBER_INDEXER
-  if not era5_variables:
+  if era5_variables is None:
     logging.info("Using the default era5_variables")
     era5_variables = _ERA5_VARIABLES
 
@@ -292,10 +291,13 @@ def inference_pipeline(
   logging.info("Loading config file")
   config = ml_collections.ConfigDict(args)
 
-  assert (
-      config.input_shapes[0][-1] == config.input_shapes[1][-1]
-      and config.input_shapes[0][-1] == config.out_channels
-  )
+  if (
+      config.input_shapes[0][-1] != config.input_shapes[1][-1]
+      or config.input_shapes[0][-1] != config.out_channels
+  ):
+    raise ValueError(
+        "The number of channels in the input and output must be the same."
+    )
 
   logging.info("Building the model")
   model = build_model(config)
@@ -351,8 +353,17 @@ def inference_pipeline(
   for ii, batch in enumerate(eval_dataloader):
 
     logging.info("Iteration: %d", ii)
-    # input_list.append(batch["x_0"])
+
+    # Saves the time stamps, regardless of whether the checkpoint exists or not.
     time_stamps.append(batch["input_time_stamp"])
+
+    # Check if the sample already exists in a checkpoint file.
+    path_checkpoint = f"{workdir_path}/checkpoint_{ii}.hdf5"
+    if tf.io.gfile.exists(path_checkpoint):
+      logging.info("Checkpoint %s already exists, skipping", path_checkpoint)
+      saved_dict = hdf5_utils.read_all_arrays_as_dict(path_checkpoint)
+      output_list.append(saved_dict["samples"])
+      continue
 
     # Running the inference loop.
     batch_par = {key: batch[key] for key in par_keys}
@@ -370,6 +381,13 @@ def inference_pipeline(
     # Running the parallel sampling and saving the output.
     samples = np.array(parallel_sampling_fn(parallel_batch))
     samples = samples.reshape((-1, n_lon, n_lat, n_field))
+
+    # Saving the current output to disk as a checkpoint.
+    dict_to_save = dict(
+        samples=samples,
+    )
+    hdf5_utils.save_array_dict(path_checkpoint, dict_to_save)
+
     output_list.append(samples)
 
   output_array = np.concatenate(output_list, axis=0)
@@ -457,6 +475,7 @@ def main(argv):
       data_dict = inference_pipeline(
           model_dir=model_dir,
           config_eval=config,
+          workdir_path=workdir,
           date_range=date_range,
           batch_size_eval=batch_size_eval,
           variables=variables,

@@ -148,10 +148,12 @@ def sampling_from_batch(
       ),
   }
 
-  latent_dynamics_fn = ode_solvers.nn_module_to_dynamics(
+  # Sets up the vector field for the sampling. This is a temporal one in order
+  # to easily compute the reverse flow.
+  latent_dynamics_fn_tmp = ode_solvers.nn_module_to_dynamics(
       model.flow_model,
       autonomous=False,
-      cond=cond,  # to be added here.
+      cond=cond,
       is_training=False,
   )
 
@@ -159,8 +161,10 @@ def sampling_from_batch(
   # dynamics function and the evaluation time.
   if reverse_flow:
     latent_dynamics_fn = (
-        lambda x, t, params: -latent_dynamics_fn(x, 1.0 - t, params),
+        lambda x, t, params: -latent_dynamics_fn_tmp(x, 1.0 - t, params)
     )
+  else:
+    latent_dynamics_fn = latent_dynamics_fn_tmp
 
   integrator = ode_solvers.RungeKutta4()
   integrate_fn = functools.partial(
