@@ -43,11 +43,11 @@ _ERA5_VARIABLES = types.MappingProxyType({
 })
 
 # pylint: disable=line-too-long
-_ERA5_DATASET_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
 _ERA5_STATS_PATH = "/wanzy/data/era5/selected_variables/climat/1p5deg_dailymean_7vars_windspeed_clim_daily_1961_to_2000_31_dw.zarr"
 
 # Interpolated dataset to match the resolution of the ERA5 data set.
-_LENS2_DATASET_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
+_LENS2_DATASET_PATH = "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
 _LENS2_STATS_PATH = "/wanzy/data/lens2/climat/lens2_240x121_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
 # pylint: enable=line-too-long
 
@@ -60,8 +60,8 @@ _LENS2_MEMBER_INDEXER = (
 )
 _LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "PSL", "WSPDSRFAV")
 
-_LENS2_MEAN_CLIMATOLOGY_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/stats/scratch/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
-_LENS2_STD_CLIMATOLOGY_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/stats/scratch/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
+_LENS2_MEAN_CLIMATOLOGY_PATH = "/lzepedanunez/data/lens2/stats/scratch/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
+_LENS2_STD_CLIMATOLOGY_PATH = "/lzepedanunez/data/lens2/stats/scratch/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
 
 
 def read_stats_simple(

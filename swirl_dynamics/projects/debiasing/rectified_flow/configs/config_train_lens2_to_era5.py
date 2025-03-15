@@ -29,8 +29,8 @@ _ERA5_VARIABLES = {
 }
 
 # pylint: disable=line-too-long
-_ERA5_DATASET_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
+_ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_STATS_PATH = "/lzepedanunez/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
 
 # Variables in the climate model to be used for debiasing.
 _LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "PSL", "WSPDSRFAV")
@@ -45,11 +45,11 @@ _LENS2_MEMBER_INDEXER = (
 )
 
 # Interpolated dataset to match the resolution of the ERA5 data set.
-_LENS2_DATASET_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
-_LENS2_STATS_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/stats/all_variables_240x121_lonlat_1961-2000.zarr"
+_LENS2_DATASET_PATH = "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
+_LENS2_STATS_PATH = "/lzepedanunez/data/lens2/stats/all_variables_240x121_lonlat_1961-2000.zarr"
 
-_LENS2_MEAN_STATS_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/stats/lens2_mean_stats_all_variables_240x121_lonlat_1961-2000.zarr"
-_LENS2_STD_STATS_PATH = "/cns/uy-d/home/sim-research/lzepedanunez/data/lens2/stats/lens2_std_stats_all_variables_240x121_lonlat_1961-2000.zarr"
+_LENS2_MEAN_STATS_PATH = "/lzepedanunez/data/lens2/stats/lens2_mean_stats_all_variables_240x121_lonlat_1961-2000.zarr"
+_LENS2_STD_STATS_PATH = "/lzepedanunez/data/lens2/stats/lens2_std_stats_all_variables_240x121_lonlat_1961-2000.zarr"
 # pylint: enable=line-too-long
 
 
