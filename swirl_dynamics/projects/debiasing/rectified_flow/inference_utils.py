@@ -186,11 +186,13 @@ def sampling_from_batch(
   # Denormalize the output according to output (ERA5) climatology.
   # In the case we use the reverse flow, the output is the LENS3 climatology.
   # This needs to be changed outside this function by modifying the statistics.
-  out = out * move_time_to_channel(
+  era5_std = move_time_to_channel(
       batch["output_std"], time_chunk_size, time_to_channel
-  ) + move_time_to_channel(
+  )
+  era5_mean = move_time_to_channel(
       batch["output_mean"], time_chunk_size, time_to_channel
   )
+  out = out * era5_std + era5_mean
 
   # Move the channel dimension to the time dimension.
   out = move_channel_to_time(out, time_chunk_size, time_to_channel)
@@ -310,11 +312,7 @@ def sampling_era5_to_era5_from_batch(
   out = integrate_fn(era5_norm_lens2)[-1, :]
 
   # Denormalize the output according to output (ERA5) Climatology.
-  out = out * move_time_to_channel(
-      batch["output_std"], time_chunk_size, time_to_channel
-  ) + move_time_to_channel(
-      batch["output_mean"], time_chunk_size, time_to_channel
-  )
+  out = out * era5_std + era5_mean
 
   # Move the channel dimension to the time dimension.
   out = move_channel_to_time(out, time_chunk_size, time_to_channel)
@@ -382,6 +380,9 @@ def build_model_from_config(
         normalize_qk=config.normalize_qk,
     )
 
+  # Building the model. By default the input shape doesn't include the batch
+  # dimension, wheres the input_shapes in the config file includes a dummy batch
+  # dimension of size 1.
   model = reflow_models.ConditionalReFlowModel(
       input_shape=config.input_shapes[0][1:],
       cond_shape={

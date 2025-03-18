@@ -110,14 +110,15 @@ class AxialSelfAttentionBlock(nn.Module):
             h
         )
       else:
-        if self.ffn_type == "swiglu":
-          act_fun = nn.swish
-        elif self.ffn_type == "geglu":
-          act_fun = nn.gelu
-        elif self.ffn_type == "rational_glu":
-          act_fun = rational_networks.RationalLayer(dtype=self.dtype)
-        else:
-          raise ValueError(f"Unsupported ffn_type: {self.ffn_type}")
+        match self.ffn_type:
+          case "swiglu":
+            act_fun = nn.swish
+          case "geglu":
+            act_fun = nn.gelu
+          case "rational_glu":
+            act_fun = rational_networks.RationalLayer(dtype=self.dtype)
+          case _:
+            raise ValueError(f"Unsupported ffn_type: {self.ffn_type}")
 
         h = unets.ResConv1xGLU(
             hidden_layer_size=3 * int(h.shape[-1] // 2),
