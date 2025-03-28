@@ -28,6 +28,7 @@ def samples_to_dataset(
     times: pd.DatetimeIndex,
     spatial_dims: tuple[str, str] = ('south_north', 'west_east'),
     spatial_coords: dict[str, xr.DataArray] | None = None,
+    sample_dim: str = 'sample',
 ) -> xr.Dataset:
   """Packages inference output samples as an xarray.Dataset.
 
@@ -39,12 +40,13 @@ def samples_to_dataset(
     times: The time stamps of the samples.
     spatial_dims: The name of the spatial dimensions of the samples.
     spatial_coords: The spatial coordinates of the samples.
+    sample_dim: The name of the sample dimension of the samples.
 
   Returns:
     The inference results as an xarray.Dataset with dimensions [`time`,
     `sample`, *spatial_dims], and data variables for each field.
   """
-  dims = ['time', 'sample', *spatial_dims]
+  dims = ['time', sample_dim, *spatial_dims]
   num_samples, n_south_north, n_west_east = samples.shape[1:4]
   if spatial_coords is None:
     spatial_coords = {
@@ -59,10 +61,10 @@ def samples_to_dataset(
       data_vars=data_vars,
       coords={
           'time': (['time'], times),
-          'sample': (['sample'], range(num_samples)),
+          sample_dim: ([sample_dim], range(num_samples)),
           **spatial_coords,
       },
-      attrs=dict(description='Conditionally downscaled samples.'),
+      attrs=dict(description=f'Downscaled {num_samples}-member ensembles.'),
   )
   return ds
 
