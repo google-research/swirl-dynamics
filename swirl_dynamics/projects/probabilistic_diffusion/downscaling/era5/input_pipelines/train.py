@@ -179,6 +179,7 @@ def create_dataloader(
     drop_remainder: bool = True,
     worker_count: int | None = 0,
     cond_maskout_prob: float = 0.0,
+    read_options: pygrain.ReadOptions | None = None,
 ) -> pygrain.DataLoader:
   """Creates a grain dataloader with paired hourly and daily data."""
   source = HourlyDailyPair(
@@ -242,5 +243,6 @@ def create_dataloader(
       batch_size=batch_size,
       drop_remainder=drop_remainder,
       worker_count=worker_count,
+      read_options=read_options,
   )
   return data_loader

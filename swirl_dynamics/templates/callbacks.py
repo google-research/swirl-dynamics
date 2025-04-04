@@ -155,6 +155,9 @@ class TrainStateCheckpoint(Callback):
   ) -> None:
     assert self.last_eval_metric is not None
     cur_step = trainer.train_state.int_step
+    scalar_train_metrics = {
+        k: float(v) for k, v in train_metrics.items() if utils.is_scalar(v)
+    }
     if self.ckpt_manager.should_save(cur_step):
       self.ckpt_manager.save(
           step=cur_step,
@@ -165,14 +168,16 @@ class TrainStateCheckpoint(Callback):
                   jax.tree.map(np.array, trainer.unreplicated_train_state)
               )
           }),
-          metrics=dict(**train_metrics, **self.last_eval_metric),
+          metrics=dict(**scalar_train_metrics, **self.last_eval_metric),
       )
 
   def on_eval_batches_end(
       self, trainer: Trainer, eval_metrics: ComputedMetrics
   ) -> None:
     del trainer
-    self.last_eval_metric = eval_metrics
+    self.last_eval_metric = {
+        k: float(v) for k, v in eval_metrics.items() if utils.is_scalar(v)
+    }
 
   def on_train_end(self, trainer: Trainer) -> None:
     # Always save a checkpoint at the end of training.
