@@ -17,6 +17,7 @@
 from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
+import json
 from typing import Literal
 
 from absl import logging
@@ -33,6 +34,7 @@ from swirl_dynamics.projects import probabilistic_diffusion as pdfn
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipelines import inference as inference_pipeline
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipelines import utils as pipeline_utils
 import xarray as xr
+import xarray_tensorstore as xrts
 
 P = jax.sharding.PartitionSpec
 

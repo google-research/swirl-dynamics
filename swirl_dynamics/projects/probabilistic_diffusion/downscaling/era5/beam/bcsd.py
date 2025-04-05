@@ -364,7 +364,7 @@ def _td_on_chunks(
 
   source_td = xr.concat(out_samples, dim='member')
   source_td = source_td.rename(_OUTPUT_RENAME)
-  source_td = source_td.assign_coords(time=new_time)
+  source_td = source_td.assign_coords(time=new_time.astype('datetime64[ns]'))
   new_key = source_key.with_offsets(
       time=int(source_key.offsets['time'] * 24 / HOUR_RESOLUTION.value)
   )
@@ -485,7 +485,7 @@ def main(argv: list[str]) -> None:
   # daily time).
   template = template.assign_coords(member=new_members.astype('<U20'))
   template = template.assign_coords(
-      time=template.time.values.astype('datetime64[h]')
+      time=template.time.values.astype('datetime64[ns]')
   )
   template = template.transpose('member', 'time', 'longitude', 'latitude')
   logging.info('template: %s', template)

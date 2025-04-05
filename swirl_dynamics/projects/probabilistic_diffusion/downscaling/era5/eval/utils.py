@@ -158,12 +158,13 @@ def heat_index(TF, RH):  # pylint: disable=invalid-name
       + c[7] * TF * RH * RH
       + c[8] * TF * TF * RH * RH
   )
-  adj_a = ((13 - RH) / 4) * np.sqrt((17 - np.abs(TF - 95)) / 17)
+  adj_a = ((13.0 - RH) / 4.0) * np.sqrt((17.0 - np.abs(TF - 95.0)) / 17.0)
   adj_a = np.nan_to_num(adj_a, nan=0.0)
-  hi2 -= np.less(RH, 13) * np.greater(TF, 80) * np.less(TF, 112) * adj_a
-  adj_b = ((RH - 85) / 10) * ((87 - TF) / 5)
-  hi2 += np.greater(RH, 85) * np.greater(TF, 80) * np.less(TF, 87) * adj_b
-  hi = (hi1 > 80) * hi1 + (hi1 <= 80) * hi2
+  hi2 -= np.less(RH, 13.0) * np.greater(TF, 80.0) * np.less(TF, 112.0) * adj_a
+  adj_b = ((RH - 85.0) / 10.0) * ((87.0 - TF) / 5.0)
+  hi2 += np.greater(RH, 85.0) * np.greater(TF, 80.0) * np.less(TF, 87.0) * adj_b
+  hi = (hi2 > 80.0) * hi2 + (hi2 <= 80.0) * hi1
+  hi = (hi - 32.0) * 5.0 / 9.0 + 273.15  # Convert to Kelvin
   return hi
 
 
