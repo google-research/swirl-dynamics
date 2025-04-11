@@ -149,6 +149,9 @@ class DataSource:
 
     self._dates = data_utils.get_common_times(input_ds, date_range)
     self._len = input_ds.dims["time"]
+    logging.info(
+        "%s samples considered covering dates %s", self._len, date_range
+    )
     self._time_array = xrts.read(input_ds["time"]).data
     self._resample_at_nan = resample_at_nan
     self._resample_seed = resample_seed
