@@ -20,6 +20,8 @@ import jax.numpy as jnp
 from swirl_dynamics.lib.networks import rational_networks
 from swirl_dynamics.lib.networks import utils
 
+jax.config.update('jax_threefry_partitionable', False)
+
 
 class RationalNetworksTest(absltest.TestCase):
 

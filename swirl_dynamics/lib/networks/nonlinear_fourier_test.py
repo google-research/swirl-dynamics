@@ -24,6 +24,7 @@ from swirl_dynamics.lib.networks import nonlinear_fourier
 from swirl_dynamics.lib.networks import utils
 
 jax.config.update('jax_enable_x64', True)
+jax.config.update('jax_threefry_partitionable', False)
 
 
 class NonLinearFourierTest(absltest.TestCase):

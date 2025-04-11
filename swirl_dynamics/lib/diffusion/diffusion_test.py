@@ -19,6 +19,8 @@ import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib.diffusion import diffusion
 
+jax.config.update("jax_threefry_partitionable", False)
+
 
 class DiffusionTest(parameterized.TestCase):
 
