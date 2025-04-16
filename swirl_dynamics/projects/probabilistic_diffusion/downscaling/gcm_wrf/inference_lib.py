@@ -15,6 +15,8 @@
 """Modules for sampling and packaging inference results."""
 
 import os
+from typing import Any
+
 import jax
 import numpy as np
 import pandas as pd
@@ -29,6 +31,7 @@ def samples_to_dataset(
     spatial_dims: tuple[str, str] = ('south_north', 'west_east'),
     spatial_coords: dict[str, xr.DataArray] | None = None,
     sample_dim: str = 'sample',
+    singleton_dim_dict: dict[str, Any] | None = None,
 ) -> xr.Dataset:
   """Packages inference output samples as an xarray.Dataset.
 
@@ -41,6 +44,8 @@ def samples_to_dataset(
     spatial_dims: The name of the spatial dimensions of the samples.
     spatial_coords: The spatial coordinates of the samples.
     sample_dim: The name of the sample dimension of the samples.
+    singleton_dim_dict: A dictionary of singleton dimensions to be added to the
+      output dataset.
 
   Returns:
     The inference results as an xarray.Dataset with dimensions [`time`,
@@ -66,6 +71,8 @@ def samples_to_dataset(
       },
       attrs=dict(description=f'Downscaled {num_samples}-member ensembles.'),
   )
+  if singleton_dim_dict is not None:
+    ds = ds.expand_dims(**singleton_dim_dict)
   return ds
 
 
@@ -76,6 +83,7 @@ def batch_to_dataset(
     times: pd.DatetimeIndex,
     spatial_dims: tuple[str, str] = ('south_north', 'west_east'),
     spatial_coords: dict[str, xr.DataArray] | None = None,
+    singleton_dim_dict: dict[str, Any] | None = None,
 ) -> xr.Dataset:
   """Packages batch inputs or targets as an xarray.Dataset.
 
@@ -87,6 +95,8 @@ def batch_to_dataset(
     times: The time stamps of the data snapshots.
     spatial_dims: The name of the spatial dimensions of the data.
     spatial_coords: The spatial coordinates of the data.
+    singleton_dim_dict: A dictionary of singleton dimensions to be added to the
+      output dataset.
 
   Returns:
     The results as an xarray.Dataset with dimensions [`time`, *spatial_dims],
@@ -111,6 +121,8 @@ def batch_to_dataset(
           **spatial_coords,
       },
   )
+  if singleton_dim_dict is not None:
+    ds = ds.expand_dims(**singleton_dim_dict)
   return ds
 
 
