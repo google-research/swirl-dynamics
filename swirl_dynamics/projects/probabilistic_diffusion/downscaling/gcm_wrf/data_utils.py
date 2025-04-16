@@ -29,6 +29,20 @@ FlatFeatures = MutableMapping[str, Any]
 XarrayLibrary = Any
 
 
+def positive_lon_to_westeast(
+    lon: np.ndarray | xr.DataArray,
+) -> np.ndarray | xr.DataArray:
+  """Converts longitudes from [0, 360] to [-180, 180]."""
+  return xr.where(lon > 180, lon - 360, lon)
+
+
+def westeast_to_positive_lon(
+    lon: np.ndarray | xr.DataArray,
+) -> np.ndarray | xr.DataArray:
+  """Converts longitudes from [-180, 180] to [0, 360]."""
+  return xr.where(lon < 0, lon + 360, lon)
+
+
 def get_common_times(
     ds: xr.Dataset, date_range: pd.DatetimeIndex
 ) -> pd.DatetimeIndex:
