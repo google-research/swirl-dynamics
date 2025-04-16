@@ -22,6 +22,7 @@ from etils import epath
 import grain.python as pygrain
 import numpy as np
 import pandas as pd
+from scipy import interpolate
 import xarray as xr
 import xarray_tensorstore as xrts
 
@@ -318,8 +319,53 @@ class RandomMaskout(pygrain.RandomMapTransform):
 
 
 @dataclasses.dataclass(frozen=True)
+class Interpolate(pygrain.MapTransform):
+  """Interpolate a selected input field to a new grid.
+
+  This transform assumes that the input field has as the last dimension a
+  channel dimension.
+
+  Attributes:
+    input_field: The name of the input field to interpolate.
+    source_grid: The source grid coordinates, formatted as a tuple of length `D`
+      of 1-D arrays, where `D` is the number of dimensions of the input field to
+      be interpolated. Each array `i` in the tuple defines the coordinates of
+      each input field value along its dimension `i`, as expected by
+      `scipy.interpolate.griddata`. For two-dimensional data, D=2, and the two
+      arrays may define the latitude and longitude of each data point.
+    target_grid: The target grid, with the same format as `source_grid`.
+    target_shape: The target shape, excluding batch dimensions.
+    method: The interpolation method.
+  """
+
+  input_field: str
+  source_grid: tuple[np.ndarray, ...]
+  target_grid: tuple[np.ndarray, ...]
+  target_shape: tuple[int, ...]
+  method: str
+
+  def map(self, features: FlatFeatures) -> FlatFeatures:
+
+    inputs = features[self.input_field]
+    interp_input_list = []
+    for channel in range(inputs.shape[-1]):
+      feature = inputs[..., channel]
+      shape = feature.shape[: -len(self.target_shape)] + self.target_shape
+      interp_input_list.append(
+          interpolate.griddata(
+              self.source_grid,
+              feature.flatten(),
+              self.target_grid,
+              method=self.method,
+          ).reshape(shape)
+      )
+    features[self.input_field] = np.stack(interp_input_list, axis=-1)
+    return features
+
+
+@dataclasses.dataclass(frozen=True)
 class ParseTrainingData(pygrain.MapTransform):
-  """Returns data in the form required by the model.
+  """Returns data in the form required by the model for training.
 
   The model expects dictionaries of data with key `x` for the target
   and `cond` for the conditioning inputs. The key `cond` also indexes a
@@ -333,6 +379,26 @@ class ParseTrainingData(pygrain.MapTransform):
   def map(self, features: FlatFeatures) -> FlatFeatures:
     processed = {}
     processed['x'] = features[self.generate_field]
+    processed['cond'] = {
+        f'channel:{field}': features[field]
+        for field in self.channel_cond_fields
+    }
+    return processed
+
+
+@dataclasses.dataclass(frozen=True)
+class ParseInferenceData(pygrain.MapTransform):
+  """Returns data in the form required by the model to do inference.
+
+  The model expects dictionaries of data with key `cond` for the conditioning
+  inputs. The key `cond` also indexes a dictionary of conditioning inputs,
+  with keys `channel:<field>` for each conditioning field.
+  """
+
+  channel_cond_fields: Sequence[str]
+
+  def map(self, features: FlatFeatures) -> FlatFeatures:
+    processed = {}
     processed['cond'] = {
         f'channel:{field}': features[field]
         for field in self.channel_cond_fields
