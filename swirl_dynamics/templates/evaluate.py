@@ -40,6 +40,7 @@ filesys = epath.backend.tf_backend
 InferenceModel = Any
 BatchType = Any
 PredType = Any
+CoordinateType = xr.Dataset | xr.core.coordinates.DatasetCoordinates
 
 
 # Forked from clu.metrics
@@ -499,7 +500,7 @@ def run(
     data_checkpointer: checkpoint.Checkpointer = PYGRAIN_CHECKPOINTER,
     checkpoint_options: checkpoint.CheckpointManagerOptions | None = None,
     results_format: Literal["hdf5", "zarr"] = "hdf5",
-    datacoords: xr.core.coordinates.DatasetCoordinates | None = None,
+    datacoords: CoordinateType | None = None,
 ) -> None:
   """Runs a benchmark evaluation.
 
