@@ -23,12 +23,12 @@ Michael S. Albergo, Nicholas M. Boffi, Eric Vanden-Eijnden.
 """
 
 import dataclasses
-from typing import Callable, Protocol
+from typing import Callable, Protocol, TypeAlias
 
 import jax
 import jax.numpy as jnp
 
-Array = jax.Array
+Array: TypeAlias = jax.Array
 
 # Helper function to avoid broadcasting.
 vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
@@ -120,6 +120,12 @@ class StochasticInterpolant(Interpolant):
     del x_1
     # Making the assumption that x_0 is Gaussian and that we have an OU process.
     return vmap_mult(1 / self.alpha(t), -x_0)
+
+  def __hash__(self):
+    return hash((self.alpha, self.beta))
+
+  def __eq__(self, other):
+    return self.alpha == other.alpha and self.beta == other.beta
 
 
 class LinearInterpolant(StochasticInterpolant):
