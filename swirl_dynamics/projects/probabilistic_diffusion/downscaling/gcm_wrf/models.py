@@ -245,12 +245,10 @@ class SdeSampler(dfn_lib.SdeSampler):
     Args:
       input_indices: The index of the input channels corresponding to the output
         variables.
-      input_mean: The scaling bias applied to the conditioning input to be added
-        to the output. The bias is already indexed in terms of the output
-        variables.
-      input_std: The scaling factor applied to the conditioning input to be
-        added to the output. The factor is already indexed in terms of the
-        output variables.
+      input_mean: The scaling bias applied to the full conditioning inputs.
+        Indexing of the output variables is done a posteriori.
+      input_std: The scaling factor applied to the full conditioning inputs.
+        Indexing of the output variables is done a posteriori.
       num_samples: The number of samples to generate in a single batch.
       rng: The base rng for the generation process.
       cond: Explicit conditioning inputs for the denoising function. These
@@ -265,7 +263,10 @@ class SdeSampler(dfn_lib.SdeSampler):
     generated = self.generate_and_denormalize(
         num_samples, rng, cond, guidance_inputs
     )
-    added_input = (
-        cond["channel:input"][..., input_indices] * input_std + input_mean
-    )
-    return generated + added_input
+
+    broadcast_shape = (1,) * (len(cond["channel:input"].shape) - 1)
+    added_input = cond["channel:input"] * jax.lax.broadcast(
+        jnp.array(input_std), broadcast_shape
+    ) + jax.lax.broadcast(jnp.array(input_mean), broadcast_shape)
+
+    return generated + added_input[..., input_indices]

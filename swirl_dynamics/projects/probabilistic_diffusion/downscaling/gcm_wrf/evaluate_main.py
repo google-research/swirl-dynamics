@@ -284,10 +284,10 @@ def main(_):
         for varname in dataset_config.output_variables
     ]
     input_mean = read_stats_fn(
-        dataset_config.input_stats, dataset_config.output_variables, 'mean'
+        dataset_config.input_stats, dataset_config.input_variables, 'mean'
     )
     input_std = read_stats_fn(
-        dataset_config.input_stats, dataset_config.output_variables, 'std'
+        dataset_config.input_stats, dataset_config.input_variables, 'std'
     )
     sampling_fn = functools.partial(
         sampler.generate_denormalize_and_add_input,

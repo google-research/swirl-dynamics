@@ -175,10 +175,14 @@ def main(_):
   )
 
   # Recover normalization stats
+  in_stat_kwargs = {}
   if dataset_config.normalization == 'local':
     read_stats_fn = data_utils.read_stats
+    if dataset_config.crop_input:
+      in_stat_kwargs['crop_dict'] = paired_hourly.D2_WITHIN_D1
   else:
     read_stats_fn = data_utils.read_global_stats
+
   output_mean = read_stats_fn(
       dataset_config.output_stats, dataset_config.output_variables, 'mean'
   )
@@ -208,22 +212,30 @@ def main(_):
       rescale_mean=output_mean,
       rescale_std=output_std,
   )
+
+  input_mean = read_stats_fn(
+      dataset_config.input_stats,
+      dataset_config.input_variables,
+      'mean',
+      **in_stat_kwargs,
+  )
+  input_std = read_stats_fn(
+      dataset_config.input_stats,
+      dataset_config.input_variables,
+      'std',
+      **in_stat_kwargs,
+  )
+
   if is_residual:
     input_indices = [
         dataset_config.input_variables.index(varname)
         for varname in dataset_config.output_variables
     ]
-    input_mean = read_stats_fn(
-        dataset_config.input_stats, dataset_config.output_variables, 'mean'
-    )
-    input_std = read_stats_fn(
-        dataset_config.input_stats, dataset_config.output_variables, 'std'
-    )
     sampling_fn = functools.partial(
         sampler.generate_denormalize_and_add_input,
-        input_indices,
-        input_mean,
-        input_std,
+        input_indices=input_indices,
+        input_mean=input_mean,
+        input_std=input_std,
     )
   else:
     sampling_fn = sampler.generate_and_denormalize
@@ -263,15 +275,6 @@ def main(_):
       worker_count=0,
       normalization=dataset_config.normalization,
   )
-
-  # Recover normalization stats
-  in_stat_kwargs = {}
-  if dataset_config.normalization == 'local':
-    read_stats_fn = data_utils.read_stats
-    if dataset_config.crop_input:
-      in_stat_kwargs['crop_dict'] = paired_hourly.D2_WITHIN_D1
-  else:
-    read_stats_fn = data_utils.read_global_stats
 
   inference_ds_list = []
   input_ds_list = []
@@ -325,18 +328,7 @@ def main(_):
     )
 
     if _WRITE_INPUTS_AND_TARGETS.value:
-      input_mean = read_stats_fn(
-          dataset_config.input_stats,
-          dataset_config.input_variables,
-          'mean',
-          **in_stat_kwargs,
-      )
-      input_std = read_stats_fn(
-          dataset_config.input_stats,
-          dataset_config.input_variables,
-          'std',
-          **in_stat_kwargs,
-      )
+
       inputs = test_batch['cond']['channel:input'] * input_std + input_mean
       targets = test_batch['x']
 
