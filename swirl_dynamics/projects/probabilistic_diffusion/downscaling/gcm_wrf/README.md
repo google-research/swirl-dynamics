@@ -3,7 +3,7 @@
 This repository includes the source code used to design, train, and evaluate the
 Regional Residual Diffusion-based Downscaling (R2-D2) model described in the
 paper "Dynamical-generative downscaling of climate model ensembles"
-(Lopez-Gomez et al, [2024](https://doi.org/10.48550/arXiv.2410.01776)). The
+(Lopez-Gomez et al., [2025](https://doi.org/10.1073/pnas.2420288122)). The
 model weights of a pre-trained R2-D2 model instance, as well as pre-processed
 input and evaluation data, are available on [Google Cloud](https://console.cloud.google.com/storage/browser/dynamical_generative_downscaling).
 
@@ -38,7 +38,7 @@ The WUS-D3 dataset is openly available [here](https://registry.opendata.aws/wrf-
 All references to the dataset should follow the guidelines provided by the
 authors of the dataset.
 
-In our [study](https://doi.org/10.48550/arXiv.2410.01776), we consider in
+In our [study](https://doi.org/10.1073/pnas.2420288122), we consider in
 particular the bias corrected paired trajectories of 8 different Earth System
 Models (ESMs): CanESM5, MPI-ESM1-2-HR, EC-Earth3-Veg, UKESM1-0-LL, ACCESS-CM2,
 MIROC6, TaiESM1, and NorESM2-MM. Bias correction follows the procedure described
@@ -55,7 +55,7 @@ instantiating an R2-D2 model given model weights, and performing inference.
 
 Colab *OS_multimodel_distribution_analysis.ipynb* inspects pre-generated
 downscaled datasets and showcases a few of the evaluation metrics used in
-Lopez-Gomez et al ([2024](https://doi.org/10.48550/arXiv.2410.01776)).
+Lopez-Gomez et al ([2025](https://doi.org/10.1073/pnas.2420288122)).
 
 ## Data
 
@@ -93,3 +93,10 @@ using `swirl-dynamics`.
 ## License
 
 Licensed under the Apache License, Version 2.0.
+
+## How to Cite
+
+I. Lopez-Gomez, Z.Y. Wan, L. Zepeda-Núñez, T. Schneider, J. Anderson, & F. Sha,
+Dynamical-generative downscaling of climate model ensembles,
+Proc. Natl. Acad. Sci. U.S.A. 122 (17) e2420288122,
+https://doi.org/10.1073/pnas.2420288122 (2025).
