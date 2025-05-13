@@ -34,6 +34,7 @@ from swirl_dynamics.lib.diffusion.diffusion import (
     time_uniform_sampling,
 )
 from swirl_dynamics.lib.diffusion.guidance import (
+    ClassifierFreeContrastive,
     ClassifierFreeHybrid,
     InfillFromSlices,
     Transform as GuidanceTransform,
@@ -52,9 +53,9 @@ from swirl_dynamics.lib.diffusion.samplers import (
 from swirl_dynamics.lib.diffusion.unets import (
     AxialMLPInterpConvMerge,
     InterpConvMerge,
+    PreconditionedDenoiser as PreconditionedDenoiserUNet,
     UNet,
 )
-from swirl_dynamics.lib.diffusion.unets import PreconditionedDenoiser as PreconditionedDenoiserUNet
 from swirl_dynamics.lib.diffusion.unets3d import PreconditionedDenoiser3d as PreconditionedDenoiserUNet3d
 from swirl_dynamics.lib.diffusion.unets3d import UNet3d
 from swirl_dynamics.lib.diffusion.vivit import ViViT

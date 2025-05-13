@@ -75,6 +75,33 @@ class GuidanceTransformsTest(parameterized.TestCase):
     self.assertAlmostEqual(denoised, expected, places=5)
 
   @parameterized.parameters(
+      {"cond_key": "0", "contrast_value": 1, "expected": 10.8},
+      {"cond_key": "1", "contrast_value": 0, "expected": 11.2},
+  )
+  def test_classifier_free_contrastive(
+      self, cond_key, contrast_value, expected
+  ):
+    cfg_contrast = guidance.ClassifierFreeContrastive(
+        guidance_strength=0.2,
+        cond_key=cond_key,
+        contrast_cond_key=f"neg_{cond_key}",
+    )
+
+    def _dummy_denoiser(x, sigma, cond):
+      del sigma
+      out = jnp.ones_like(x)
+      for v in cond.values():
+        out += v
+      return out
+
+    guided_denoiser = cfg_contrast(
+        _dummy_denoiser, {f"neg_{cond_key}": jnp.array(contrast_value)}
+    )
+    cond = {str(v): jnp.array([v]) for v in range(5)}
+    denoised = guided_denoiser(jnp.array([0]), jnp.array([0.1]), cond)
+    self.assertAlmostEqual(denoised, expected, places=5)
+
+  @parameterized.parameters(
       {"test_dim": (1, 2, 4, 4, 4, 1), "style": "swap"},
       {"test_dim": (1, 2, 4, 4, 4, 1), "style": "average"},
   )
@@ -89,6 +116,7 @@ class GuidanceTransformsTest(parameterized.TestCase):
     denoised = guided_denoiser(jnp.ones(test_dim), jnp.array(0.1), None)
 
     self.assertEqual(denoised.shape, test_dim)
+
 
 if __name__ == "__main__":
   absltest.main()
