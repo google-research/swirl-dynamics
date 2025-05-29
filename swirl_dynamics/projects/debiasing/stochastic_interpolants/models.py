@@ -25,7 +25,7 @@ References:
 Michael S. Albergo, Nicholas M. Boffi, Eric Vanden-Eijnden.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import functools
 from typing import Any, ClassVar, TypeAlias
@@ -42,7 +42,9 @@ from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
 
+# Defining aliases for the types.
 Array: TypeAlias = jax.Array
+ArrayShape: TypeAlias = Sequence[int]
 CondDict: TypeAlias = Mapping[str, Array]
 Metrics: TypeAlias = clu_metrics.Collection
 ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
@@ -74,6 +76,10 @@ class StochasticInterpolantModel(models.BaseModel):
       dimension).
     flow_model: The flax module to use for the flow. The required interface for
       its `__call__` function is specified by `FlowFlaxModule`.
+    interpolant: The interpolant to use for the training.
+    noising_process: A Callable that samples noise from the noising process.
+    loss_stochastic_interpolant: A Callable that computes the loss for the
+      stochastic interpolant.
     time_sampling: A Callable that samples the interpolation times at training.
     num_eval_cases_per_lvl: int = 1
     min_eval_time_lvl: Minimum time at which the flow is sampled at evaluation.
@@ -89,6 +95,7 @@ class StochasticInterpolantModel(models.BaseModel):
   input_shape: tuple[int, ...]
   flow_model: nn.Module
   interpolant: interpolants.StochasticInterpolant
+  noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
   loss_stochastic_interpolant: StochasticInterpolantLossFn
   time_sampling: Callable[[Array, tuple[int, ...]], Array] = functools.partial(
       jax.random.uniform, dtype=jnp.float32
@@ -142,9 +149,8 @@ class StochasticInterpolantModel(models.BaseModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     # Check the dimensions here.
-    x_t = self.interpolant(time, batch["x_0"], batch["x_1"])
-
-    noise = jax.random.normal(noise_rng, x_t.shape)
+    noise = self.noising_process(noise_rng, batch["x_0"].shape)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise)
 
     v_t = self.flow_model.apply(
         {"params": params},
@@ -203,6 +209,8 @@ class StochasticInterpolantModel(models.BaseModel):
         shape=(self.num_eval_time_levels, self.num_eval_cases_per_lvl),
     )
 
+    noise = self.noising_process(noise_rng, x_1.shape)
+
     # The intervals for evaluation of time are linear.
     time_eval = jnp.linspace(
         self.min_eval_time_lvl,
@@ -210,10 +218,9 @@ class StochasticInterpolantModel(models.BaseModel):
         self.num_eval_time_levels,
     )
 
-    x_t = self.interpolant(time_eval, x_0, x_1)
+    x_t = self.interpolant(time_eval, x_0, x_1, noise)
     flow_fn = self.inference_fn(variables, self.flow_model)
     v_t = jax.vmap(flow_fn, in_axes=(1, None), out_axes=1)(x_t, time_eval)
-    noise = jax.random.normal(noise_rng, x_t.shape)
 
     # Tile the time to have the same shape as the batch and the number of
     # evaluation cases.
@@ -294,8 +301,8 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
         "channel:std": batch["channel:std"],
     }
 
-    x_t = self.interpolant(time, batch["x_0"], batch["x_1"])
-    noise = jax.random.normal(noise_rng, x_t.shape)
+    noise = self.noising_process(noise_rng, batch["x_0"].shape)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise)
 
     v_t = self.flow_model.apply(
         {"params": params},
@@ -365,22 +372,23 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
 
     x_0 = batch_reorg["x_0"]
     x_1 = batch_reorg["x_1"]
+    noise = self.noising_process(noise_rng, x_1.shape)
+
     cond = {
         "channel:mean": batch_reorg["channel:mean"],
         "channel:std": batch_reorg["channel:std"],
     }
 
-    x_t = self.interpolant(time_eval, x_0, x_1)
+    x_t = self.interpolant(time_eval, x_0, x_1, noise)
     flow_fn = self.inference_fn(variables, self.flow_model)
     v_t = jax.vmap(flow_fn, in_axes=(1, None, 1), out_axes=1)(
         x_t, time_eval, cond
     )
 
     time_tiled = jnp.tile(time_eval[:, None], (1, self.num_eval_cases_per_lvl))
-    noise = jax.random.normal(noise_rng, x_t.shape)
     int_losses = jax.vmap(
         self.loss_stochastic_interpolant, in_axes=(0, 0, 0, 0, 0, None)
-    )(v_t, time_tiled, x_0, x_1, noise, self.interpolant,)
+    )(v_t, time_tiled, x_0, x_1, noise, self.interpolant)
 
     eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
 

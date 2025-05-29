@@ -102,8 +102,5 @@ def velocity_loss(
 
   return jnp.mean(v_t**2) - 2 * jnp.mean(
       v_t
-      * (
-          interpolant.calculate_time_derivative_interpolant(t, x_0, x_1)
-          + vmap_mult(noise, interpolant.gamma_dot(t))
-      )
+      * interpolant.calculate_time_derivative_interpolant(t, x_0, x_1, noise)
   )
