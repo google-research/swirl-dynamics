@@ -1,4 +1,4 @@
-# Copyright 2024 The swirl_dynamics Authors.
+# Copyright 2025 The swirl_dynamics Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ from absl import flags
 from absl import logging
 import jax
 import jax.numpy as jnp
+import ml_collections
 from ml_collections import config_flags
 import optax
 from orbax import checkpoint
@@ -134,25 +135,17 @@ def main(argv):
         "The number of channels in the input and output must be the same."
     )
 
-  # TODO: Add an utility function to encapsulate all this code.
-  if "era5_variables" in config:
-    era5_variables = config.era5_variables.to_dict()
-  else:
-    era5_variables = _ERA5_VARIABLES
+  # This is to avoid the default behavior of the ConfigDict, which converts to
+  # ConfigDict any nested dictionaries.
+  era5_variables = config.get("era5_variables", default=_ERA5_VARIABLES)
+  if isinstance(era5_variables, ml_collections.ConfigDict):
+    era5_variables = era5_variables.to_dict()
 
-  if "lens2_member_indexer" in config:
-    # TODO: Clean this. Kept for backwards compatibility.
-    if (
-        config.get("ens_chunked_aligned_loader", default=False)
-        or config.get("climatological_data_loader", default=False)
-        or config.get("climatological_chunked_data_loader", default=False)
-    ):
-      # This will be a tuple of dictionaries.
-      lens2_member_indexer = config.lens2_member_indexer
-    else:
-      lens2_member_indexer = config.lens2_member_indexer.to_dict()
-  else:
-    lens2_member_indexer = _LENS2_MEMBER_INDEXER
+  lens2_member_indexer = config.get(
+      "lens2_member_indexer", default=_LENS2_MEMBER_INDEXER
+  )
+  if isinstance(lens2_member_indexer, ml_collections.ConfigDict):
+    lens2_member_indexer = lens2_member_indexer.to_dict()
 
   lens2_variable_names = config.get(
       "lens2_variable_names", default=_LENS2_VARIABLE_NAMES
@@ -164,10 +157,8 @@ def main(argv):
     print("LENS2 variable names", flush=True)
     print(lens2_variable_names, flush=True)
 
-  if (
-      "climatological_data_loader" in config
-      and config.climatological_data_loader
-  ):
+  if config.get("climatological_data_loader", default=False):
+
     logging.info("Using climatological data loader")
     train_dataloader = (
         dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
@@ -207,7 +198,8 @@ def main(argv):
   elif config.get("climatological_chunked_data_loader", default=False):
     print("Using climatological chunked data loader", flush=True)
 
-    if "time_coherent" not in config or not config.time_coherent:
+    # Default behavior is non-time-coherent.
+    if not config.get("time_coherent", default=False):
       logging.info("Using non-time-coherent data loader")
       # Defines the dataloaders directly.
       train_dataloader = dataloaders.create_ensemble_lens2_era5_chunked_loader_with_climatology(
@@ -244,7 +236,7 @@ def main(argv):
       )
 
     else:
-      logging.info("Using time-coherent data loader")
+      logging.info("Using time-coherent data loader.")
       if config.get("use_3d_model", default=False):
         logging.info("Using 3D dataloader.")
         time_to_channel = False
@@ -290,12 +282,7 @@ def main(argv):
       )
 
   else:
-    if "norm_stats_loader" in config:
-      norm_stats_loader = config.norm_stats_loader
-    else:
-      # By default, the stats are normalized.
-      norm_stats_loader = True
-
+    norm_stats_loader = config.get("norm_stats_loader", default=True)
     logging.info("Using normalized stats")
     train_dataloader = data_utils.create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
         date_range=config.data_range_train,
@@ -399,14 +386,12 @@ def main(argv):
   else:
     raise ValueError(f"Unknown time sampler: {sampler_type}")
 
-  # Adds the weighted norm for the loss function.
-  if "weighted_norm" in config and config.weighted_norm:
+  # Adds a latitude weighted norm for the loss function plus a regularization
+  # factor to account for the difference in the representation geometry.
+  if config.get("weighted_norm", default=False):
     lat = jnp.linspace(-90.0, 90.0, config.input_shapes[0][2])
+    reg_factor = config.get("reg_factor", default=0.05)
     # Reshapes to the correct broadcast shape.
-    if "reg_factor" in config:
-      reg_factor = config.reg_factor
-    else:
-      reg_factor = 0.05
     weighted_norm = (
         jnp.cos(jnp.deg2rad(lat)).reshape((1, 1, -1, 1)) + reg_factor
     )
@@ -422,20 +407,21 @@ def main(argv):
       "channel:std": config.input_shapes[0][1:],
   }
 
-  if "use_3d_model" in config and config.use_3d_model:
+  # Checks the shapes of the input and conditioning.
+  if config.get("use_3d_model", default=False):
     if len(input_shape) != 4:
       raise ValueError("Input shape must be 4D for 3D model.")
     if len(cond_shape["channel:mean"]) != 4:
-      raise ValueError("Conditional shape must be 4D for 3D model.")
+      raise ValueError("Conditional shape of the mean must be 4D for 3D model.")
     if len(cond_shape["channel:std"]) != 4:
-      raise ValueError("Conditional shape must be 4D for 3D model.")
+      raise ValueError("Conditional shape of the std must be 4D for 3D model.")
   else:
     if len(input_shape) != 3:
       raise ValueError("Input shape must be 3D for 2D model.")
     if len(cond_shape["channel:mean"]) != 3:
-      raise ValueError("Conditional shape must be 3D for 2D model.")
+      raise ValueError("Conditional shape of the mean must be 3D for 2D model.")
     if len(cond_shape["channel:std"]) != 3:
-      raise ValueError("Conditional shape must be 3D for 2D model.")
+      raise ValueError("Conditional shape of the std must be 3D for 2D model.")
 
   model = models.ConditionalReFlowModel(
       input_shape=input_shape,  # This must agree with the sample shape.
@@ -463,11 +449,11 @@ def main(argv):
         ema_decay=config.ema_decay,
     )
 
-  if "trained_state_dir" in config:
+  if (trained_state_dir := config.get("trained_state_dir", None)) is not None:
     # Loads the parameters from the checkpoint of an already trained model.
-    logging.info("Loading trained state from %s", config.trained_state_dir)
+    logging.info("Loading trained state from %s", trained_state_dir)
     trained_state = trainers.TrainState.restore_from_orbax_ckpt(
-        f"{config.trained_state_dir}/checkpoints",
+        f"{trained_state_dir}/checkpoints",
         step=None,
         ref_state=trainer.train_state,
     )

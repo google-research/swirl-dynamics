@@ -1,4 +1,4 @@
-# Copyright 2024 The swirl_dynamics Authors.
+# Copyright 2025 The swirl_dynamics Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -79,7 +79,6 @@ config_flags.DEFINE_config_file(
 )
 
 
-# Loading the trainers.
 def build_data_loaders(
     config: ml_collections.ConfigDict,
     config_eval: ml_collections.ConfigDict,
@@ -109,7 +108,7 @@ def build_data_loaders(
     The dataloader for the inference loop.
   """
 
-  if not date_range:
+  if date_range is None:
     logging.info("Using the default date ranges.")
     if regime == "train":
       date_range = config.date_range_train
@@ -117,11 +116,11 @@ def build_data_loaders(
       date_range = config.date_range_eval
 
   if lens2_member_indexer is None:
-    lens2_member_indexer = (
-        _LENS2_MEMBER_INDEXER
-        if "lens2_member_indexer" not in config
-        else config.lens2_member_indexer.to_dict()
+    lens2_member_indexer = config.get(
+        "lens2_member_indexer", _LENS2_MEMBER_INDEXER
     )
+    if isinstance(lens2_member_indexer, ml_collections.ConfigDict):
+      lens2_member_indexer = lens2_member_indexer.to_dict()
 
   # Extract the paths from the config file or use the default values.
   input_dataset_path = config_eval.get(
@@ -165,7 +164,7 @@ def build_data_loaders(
       output_variables=era5_variables,
       time_stamps=True,
       inference_mode=True,  # Using the inference dataset.
-      num_epochs=1,  # This is the loops stops automatically.
+      num_epochs=1,  # This is so the loop stops automatically.
   )
 
   return dataloader
@@ -218,12 +217,12 @@ def inference_pipeline(
     logging.info("Using the default era5_variables")
     era5_variables = _ERA5_VARIABLES
 
-  # We will leverage parallelization among current devices.
+  # We leverage parallelization among current devices.
   num_devices = jax.local_device_count()
 
   logging.info("number of devices: %d", num_devices)
 
-  # load the json file
+  # Loads the json file with the network configuration.
   with tf.io.gfile.GFile(osp.join(model_dir, "config.json"), "r") as f:
     args = json.load(f)
     if isinstance(args, str):
@@ -258,9 +257,7 @@ def inference_pipeline(
       trained_state=trained_state,
       num_sampling_steps=num_sampling_steps,
       time_chunk_size=config.time_batch_size,  # This is the time chunk size.
-      time_to_channel=(
-          config.time_to_channel if "time_to_channel" in config else True
-      ),
+      time_to_channel=config.get("time_to_channel", default=True),
       reverse_flow=False,
   )
 
@@ -375,29 +372,21 @@ def main(argv):
   # This is necessary due the ordering issues inside a ConfigDict.
   # TODO: Change the pipeline to avoid concatenating
   # ConfigDicts.
-  if "era5_variables" in config and config.era5_variables:
-    era5_variables = config.era5_variables.to_dict()
-  else:
-    era5_variables = _ERA5_VARIABLES
+  era5_variables = config.get("era5_variables", default=_ERA5_VARIABLES)
+  if isinstance(era5_variables, ml_collections.ConfigDict):
+    era5_variables = era5_variables.to_dict()
 
-  if "lens2_variable_names" in config and config.lens2_variable_names:
-    lens2_variable_names = config.lens2_variable_names
-  else:
-    lens2_variable_names = _LENS2_VARIABLE_NAMES
+  lens2_variable_names = config.get(
+      "lens2_variable_names", default=_LENS2_VARIABLE_NAMES
+  )
 
-  if "lens2_member_indexer" in config and config.lens2_member_indexer:
-    lens2_member_indexer = config.lens2_member_indexer
-  else:
-    lens2_member_indexer = _LENS2_MEMBER_INDEXER
+  # This is a tuple of dictionaries, thus no need for conversion.
+  lens2_member_indexer = config.get(
+      "lens2_member_indexer", default=_LENS2_MEMBER_INDEXER
+  )
 
-  if "num_sampling_steps" in config:
-    logging.info("Using num_sampling_steps from config file.")
-    num_sampling_steps = config.num_sampling_steps
-  else:
-    logging.info("Using default num_sampling_steps.")
-    num_sampling_steps = 100
-
-  logging.info("Number of sampling steps %d", num_sampling_steps)
+  num_sampling_steps = config.get("num_sampling_steps", default=100)
+  logging.info("Using %d discretization steps.", num_sampling_steps)
 
   for lens2_indexer in lens2_member_indexer:
     print("Evaluating on CMIP dataset indexer: ", lens2_indexer)
@@ -412,7 +401,7 @@ def main(argv):
     if tf.io.gfile.exists(path_zarr):
       logging.info("File %s already exists, skipping", path_zarr)
     else:
-      # run the inference pipeline here.
+      # Runs the inference pipeline.
       data_dict = inference_pipeline(
           model_dir=model_dir,
           config_eval=config,
