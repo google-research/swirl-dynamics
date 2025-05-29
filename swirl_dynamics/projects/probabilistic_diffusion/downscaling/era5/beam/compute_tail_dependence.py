@@ -53,9 +53,10 @@ python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam/com
   --output_path=${OUTPUT_PATH} \
   --quantile_range=0.9,0.95 \
   --variables=T2,Q2 \
-  --start_year=2001 \
-  --end_year=2010 \
-  --months=8
+  --start_year=2010 \
+  --end_year=2019 \
+  --months=6,7,8 \
+  --hour_of_day=18
 ```
 
 """
@@ -120,6 +121,9 @@ YEAR_END = flags.DEFINE_integer(
     'year_end', 2010, help='Ending year for evaluation.'
 )
 MONTHS = flags.DEFINE_list('months', ['8'], help='Months for evaluation.')
+HOUR_OF_DAY = flags.DEFINE_integer(
+    'hour_of_day', None, help='Hour of day in UTC time.'
+)
 
 
 Variable = pipeline_utils.DatasetVariable
@@ -222,6 +226,12 @@ def main(argv: list[str]) -> None:
   years = list(range(YEAR_START.value, YEAR_END.value + 1))
   months = [int(m) for m in MONTHS.value]
   inference_ds = eval_utils.select_time(inference_ds, years, months)
+
+  # Compute tail dependence on the data only at a specific hour of day to reduce
+  # the effects of diurnal cycles.
+  if HOUR_OF_DAY.value is not None:
+    hour_mask = inference_ds.time.dt.hour.isin([HOUR_OF_DAY.value])
+    inference_ds = inference_ds.sel(time=hour_mask, drop=True)
 
   # Chunks for temporal and sample reduce
   in_working_chunks = {
