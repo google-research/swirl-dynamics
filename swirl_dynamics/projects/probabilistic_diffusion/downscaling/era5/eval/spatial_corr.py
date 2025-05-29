@@ -61,7 +61,7 @@ def get_pixel_time_series_and_neighbors(
 
 def compute_err(corr1: np.ndarray, corr2: np.ndarray) -> np.ndarray:
   """Calculates the MAE of correlation coefficients."""
-  return np.nanmean(np.abs(corr1 - corr2))
+  return np.mean(np.abs(corr1 - corr2))
 
 
 def spatial_corr(city: xr.DataArray, neighbors: xr.DataArray) -> xr.DataArray:
@@ -70,9 +70,9 @@ def spatial_corr(city: xr.DataArray, neighbors: xr.DataArray) -> xr.DataArray:
   y = neighbors.to_numpy()  # ~ (time, member, lon, lat)
   x = x.flatten()
   y = y.reshape(-1, *y.shape[-2:])
-  x_centered = x - np.nanmean(x)
-  y_centered = y - np.nanmean(y, axis=0)
-  cov = np.nanmean(x_centered[:, None, None] * y_centered, axis=0)
+  x_centered = x - np.mean(x)
+  y_centered = y - np.mean(y, axis=0)
+  cov = np.mean(x_centered[:, None, None] * y_centered, axis=0)
   corr = cov / (np.std(x) * np.std(y, axis=0))
   return xr.DataArray(
       corr,

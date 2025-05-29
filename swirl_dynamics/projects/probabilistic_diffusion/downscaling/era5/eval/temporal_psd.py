@@ -48,7 +48,7 @@ def _calculate_melr(
   return np.nanmean(np.abs(np.log(ref_psd) - np.log(pred_psd)))
 
 
-def compute_temporal_psd(data_array: xr.DataArray, samples_per_year: int = 20):
+def compute_temporal_psd(data_array: xr.DataArray, samples_per_year: int = 100):
   """Computes temporal power spectral density."""
   # `data_array` is a time series for a single pixel consisting of multiple
   # years and members. It is divided into years and the PSD is computed for each
