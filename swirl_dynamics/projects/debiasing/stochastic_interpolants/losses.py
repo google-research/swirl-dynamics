@@ -44,6 +44,9 @@ def score_loss(
 ) -> Array:
   """Compute the loss for the score on an batch of samples.
 
+  This computes the loss for the score at time t given by the flow model
+  following Eq. 2.15 in [1].
+
   Args:
     net_eval: The network output at time t given by the flow model. The shape
       should be the same as x_0 and x_1, i.e. (batch_size, *dimension),
@@ -64,8 +67,7 @@ def score_loss(
   return jnp.sum(net_eval**2) - 2 * jnp.sum(
       net_eval
       * (
-          interpolant.calculate_target_score(t, x_0, x_1)
-          + 1 / interpolant.gamma(t) * noise
+          interpolant.calculate_target_score(t, x_0, x_1, noise)
       )
   )
 
@@ -81,7 +83,7 @@ def velocity_loss(
   """Compute the loss for the velocity on a batch of samples.
 
   This computes the loss for the velocity at time t given by the flow model
-  following Eq. 2.13 in [1].
+  following Eq. 2.12 in [1].
 
   Args:
     v_t: The velocity at time t given by the flow model. The shape should be the

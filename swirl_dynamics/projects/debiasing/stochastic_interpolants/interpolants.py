@@ -123,20 +123,26 @@ class StochasticInterpolant(Interpolant):
         + vmap_mult(self.gamma_dot(t), z)
     )
 
-  def calculate_target_score(self, t: Array, x_0: Array, x_1: Array) -> Array:
-    """Calculates the target score at time t.
+  def calculate_target_score(
+      self, t: Array, x_0: Array, x_1: Array, z: Array
+  ) -> Array:
+    r"""Calculates the target score at time t.
+
+    Here we use the fact that
+    $$ \nabla \log \rho(t, x) = - \gamma^{-1}(t) \mathbb{E}(z | x_t = x),$$
+    which is equation 2.13 in [1].
 
     Args:
       t: The time at which the interpolation is performed.
       x_0: A sample from the initial distribution.
       x_1: A sample from the target distribution.
+      z: The noise added to the gamma function.
 
     Returns:
       The target score at time t.
     """
-    del x_1
-    # Making the assumption that x_0 is Gaussian and that we have an OU process.
-    return vmap_mult(1 / self.alpha(t), -x_0)
+    del x_0, x_1
+    return - vmap_mult(1 / self.gamma(t), z)
 
   def __hash__(self):
     return hash((self.alpha, self.beta, self.gamma))
@@ -150,16 +156,70 @@ class StochasticInterpolant(Interpolant):
 
 
 class LinearInterpolant(StochasticInterpolant):
-  """Linear interpolant with a zero mean noise."""
+  r"""Linear interpolant with a zero mean noise.
 
-  def __init__(self):
+  This interpolant is defined as
+  $$ x_t = \alpha(t) * x_0 + \beta(t) * x_1 + \gamma(t) z,$$
+  where $\alpha(t) = 1 - t, \beta(t) = t$, $\gamma(t) = \sqrt{2t(1-t)}$,
+  and $z \sim N(0, \sigma^2)$.
+  """
+
+  def __init__(self, sigma: float = 1.0):
+    """Initializes the linear interpolant.
+
+    Args:
+      sigma: The standard deviation of the noise.
+
+    Returns:
+      The linear interpolant.
+    """
     super().__init__(
         alpha=lambda t: 1 - t,
         alpha_dot=lambda t: 0 * t - 1.0,
         beta=lambda t: t,
         beta_dot=lambda t: 0 * t + 1.0,
-        gamma=lambda t: jnp.sqrt(2 * t * (1 - t)),
-        gamma_dot=lambda t: (1 - 2 * t) / jnp.sqrt(2 * t * (1 - t)),
+        gamma=lambda t: sigma * jnp.sqrt(2 * t * (1 - t)),
+        gamma_dot=lambda t: sigma * (1 - 2 * t) / jnp.sqrt(2 * t * (1 - t)),
+    )
+
+
+class LinearInterpolantSinusoidalNoise(StochasticInterpolant):
+  r"""Linear interpolant with a sinusoidal noise schedule.
+
+  This is similar to the linear interpolant, but with a sinusoidal noise
+  schedule, following $\gamma(t) = \sigma \sin(2\pi t)$. The main advantage of
+  this interpolant is that the derivative of the noise schedule does not have a
+  discontinuity at $t=0$ or $t=1$.
+  """
+
+  def __init__(self, sigma: float = 1.0):
+    super().__init__(
+        alpha=lambda t: 1 - t,
+        alpha_dot=lambda t: 0 * t - 1.0,
+        beta=lambda t: t,
+        beta_dot=lambda t: 0 * t + 1.0,
+        gamma=lambda t: sigma * jnp.square(jnp.sin(jnp.pi * t)),
+        gamma_dot=lambda t: sigma * jnp.pi * jnp.sin(2 * jnp.pi * t),
+    )
+
+
+class TrigonometricInterpolant(StochasticInterpolant):
+  r"""Trigonometric interpolant with no noise.
+
+  This interpolant is defined as
+  $$ x_t = \alpha(t) * x_0 + \beta(t) * x_1 + \gamma(t) z,$$
+  where $\alpha(t) = \cos(0.5 \pi t), \beta(t) = \sin(0.5 \pi t)$,
+  $\gamma(t) = 0$,
+  """
+
+  def __init__(self):
+    super().__init__(
+        alpha=lambda t: jnp.cos(0.5 * jnp.pi * t),
+        alpha_dot=lambda t: -0.5 * jnp.pi * jnp.sin(0.5 * jnp.pi * t),
+        beta=lambda t: jnp.sin(0.5 * jnp.pi * t),
+        beta_dot=lambda t: 0.5 * jnp.pi * jnp.cos(0.5 * jnp.pi * t),
+        gamma=lambda t: 0 * t,
+        gamma_dot=lambda t: 0 * t,
     )
 
 
