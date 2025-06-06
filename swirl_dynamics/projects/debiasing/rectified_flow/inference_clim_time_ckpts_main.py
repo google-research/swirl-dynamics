@@ -19,41 +19,27 @@ contiguous time chunks, which are embedded either in an additional dimension or
 in the channel dimension.
 
 In addition, we add a checkpointing mechanism to save the intermediate results
-of the inference loop.
+of the inference loop. This is useful for long running inference loops, which
+might be interrupted for various reasons (e.g. preemption).
 """
 
 import functools
 import json
 import logging
 from os import path as osp
-from typing import Any, Literal
 
 from absl import app
 from absl import flags
-import grain.python as pygrain
 import jax
 import ml_collections
 from ml_collections import config_flags
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
-from swirl_dynamics.projects.debiasing.rectified_flow import dataloaders
 from swirl_dynamics.projects.debiasing.rectified_flow import inference_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import trainers
 import tensorflow as tf
 import xarray as xr
 
-
-# pylint: disable=line-too-long
-_ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/lzepedanunez/data/era5/climat/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
-
-_LENS2_DATASET_PATH = (
-    "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
-)
-_LENS2_STATS_PATH = "/lzepedanunez/data/lens2/climat/lens2_240x121_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
-_LENS2_MEAN_CLIMATOLOGY_PATH = "/lzepedanunez/data/lens2/climat/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
-_LENS2_STD_CLIMATOLOGY_PATH = "/lzepedanunez/data/lens2/climat/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
-# pylint: enable=line-too-long
 
 _ERA5_VARIABLES = {
     "2m_temperature": None,
@@ -77,97 +63,6 @@ config_flags.DEFINE_config_file(
     "File path to the training hyperparameter configuration.",
     lock_config=True,
 )
-
-
-def build_data_loaders(
-    config: ml_collections.ConfigDict,
-    config_eval: ml_collections.ConfigDict,
-    batch_size: int,
-    lens2_member_indexer: tuple[dict[str, str], ...] | None = None,
-    lens2_variable_names: tuple[str, ...] | None = None,
-    era5_variables: dict[str, dict[str, Any]] | None = None,
-    date_range: tuple[str, str] | None = None,
-    regime: Literal["train", "eval"] = "eval",
-) -> pygrain.DataLoader:
-  """Loads the data loaders.
-
-  Args:
-    config: The config file used for the training experiment.
-    config_eval: The config file used for the evaluation experiment.
-    batch_size: The batch size.
-    lens2_member_indexer: The member indexer for the LENS2 dataset, here each
-      member indexer is a dictionary with the key "member" and the value is the
-      name of the member. In general we will usee only one member indexer at a
-      time.
-    lens2_variable_names: The names of the variables in the LENS2 dataset.
-    era5_variables: The names of the variables in the ERA5 dataset.
-    date_range: The date range for the evaluation.
-    regime: The regime for the evaluation.
-
-  Returns:
-    The dataloader for the inference loop.
-  """
-
-  if date_range is None:
-    logging.info("Using the default date ranges.")
-    if regime == "train":
-      date_range = config.date_range_train
-    elif regime == "eval":
-      date_range = config.date_range_eval
-
-  if lens2_member_indexer is None:
-    lens2_member_indexer = config.get(
-        "lens2_member_indexer", _LENS2_MEMBER_INDEXER
-    )
-    if isinstance(lens2_member_indexer, ml_collections.ConfigDict):
-      lens2_member_indexer = lens2_member_indexer.to_dict()
-
-  # Extract the paths from the config file or use the default values.
-  input_dataset_path = config_eval.get(
-      "input_dataset_path", default=_LENS2_DATASET_PATH
-  )
-  input_climatology = config_eval.get(
-      "input_climatology", default=_LENS2_STATS_PATH
-  )
-  input_mean_stats_path = config_eval.get(
-      "input_mean_stats_path", default=_LENS2_MEAN_CLIMATOLOGY_PATH
-  )
-  input_std_stats_path = config_eval.get(
-      "input_std_stats_path", default=_LENS2_STD_CLIMATOLOGY_PATH
-  )
-  output_dataset_path = config_eval.get(
-      "output_dataset_path", default=_ERA5_DATASET_PATH
-  )
-  output_climatology = config_eval.get(
-      "output_climatology", default=_ERA5_STATS_PATH
-  )
-
-  logging.info("input_dataset_path: %s", input_dataset_path)
-  logging.info("input_climatology: %s", input_climatology)
-  logging.info("input_mean_stats_path: %s", input_mean_stats_path)
-  logging.info("input_std_stats_path: %s", input_std_stats_path)
-  logging.info("output_dataset_path: %s", output_dataset_path)
-  logging.info("output_climatology: %s", output_climatology)
-
-  dataloader = dataloaders.create_ensemble_lens2_era5_loader_with_climatology(
-      date_range=date_range,
-      batch_size=batch_size,
-      shuffle=False,
-      input_dataset_path=input_dataset_path,
-      input_climatology=input_climatology,
-      input_mean_stats_path=input_mean_stats_path,
-      input_std_stats_path=input_std_stats_path,
-      input_variable_names=lens2_variable_names,
-      input_member_indexer=lens2_member_indexer,
-      output_dataset_path=output_dataset_path,
-      output_climatology=output_climatology,
-      output_variables=era5_variables,
-      time_stamps=True,
-      inference_mode=True,  # Using the inference dataset.
-      num_epochs=1,  # This is so the loop stops automatically.
-  )
-
-  return dataloader
 
 
 def inference_pipeline(
@@ -209,7 +104,7 @@ def inference_pipeline(
   """
   del verbose  # Not used for now.
 
-  # Using the default values.
+  # Using the default values. TODO: Refactor this.
   if lens2_member_indexer is None:
     logging.info("Using the default lens2_member_indexer")
     lens2_member_indexer = _LENS2_MEMBER_INDEXER
@@ -267,7 +162,7 @@ def inference_pipeline(
   )
 
   logging.info("Building the data loader.")
-  eval_dataloader = build_data_loaders(
+  eval_dataloader = inference_utils.build_inference_dataloader(
       config=config,
       config_eval=config_eval,
       batch_size=batch_size_eval * num_devices,
