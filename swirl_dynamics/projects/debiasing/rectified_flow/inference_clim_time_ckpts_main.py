@@ -35,6 +35,7 @@ import ml_collections
 from ml_collections import config_flags
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
+from swirl_dynamics.projects.debiasing.rectified_flow import dataloaders
 from swirl_dynamics.projects.debiasing.rectified_flow import inference_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import trainers
 import tensorflow as tf
@@ -162,7 +163,7 @@ def inference_pipeline(
   )
 
   logging.info("Building the data loader.")
-  eval_dataloader = inference_utils.build_inference_dataloader(
+  eval_dataloader = dataloaders.build_inference_dataloader(
       config=config,
       config_eval=config_eval,
       batch_size=batch_size_eval * num_devices,

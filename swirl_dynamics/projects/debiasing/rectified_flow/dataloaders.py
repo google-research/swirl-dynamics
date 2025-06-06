@@ -18,6 +18,7 @@
 
 import abc
 from collections.abc import Callable, Mapping, Sequence
+import dataclasses
 import types
 from typing import Any, Literal, SupportsIndex
 
@@ -25,6 +26,7 @@ from absl import logging
 from etils import epath
 import grain.python as pygrain
 import jax
+import ml_collections
 import numpy as np
 from swirl_dynamics.projects.debiasing.rectified_flow import data_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import pygrain_transforms as transforms
@@ -1218,7 +1220,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     output_variables: Variables in the output dataset to be chosen.
     shuffle: Whether to shuffle the data points.
     seed: Random seed for the random number generator.
-    batch_size: Total batch size (from all aggregating all chunks).
+    batch_size: Total batch size (from aggregating all chunks).
     chunk_size: Size of the chunk for the contiguous data.
     time_batch_size: Size of the time batch.
     drop_remainder: Whether to drop the reminder between the full length of the
@@ -1405,3 +1407,308 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       operations=transformations,
       worker_count=worker_count,
   )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DataLoadersConfig:
+  """Configuration class for the rectified flow model.
+
+  For the batch_size, chunk_size and time_batch_size, the following convention
+  is used:
+    - time_batch_size: Number of snapshots in each samplet for time-coherent
+      dataloader.
+    - chunk_size: Size of the chunk for the contiguous data for each process in
+      number of snapshots. This is a multiple of the time_batch_size, and
+      accounts for the local batch size. Here each sample has time_batch_size
+      contiguous snapshots.
+    - batch_size: Total batch size in number of snapshots from aggregating all
+      chunks accross all processes.
+
+  Attributes:
+    date_range_train: Date range for the data used in the dataloader.
+    date_range_eval: Date range for the data used in the dataloader.
+    batch_size_train: Total batch size (from aggregating all chunks).
+    batch_size_eval: Total batch size (from aggregating all chunks).
+    chunk_size: Size of the chunk for the contiguous data (for each process).
+    time_batch_size: Number of snapshots in each batch.
+    shuffle: Whether to shuffle the data points.
+    worker_count: Number of pygrain workers.
+    input_dataset_path: Dataset path for the input (LENS2) dataset.
+    input_climatology: Dataset path for the input climatology.
+    input_mean_stats_path: Dataset path for the ensemble mean statistics of the
+      climatology.
+    input_std_stats_path: Dataset path for the ensemble std statistics of the
+      climatology.
+    input_variable_names: Names of the input variables to be debiased.
+    input_member_indexer: The index for the ensemble members from which the data
+      is extracted. LENS2 dataset has 100 ensemble members under different
+      modelling choices.
+    output_variables: The names of the output variables to be debiased.
+    output_dataset_path: Dataset path for the output (ERA5) dataset.
+    output_climatology: Dataset path for the output (ERA5) climatology.
+    time_to_channel: Whether to add an extra dimension to the batch for the time
+      dimension, or to collapse the time and channel dimensions in the channel
+      dimension.
+    normalize_stats: Whether to normalize the statistics.
+    overlapping_chunks: Whether to use overlapping chunks when extracting the
+      data.
+    time_coherent: Whether to use the time-coherent, i.e., sequence-to-sequence
+      data loader or snapshot-to-snapshot data loader.
+  """
+
+  date_range_train: tuple[str, str]
+  date_range_eval: tuple[str, str]
+  batch_size_train: int
+  batch_size_eval: int
+  time_batch_size: int
+  chunk_size: int
+  shuffle: bool
+  worker_count: int
+  input_dataset_path: str
+  input_climatology: str
+  input_mean_stats_path: str
+  input_std_stats_path: str
+  input_variable_names: tuple[str, ...]
+  input_member_indexer: tuple[dict[str, str], ...]
+  output_variables: dict[str, dict[str, Any] | None] | types.MappingProxyType
+  output_dataset_path: str
+  output_climatology: str
+  time_to_channel: bool
+  normalize_stats: bool
+  overlapping_chunks: bool
+  time_coherent: bool
+
+
+def get_data_loaders_config(
+    config: ml_collections.ConfigDict,
+) -> DataLoadersConfig:
+  """Returns the data loaders config from the config file."""
+
+  if config.get("use_3d_model", False):
+    time_to_channel = False
+  else:
+    time_to_channel = True
+
+  return DataLoadersConfig(
+      date_range_train=config.get("date_range_train"),
+      date_range_eval=config.get("date_range_eval"),
+      batch_size_train=config.get("batch_size_train"),
+      batch_size_eval=config.get("batch_size_eval"),
+      time_batch_size=config.get("time_batch_size", 1),
+      chunk_size=config.get("chunk_size"),
+      shuffle=config.get("shuffle"),
+      worker_count=config.get("worker_count"),
+      input_dataset_path=config.get("input_dataset_path"),
+      input_climatology=config.get("input_climatology"),
+      input_mean_stats_path=config.get("input_mean_stats_path"),
+      input_std_stats_path=config.get("input_std_stats_path"),
+      input_variable_names=config.get("input_variable_names"),
+      input_member_indexer=config.get("input_member_indexer"),
+      output_variables=config.get("output_variables"),
+      output_dataset_path=config.get("output_dataset_path"),
+      output_climatology=config.get("output_climatology"),
+      time_to_channel=time_to_channel,
+      normalize_stats=config.get("normalize_stats"),
+      overlapping_chunks=config.get("overlapping_chunks"),
+      time_coherent=config.get("time_coherent"),
+  )
+
+
+def build_train_eval_data_loaders(
+    config: DataLoadersConfig,
+) -> tuple[pygrain.DataLoader, pygrain.DataLoader]:
+  """Builds the train and eval data loaders.
+
+  Args:
+    config: The configuration for the data loaders.
+
+  Returns:
+    A tuple containing the train and eval data loaders.
+  """
+
+  if not config.time_coherent:
+    logging.info("Using non-time-coherent data loader")
+    # Defines the dataloaders directly.
+    train_dataloader = (
+        create_ensemble_lens2_era5_chunked_loader_with_climatology(
+            date_range=config.date_range_train,
+            batch_size=config.batch_size_train,
+            chunk_size=config.chunk_size,
+            shuffle=True,
+            worker_count=config.worker_count,
+            input_dataset_path=config.input_dataset_path,
+            input_climatology=config.input_climatology,
+            input_mean_stats_path=config.input_mean_stats_path,
+            input_std_stats_path=config.input_std_stats_path,
+            input_variable_names=config.input_variable_names,
+            input_member_indexer=config.input_member_indexer,
+            output_variables=config.output_variables,
+            output_dataset_path=config.output_dataset_path,
+            output_climatology=config.output_climatology,
+        )
+    )
+    eval_dataloader = (
+        create_ensemble_lens2_era5_chunked_loader_with_climatology(
+            date_range=config.date_range_eval,
+            batch_size=config.batch_size_eval,
+            chunk_size=config.chunk_size,
+            shuffle=True,
+            worker_count=config.worker_count,
+            input_dataset_path=config.input_dataset_path,
+            input_climatology=config.input_climatology,
+            input_mean_stats_path=config.input_mean_stats_path,
+            input_std_stats_path=config.input_std_stats_path,
+            input_variable_names=config.input_variable_names,
+            input_member_indexer=config.input_member_indexer,
+            output_variables=config.output_variables,
+            output_dataset_path=config.output_dataset_path,
+            output_climatology=config.output_climatology,
+        )
+    )
+
+  else:
+    logging.info("Using time-coherent data loader.")
+    train_dataloader = (
+        create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
+            date_range=config.date_range_train,
+            batch_size=config.batch_size_train,
+            chunk_size=config.chunk_size,
+            shuffle=True,
+            worker_count=config.worker_count,
+            input_dataset_path=config.input_dataset_path,
+            input_climatology=config.input_climatology,
+            input_mean_stats_path=config.input_mean_stats_path,
+            input_std_stats_path=config.input_std_stats_path,
+            input_variable_names=config.input_variable_names,
+            input_member_indexer=config.input_member_indexer,
+            output_variables=config.output_variables,
+            time_batch_size=config.time_batch_size,
+            output_dataset_path=config.output_dataset_path,
+            output_climatology=config.output_climatology,
+            time_to_channel=config.time_to_channel,
+        )
+    )
+    eval_dataloader = (
+        create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
+            date_range=config.date_range_eval,
+            batch_size=config.batch_size_eval,
+            chunk_size=config.chunk_size,
+            shuffle=True,
+            worker_count=config.worker_count,
+            input_dataset_path=config.input_dataset_path,
+            input_climatology=config.input_climatology,
+            input_mean_stats_path=config.input_mean_stats_path,
+            input_std_stats_path=config.input_std_stats_path,
+            input_variable_names=config.input_variable_names,
+            input_member_indexer=config.input_member_indexer,
+            output_variables=config.output_variables,
+            time_batch_size=config.time_batch_size,
+            output_dataset_path=config.output_dataset_path,
+            output_climatology=config.output_climatology,
+            time_to_channel=config.time_to_channel,
+        )
+    )
+
+  return train_dataloader, eval_dataloader
+
+
+def build_inference_dataloader(
+    config: ml_collections.ConfigDict,
+    config_eval: ml_collections.ConfigDict,
+    batch_size: int,
+    lens2_member_indexer: tuple[dict[str, str], ...] | None = None,
+    lens2_variable_names: tuple[str, ...] | None = None,
+    era5_variables: dict[str, dict[str, Any]] | None = None,
+    date_range: tuple[str, str] | None = None,
+    regime: Literal["train", "eval"] = "eval",
+) -> pygrain.DataLoader:
+  """Loads the data loaders.
+
+  Args:
+    config: The config file used for the training experiment.
+    config_eval: The config file used for the evaluation experiment.
+    batch_size: The batch size.
+    lens2_member_indexer: The member indexer for the LENS2 dataset, here each
+      member indexer is a dictionary with the key "member" and the value is the
+      name of the member. In general we will usee only one member indexer at a
+      time.
+    lens2_variable_names: The names of the variables in the LENS2 dataset.
+    era5_variables: The names of the variables in the ERA5 dataset.
+    date_range: The date range for the evaluation.
+    regime: The regime for the evaluation.
+
+  Returns:
+    The dataloader for the inference loop.
+  """
+
+  if date_range is None:
+    logging.info("Using the default date ranges.")
+    if regime == "train":
+      date_range = config.date_range_train
+    elif regime == "eval":
+      date_range = config.date_range_eval
+
+  if lens2_variable_names is None:
+    lens2_variable_names = config.get(
+        "lens2_variable_names", _LENS2_VARIABLE_NAMES
+    )
+
+  # In not provided, we use the default values in the config files.
+  if era5_variables is None:
+    era5_variables = config.get("era5_variables", _ERA5_VARIABLES)
+  if isinstance(era5_variables, ml_collections.ConfigDict):
+    era5_variables = era5_variables.to_dict()
+
+  if lens2_member_indexer is None:
+    lens2_member_indexer = config.get(
+        "lens2_member_indexer", _LENS2_MEMBER_INDEXER
+    )
+    if isinstance(lens2_member_indexer, ml_collections.ConfigDict):
+      lens2_member_indexer = lens2_member_indexer.to_dict()
+
+  # Extract the paths from the config file or use the default values.
+  input_dataset_path = config_eval.get(
+      "input_dataset_path", default=_LENS2_DATASET_PATH
+  )
+  input_climatology = config_eval.get(
+      "input_climatology", default=_LENS2_STATS_PATH
+  )
+  input_mean_stats_path = config_eval.get(
+      "input_mean_stats_path", default=_LENS2_MEAN_CLIMATOLOGY_PATH
+  )
+  input_std_stats_path = config_eval.get(
+      "input_std_stats_path", default=_LENS2_STD_CLIMATOLOGY_PATH
+  )
+  output_dataset_path = config_eval.get(
+      "output_dataset_path", default=_ERA5_DATASET_PATH
+  )
+  output_climatology = config_eval.get(
+      "output_climatology", default=_ERA5_STATS_PATH
+  )
+
+  logging.info("input_dataset_path: %s", input_dataset_path)
+  logging.info("input_climatology: %s", input_climatology)
+  logging.info("input_mean_stats_path: %s", input_mean_stats_path)
+  logging.info("input_std_stats_path: %s", input_std_stats_path)
+  logging.info("output_dataset_path: %s", output_dataset_path)
+  logging.info("output_climatology: %s", output_climatology)
+
+  inference_dataloader = create_ensemble_lens2_era5_loader_with_climatology(
+      date_range=date_range,
+      batch_size=batch_size,
+      shuffle=False,
+      input_dataset_path=input_dataset_path,
+      input_climatology=input_climatology,
+      input_mean_stats_path=input_mean_stats_path,
+      input_std_stats_path=input_std_stats_path,
+      input_variable_names=lens2_variable_names,
+      input_member_indexer=lens2_member_indexer,
+      output_dataset_path=output_dataset_path,
+      output_climatology=output_climatology,
+      output_variables=era5_variables,
+      time_stamps=True,
+      inference_mode=True,  # Using the inference dataset.
+      num_epochs=1,  # This is so the loop stops automatically.
+  )
+
+  return inference_dataloader

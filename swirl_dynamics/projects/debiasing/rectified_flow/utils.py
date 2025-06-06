@@ -97,30 +97,38 @@ class ReFlowModelConfig:
   use_3d_model: bool
 
 
-def get_model_config(
-    config: ml_collections.ConfigDict
-) -> ReFlowModelConfig:
+def get_model_config(config: ml_collections.ConfigDict) -> ReFlowModelConfig:
   """Returns the model config from the config file."""
+
+  # This is to avoid issues with nested tuples being silently converted to
+  # nested lists when reading from a json file.
+  input_shapes_list = config.get("input_shapes")
+  input_shapes = (tuple(input_shapes_list[0]), tuple(input_shapes_list[1]))
+
   return ReFlowModelConfig(
       out_channels=config.get("out_channels"),
-      num_channels=config.get("num_channels"),
-      downsample_ratio=config.get("downsample_ratio"),
+      num_channels=tuple(config.get("num_channels")),
+      downsample_ratio=tuple(config.get("downsample_ratio")),
       bfloat16=config.get("bfloat16", False),
-      resize_to_shape=config.get("resize_to_shape"),
+      resize_to_shape=tuple(config.get("resize_to_shape")),
       num_blocks=config.get("num_blocks"),
       dropout_rate=config.get("dropout_rate"),
       noise_embed_dim=config.get("noise_embed_dim"),
       padding=config.get("padding", "LONLAT"),
       use_attention=config.get("use_attention", False),
-      use_spatial_attention=config.get("use_spatial_attention", (False,)),
-      use_temporal_attention=config.get("use_temporal_attention", (False,)),
+      use_spatial_attention=tuple(
+          config.get("use_spatial_attention", (False,))
+      ),
+      use_temporal_attention=tuple(
+          config.get("use_temporal_attention", (False,))
+      ),
       use_position_encoding=config.get("use_position_encoding", True),
       num_heads=config.get("num_heads"),
       ema_decay=config.get("ema_decay", 0.99),
       use_skips=config.get("use_skips", True),
       use_weight_global_skip=config.get("use_weight_global_skip", False),
       use_local=config.get("use_local", False),
-      input_shapes=config.get("input_shapes"),
+      input_shapes=input_shapes,
       same_dimension=config.get("same_dimension", True),
       min_time=config.get("min_time", 1e-4),
       max_time=config.get("max_time", 1 - 1e-4),
@@ -130,6 +138,7 @@ def get_model_config(
   )
 
 
+# TODO: This seems to have some issues with the model.
 def build_model_from_config(
     config: ReFlowModelConfig,
 ) -> reflow_models.ReFlowModel:
