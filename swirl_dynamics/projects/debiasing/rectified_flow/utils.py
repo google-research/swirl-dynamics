@@ -19,10 +19,14 @@ them from either a json or a yaml file.
 """
 
 import dataclasses
+import logging
+from typing import Any
 
 import ml_collections
+import numpy as np
 from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.projects.debiasing.rectified_flow import models as reflow_models
+import xarray as xr
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -211,3 +215,47 @@ def build_model_from_config(
   )
 
   return model
+
+
+def parse_vars_from_config_to_dict(
+    config: ml_collections.ConfigDict,
+) -> dict[str, Any]:
+  """Function to parse the variables names from the configdict to a dictionary.
+
+  Args:
+    config: The instance of the configuration dictionary.
+
+  Returns:
+    A dictionary with the variables, if they are not in the config file,
+    the default values are used as defined at the top of the file.
+  """
+  # The era5 variables are a dictionary so they get transformed to a ConfigDict.
+  era5_variables = config.get("era5_variables", None)
+  if era5_variables is None:
+    raise ValueError("era5_variables should be defined in the config file.")
+
+  if isinstance(era5_variables, ml_collections.ConfigDict):
+    era5_variables = era5_variables.to_dict()
+
+  # These are a tuple of strings.
+  lens2_variable_names = config.get("lens2_variable_names", None)
+  if lens2_variable_names is None:
+    raise ValueError(
+        "lens2_variable_names should be defined in the config file."
+    )
+
+  # These are a tuple of dictionaries. They elements of the tuple are not
+  # converted to ConfigDict.
+  lens2_member_indexer_tuple = config.get("lens2_member_indexer", None)
+  if lens2_member_indexer_tuple is None:
+    raise ValueError(
+        "lens2_member_indexer should be defined in the config file."
+    )
+
+  return dict(
+      era5_variables=era5_variables,
+      lens2_variable_names=lens2_variable_names,
+      lens2_member_indexer_tuple=lens2_member_indexer_tuple,
+  )
+
+

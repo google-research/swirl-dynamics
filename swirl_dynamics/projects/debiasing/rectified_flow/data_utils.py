@@ -112,6 +112,7 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
       dataset_path: str,
       split: Literal["train", "eval", "test"],
       spatial_downsample_factor: int = 1,
+      field_name: str = "u",
   ):
     """Load pre-computed trajectories stored in hdf5 file.
 
@@ -119,6 +120,7 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
       dataset_path: Absolute path to dataset file.
       split: Data split, of the following: train, eval, or test.
       spatial_downsample_factor: reduce spatial resolution by factor of x.
+      field_name: Name of the field to load from the dataset.
 
     Returns:
       loader, stats (optional): Tuple of dataloader and dictionary containing
@@ -128,7 +130,7 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
     # Reads data from the hdf5 file.
     snapshots = hdf5_utils.read_single_array(
         dataset_path,
-        f"{split}/u",
+        f"{split}/{field_name}",
     )
 
     # If the data is given by trajectories, we scramble the time stamps.
@@ -153,7 +155,7 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
     if split != "train":
       data_for_stats = hdf5_utils.read_single_array(
           dataset_path,
-          "train/u",
+          f"train/{field_name}",
       )
       if data_for_stats.ndim == 5:
         num_trajs, num_time, nx, ny, dim = data_for_stats.shape
@@ -173,6 +175,7 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
 
     self.source = snapshots
     self.normalize_stats = {"mean": mean, "std": std}
+    self._field_name = field_name
 
   def __len__(self) -> int:
     """Returns the number of samples in the source."""
@@ -185,7 +188,7 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
     if idx >= self.__len__():
       raise IndexError("Index out of range.")
     # here we return a dictionary with "u"
-    return {"u": self.source[idx]}
+    return {self._field_name: self.source[idx]}
 
 
 class UnpairedDataLoader:

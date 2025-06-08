@@ -171,6 +171,7 @@ def inference_pipeline(
       lens2_variable_names=lens2_variable_names,
       era5_variables=era5_variables,
       date_range=date_range,
+      regime="test",  # This is the inference regime.
   )
 
   output_list = []
