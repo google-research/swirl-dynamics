@@ -30,7 +30,7 @@ following classes.
 CommonSourceEnsemble  - DataSourceEnsembleWithClimatologyInference
                       - ContiguousDataSourceEnsembleWithClimatology
 
-- ContiguousDataSourceEnsembleWithClimatology: This dataloader is the workhorse
+- ContiguousDataSourceEnsembleWithClimatology: This DataSource is the workhorse
 for training the climatology-based models. It is designed to produce overlapping
 chunks and loads the data by chunks in memory, minimizing the number of reads
 from the network. This is crucial for obtaining relatively fast training.
@@ -41,15 +41,19 @@ minimize the number of reads from the network. Instead, we use the same
 interface as above, but we load snapshot-by-snapshot and then concatenate them
 together.
 
-- DataSourceEnsembleWithClimatology: This dataloader is the workhorse for
+- DataSourceEnsembleWithClimatology: This DataSource is the workhorse for
 evaluation during the period where both LENS2 and ERA5 data are available. This
-dataloader produces non-overlapping chunks and is designed to only go through
-the data once.
+DataSource loads snapshot by snapshot to memory and it is used to produce
+non-overlapping chunks, with the corresponding climatologies.
 
-- DataSourceEnsembleWithClimatologyInference: This dataloader is the workhorse
+- DataSourceEnsembleWithClimatologyInference: This DataSource is the workhorse
 for inference during the evaluation period where only LENS2 data is available.
-It also produces non-overlapping chunks and it is designed to only go through
-the data once.
+It is also used to produces non-overlapping chunks.
+
+The DataSources then are used to build the dataloaders, which are responsible
+for producing the batches of data for training and evaluation. The DataSources
+are also responsible for loading the correct climatologies of both input and
+output datasets.
 """
 
 import abc
