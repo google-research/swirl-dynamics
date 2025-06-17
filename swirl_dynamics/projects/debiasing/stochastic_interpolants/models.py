@@ -249,12 +249,215 @@ class StochasticInterpolantModel(models.BaseModel):
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
+class StochasticInterpolantScoreModel(models.BaseModel):
+  """Training a flow-based model for both flow and score.
+
+  Attributes:
+    input_shape: The tensor shape of a single sample (i.e. without any batch
+      dimension).
+    flow_score_model: The flax module to use for the flow and score. The
+      required interface for its `__call__` function is specified by
+      `FlowScoreFlaxModule`.
+    interpolant: The interpolant to use for the training.
+    noising_process: A Callable that samples noise from the noising process.
+    loss_stochastic_interpolant: A Callable that computes the loss for the
+      stochastic interpolant.
+    time_sampling: A Callable that samples the interpolation times at training.
+    num_eval_cases_per_lvl: int = 1
+    min_eval_time_lvl: Minimum time at which the flow is sampled at evaluation.
+      This should be close to 0.
+    max_eval_time_lvl: Maximum time at which the flow is sampled at evaluation.
+      This should be close to 1.
+    num_eval_time_levels: Number of times at which the flow will be sampled for
+      each trajectory between x_0 and x_1.
+    weighted_norm: The norm to use for the loss, if None we use euclidean norm,
+      otherwise we use weighted norm.
+  """
+
+  input_shape: tuple[int, ...]
+  flow_score_model: nn.Module
+  interpolant: interpolants.StochasticInterpolant
+  noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
+  loss_stochastic_interpolant_flow: StochasticInterpolantLossFn
+  loss_stochastic_interpolant_score: StochasticInterpolantLossFn
+  time_sampling: Callable[[Array, tuple[int, ...]], Array] = functools.partial(
+      jax.random.uniform, dtype=jnp.float32
+  )
+
+  min_train_time: float = 1e-4  # This should be close to 0.
+  max_train_time: float = 1.0 - 1e-4  # It should be close to 1.
+
+  num_eval_cases_per_lvl: int = 1
+  min_eval_time_lvl: float = 1e-4  # This should be close to 0.
+  max_eval_time_lvl: float = 1.0 - 1e-4  # It should be close to 1.
+  num_eval_time_levels: ClassVar[int] = 10
+
+  def initialize(self, rng: Array):
+    # TODO: Add a dtype object to ensure consistency of types.
+    x = jnp.ones((1,) + self.input_shape)
+
+    return self.flow_score_model.init(
+        rng, x=x, sigma=jnp.ones((1,)), is_training=False
+    )
+
+  def loss_fn(
+      self,
+      params: models.PyTree,
+      batch: models.BatchType,
+      rng: Array,
+      mutables: models.PyTree,
+  ) -> models.LossAndAux:
+    """Computes the flow matching loss on a training batch.
+
+    Args:
+      params: The parameters of the flow model to differentiate against.
+      batch: A batch of training data expected to contain two fields, namely
+        `x_0` and `x_1` corresponding to samples from different sets. Each field
+        is expected to have a shape of `(batch, *spatial_dims, channels)`.
+      rng: A Jax random key.
+      mutables: The mutable (non-differentiated) parameters of the flow-score
+        model (e.g. batch stats).
+
+    Returns:
+      The loss value and a tuple of training metric and mutables.
+    """
+    batch_size = len(batch["x_0"])
+    time_sample_rng, dropout_rng, noise_rng = jax.random.split(rng, num=3)
+
+    time_range = self.max_train_time - self.min_train_time
+    time = (
+        time_range * self.time_sampling(time_sample_rng, (batch_size,))
+        + self.min_train_time
+    )
+
+    # Interpolation between x_0 and x_1 (check the interpolant)
+    # Check the dimensions here.
+    noise = self.noising_process(noise_rng, batch["x_0"].shape)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise)
+
+    # Here we assume that the flow model has two outputs, one for the flow and
+    # one for the score (or the denoised sample if using a denoising loss).
+    v_t, s_t = self.flow_score_model.apply(
+        {"params": params},
+        x=x_t,
+        sigma=time,
+        is_training=True,
+        rngs={"dropout": dropout_rng},
+    )
+
+    loss_flow = self.loss_stochastic_interpolant_flow(
+        v_t,
+        time,
+        batch["x_0"],
+        batch["x_1"],
+        noise,
+        self.interpolant,
+    )
+    loss_score = self.loss_stochastic_interpolant_score(
+        s_t,
+        time,
+        batch["x_0"],
+        batch["x_1"],
+        noise,
+        self.interpolant,
+    )
+
+    loss = loss_flow + loss_score
+    metric = dict(loss=loss, loss_flow=loss_flow, loss_score=loss_score)
+    return loss, (metric, mutables)
+
+  def eval_fn(
+      self,
+      variables: models.PyTree,
+      batch: models.BatchType,
+      rng: Array,
+  ) -> models.ArrayDict:
+    """Computes metrics on an eval batch.
+
+    Randomly selects members of the batch and interpolates them at different
+    points between 0 and 1 and computed the flow. The error of the flow at each
+    point is aggregated.
+
+    Args:
+      variables: The full model variables for the flow module.
+      batch: A batch of evaluation data expected to contain two fields `x_0` and
+        `x_1` fields, representing samples of each set. Both fields are expected
+        to have shape of `(batch, *spatial_dims, channels)`.
+      rng: A Jax random key.
+
+    Returns:
+      A dictionary of evaluation metrics.
+    """
+    # We bootstrap the samples from the batch, but we keep them paired by using
+    # the same random number generator seed.
+    choice_rng, noise_rng = jax.random.split(rng)
+    # Shape: (num_eval_time_levels, num_eval_cases_per_lvl, *input_shape)
+    x_0 = jax.random.choice(
+        key=choice_rng,
+        a=batch["x_0"],
+        shape=(self.num_eval_time_levels, self.num_eval_cases_per_lvl),
+    )
+
+    x_1 = jax.random.choice(
+        key=choice_rng,
+        a=batch["x_1"],
+        shape=(self.num_eval_time_levels, self.num_eval_cases_per_lvl),
+    )
+
+    noise = self.noising_process(noise_rng, x_1.shape)
+
+    # The intervals for evaluation of time are linear.
+    time_eval = jnp.linspace(
+        self.min_eval_time_lvl,
+        self.max_eval_time_lvl,
+        self.num_eval_time_levels,
+    )
+
+    x_t = self.interpolant(time_eval, x_0, x_1, noise)
+    flow_fn = self.inference_fn(variables, self.flow_score_model)
+    v_t, s_t = jax.vmap(flow_fn, in_axes=(1, None), out_axes=1)(x_t, time_eval)
+
+    # Tile the time to have the same shape as the batch and the number of
+    # evaluation cases.
+    time_tiled = jnp.tile(time_eval[:, None], (1, self.num_eval_cases_per_lvl))
+
+    # Eq. (1) in [1].
+    int_losses_flow = jax.vmap(
+        self.loss_stochastic_interpolant_flow, in_axes=(0, 0, 0, 0, 0, None)
+    )(v_t, time_tiled, x_0, x_1, noise, self.interpolant)
+
+    int_losses_score = jax.vmap(
+        self.loss_stochastic_interpolant_score, in_axes=(0, 0, 0, 0, 0, None)
+    )(s_t, time_tiled, x_0, x_1, noise, self.interpolant)
+
+    # We sum the losses to get the total loss.
+    int_losses = int_losses_flow + int_losses_score
+
+    eval_losse = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
+
+    return eval_losse
+
+  @classmethod
+  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):
+    """Returns the inference flow function."""
+
+    def _flow(x: Array, time: float | Array) -> Array:
+      # This is a wrapper to vectorize time if it is a float.
+      if not jnp.shape(jnp.asarray(time)):
+        time *= jnp.ones((x.shape[0],))
+      return flow_model.apply(variables, x=x, sigma=time, is_training=False)
+
+    return _flow
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
   """Training a conditional flow-based model for distribution matching.
 
   Attributes:
     cond_shape: Shape of the conditional input.
   """
+
   cond_shape: ShapeDict | None = None
 
   def initialize(self, rng: Array) -> models.PyTree:

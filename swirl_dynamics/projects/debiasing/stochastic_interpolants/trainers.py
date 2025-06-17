@@ -61,7 +61,7 @@ TrainState: TypeAlias = StochasticInterpolantTrainState
 class StochasticInterpolantTrainer(
     trainers.BasicTrainer[models.StochasticInterpolantModel, TrainState]
 ):
-  """Single-device trainer for rectified flow models."""
+  """Single-device trainer for stochastic interpolants models."""
 
   @flax.struct.dataclass
   class TrainMetrics(clu_metrics.Collection):
@@ -132,6 +132,24 @@ class StochasticInterpolantTrainer(
     return models.StochasticInterpolantModel.inference_fn(
         variables, *args, **kwargs
     )
+
+
+class StochasticInterpolantScoreTrainer(StochasticInterpolantTrainer):
+  """Single-device trainer for stochastic interpolants score models.
+
+  This trainer inherits most of its functionality from the
+  `StochasticInterpolantTrainer` but adds additional metrics for the score and
+  the flow. The metrics are defined in the `TrainMetrics` class.
+  """
+
+  @flax.struct.dataclass
+  class TrainMetrics(clu_metrics.Collection):
+    train_loss: clu_metrics.Average.from_output("loss")
+    train_loss_std: clu_metrics.Std.from_output("loss")
+    train_loss_flow: clu_metrics.Average.from_output("loss_flow")
+    train_loss_flow_std: clu_metrics.Std.from_output("loss_flow")
+    train_loss_score: clu_metrics.Average.from_output("loss_score")
+    train_loss_score_std: clu_metrics.Std.from_output("loss_score")
 
 
 class DistributedStochasticInterpolantTrainer(
