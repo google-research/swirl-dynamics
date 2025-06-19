@@ -42,33 +42,6 @@ import tensorflow as tf
 import xarray as xr
 
 
-_ERA5_VARIABLES = {
-    "10m_magnitude_of_wind": None,
-    "2m_temperature": None,
-    "geopotential": {"level": [200, 500]},
-    "mean_sea_level_pressure": None,
-    "specific_humidity": {"level": 1000},
-    "u_component_of_wind": {"level": [200, 850]},
-    "v_component_of_wind": {"level": [200, 850]},
-}
-
-_LENS2_MEMBER_INDEXER = ("cmip6_1001_001",)
-_LENS2_VARIABLE_NAMES = (
-    "WSPDSRFAV",
-    "TREFHT",
-    "Z200",
-    "Z500",
-    "PSL",
-    "QREFHT",
-    "U200",
-    "U850",
-    "V200",
-    "V850",
-)
-_LENS2_VARIABLES = {
-    v: {"member": _LENS2_MEMBER_INDEXER[0]} for v in _LENS2_VARIABLE_NAMES
-}
-
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("model_dir", None, "Directory to store model data.")
@@ -86,6 +59,9 @@ def inference_pipeline(
     model_dir: str,
     config_eval: ml_collections.ConfigDict,
     workdir_path: str,
+    lens2_member_indexer: tuple[dict[str, str], ...],
+    lens2_variable_names: tuple[str, ...],
+    era5_variables: dict[str, dict[str, int] | None],
     date_range: tuple[str, str] | None = None,
     verbose: bool = False,
     batch_size_eval: int = 16,
@@ -95,24 +71,24 @@ def inference_pipeline(
         "mean_sea_level_pressure",
         "wind_speed",
     ),
-    lens2_member_indexer: tuple[dict[str, str], ...] | None = None,
-    lens2_variable_names: dict[str, dict[str, str]] | None = None,
-    era5_variables: dict[str, dict[str, int] | None] | None = None,
     num_sampling_steps: int = 100,
 ) -> dict[str, np.ndarray]:
   """The evaluation pipeline.
+
+  This function is used to run the inference pipeline. It loads the model,
+  builds the dataloader, runs the inference loop and saves the results to disk.
 
   Args:
     model_dir: The directory with the model to infer.
     config_eval: The config file for the evaluation.
     workdir_path: The path to the work directory for saving the checkpoints.
+    lens2_member_indexer: The member indexer for the LENS2 dataset.
+    lens2_variable_names: The names of the variables in the LENS2 dataset.
+    era5_variables: The names of the variables in the ERA5 dataset.
     date_range: The date range for the evaluation.
     verbose: Whether to print the config file.
     batch_size_eval: The batch size for the evaluation.
     variables: Names of physical fields.
-    lens2_member_indexer: The member indexer for the LENS2 dataset.
-    lens2_variable_names: The names of the variables in the LENS2 dataset.
-    era5_variables: The names of the variables in the ERA5 dataset.
     num_sampling_steps: The number of sampling steps for solving the ODE.
 
   Returns:
@@ -121,17 +97,8 @@ def inference_pipeline(
   """
   del verbose  # Not used for now.
 
-  # Using the default values. TODO: Refactor this.
-  if lens2_member_indexer is None:
-    logging.info("Using the default lens2_member_indexer")
-    lens2_member_indexer = _LENS2_MEMBER_INDEXER
-  if era5_variables is None:
-    logging.info("Using the default era5_variables")
-    era5_variables = _ERA5_VARIABLES
-
   # We leverage parallelization among current devices.
   num_devices = jax.local_device_count()
-
   logging.info("number of devices: %d", num_devices)
 
   # Loads the json file with the network configuration.
@@ -282,21 +249,18 @@ def main(argv):
   ## Use the for loop here.
   logging.info("Evaluating %s", model_dir)
 
-  # This is necessary due the ordering issues inside a ConfigDict.
-  # TODO: Change the pipeline to avoid concatenating
-  # ConfigDicts.
-  era5_variables = config.get("era5_variables", default=_ERA5_VARIABLES)
+  lens2_variable_names = config.get("lens2_variable_names")
+  lens2_member_indexer = config.get("lens2_member_indexer")
+  era5_variables = config.get("era5_variables")
+  if None in (era5_variables, lens2_variable_names, lens2_member_indexer):
+    raise ValueError(
+        "ERA5 variables, LENS2 variable names and LENS2 member",
+        "indexer should all be specified in the config file.",
+    )
+
+  # This is necessary due to ConfigDict issues with nested containers.
   if isinstance(era5_variables, ml_collections.ConfigDict):
     era5_variables = era5_variables.to_dict()
-
-  lens2_variable_names = config.get(
-      "lens2_variable_names", default=_LENS2_VARIABLE_NAMES
-  )
-
-  # This is a tuple of dictionaries, thus no need for conversion.
-  lens2_member_indexer = config.get(
-      "lens2_member_indexer", default=_LENS2_MEMBER_INDEXER
-  )
 
   num_sampling_steps = config.get("num_sampling_steps", default=100)
   logging.info("Using %d discretization steps.", num_sampling_steps)

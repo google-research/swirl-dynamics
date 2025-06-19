@@ -103,6 +103,7 @@ def sampling_from_batch(
     time_chunk_size: int,
     time_to_channel: bool = False,
     reverse_flow: bool = False,
+    use_jit_dynamics_fn: bool = False,
 ) -> jax.Array:
   """Sampling from a batch using a reflow model.
 
@@ -129,6 +130,9 @@ def sampling_from_batch(
       dimensions.
     reverse_flow: Whether to use the reverse flow, i.e., integrate from 1 to 0,
       instead of 0 to 1.
+    use_jit_dynamics_fn: Whether to use jax.jit on the dynamics function only.
+      This is useful for using in a constrained memory environment, where
+      jitting the full roll out may be too memory intensive.
 
   Returns:
     The sampled output.
@@ -168,6 +172,9 @@ def sampling_from_batch(
     )
   else:
     latent_dynamics_fn = latent_dynamics_fn_tmp
+
+  if use_jit_dynamics_fn:
+    latent_dynamics_fn = jax.jit(latent_dynamics_fn)
 
   integrator = ode_solvers.RungeKutta4()
   integrate_fn = functools.partial(

@@ -77,20 +77,27 @@ PyTree = Any
 DynamicsFn = Callable[[Array, Array, PyTree], Array]
 
 _ERA5_VARIABLES = types.MappingProxyType({
-    "2m_temperature": None,
-    "specific_humidity": {"level": 1000},
-    "mean_sea_level_pressure": None,
     "10m_magnitude_of_wind": None,
+    "2m_temperature": None,
+    "geopotential": {"level": [200, 500]},
+    "mean_sea_level_pressure": None,
+    "specific_humidity": {"level": 1000},
+    "u_component_of_wind": {"level": [200, 850]},
+    "v_component_of_wind": {"level": [200, 850]},
 })
 
-# pylint: disable=line-too-long
-_ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/wanzy/data/era5/selected_variables/climat/1p5deg_dailymean_7vars_windspeed_clim_daily_1961_to_2000_31_dw.zarr"
-
-# Interpolated dataset to match the resolution of the ERA5 data set.
-_LENS2_DATASET_PATH = "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
-_LENS2_STATS_PATH = "/wanzy/data/lens2/climat/lens2_240x121_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
-# pylint: enable=line-too-long
+_LENS2_VARIABLE_NAMES = (
+    "WSPDSRFAV",
+    "TREFHT",
+    "Z200",
+    "Z500",
+    "PSL",
+    "QREFHT",
+    "U200",
+    "U850",
+    "V200",
+    "V850",
+)
 
 # For training we still use the tuple of dictionaries.
 _LENS2_MEMBER_INDEXER = (
@@ -99,10 +106,28 @@ _LENS2_MEMBER_INDEXER = (
     {"member": "cmip6_1041_003"},
     {"member": "cmip6_1061_004"},
 )
-_LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "PSL", "WSPDSRFAV")
 
-_LENS2_MEAN_CLIMATOLOGY_PATH = "/lzepedanunez/data/lens2/stats/scratch/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
-_LENS2_STD_CLIMATOLOGY_PATH = "/lzepedanunez/data/lens2/stats/scratch/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
+# pylint: enable=line-too-long
+_ERA5_DATASET_PATH = "data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_STATS_PATH = "data/era5/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
+
+# Interpolated dataset to match the resolution of the ERA5 data set.
+_LENS2_DATASET_PATH = (
+    "data/lens2/lens2_240x121_lonlat_1960-2020_10_vars_4_train_members.zarr"
+)
+
+# Statistics for the LENS2 dataset.
+_LENS2_STATS_PATH = "data/lens2/lens2_240x121_10_vars_4_members_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
+
+# Mean and STD of the statistics for the LENS2 dataset.
+_LENS2_MEAN_STATS_PATH = (
+    "data/lens2/mean_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
+)
+_LENS2_STD_STATS_PATH = (
+    "data/lens2/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
+)
+
+# pylint: disable=line-too-long
 
 
 def read_stats(
@@ -561,9 +586,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     return (member, date, date, dayofyear)
 
   def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
-    return maybe_expand_dims(
-        x, allowed_dims=(2, 3), trigger_expand_dims=2
-    )
+    return maybe_expand_dims(x, allowed_dims=(2, 3), trigger_expand_dims=2)
 
 
 class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
@@ -687,9 +710,7 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     return (member, date_input, date_output_dummy, dayofyear)
 
   def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
-    return maybe_expand_dims(
-        x, allowed_dims=(2, 3), trigger_expand_dims=2
-    )
+    return maybe_expand_dims(x, allowed_dims=(2, 3), trigger_expand_dims=2)
 
 
 class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
@@ -809,9 +830,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     return (member, dates, dates, daysofyear)
 
   def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
-    return maybe_expand_dims(
-        x, allowed_dims=(3, 4), trigger_expand_dims=3
-    )
+    return maybe_expand_dims(x, allowed_dims=(3, 4), trigger_expand_dims=3)
 
 
 # TODO: Merge this loader with the one below and add a flag.

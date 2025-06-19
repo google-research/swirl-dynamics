@@ -33,47 +33,6 @@ from swirl_dynamics.projects.genfocal.debiasing import trainers
 from swirl_dynamics.projects.genfocal.debiasing import utils
 import tensorflow as tf
 
-
-# pylint: disable=line-too-long
-_ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/lzepedanunez/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
-_LENS2_DATASET_PATH = (
-    "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
-)
-_LENS2_STATS_PATH = "/lzepedanunez/data/lens2/stats/all_variables_240x121_lonlat_1961-2000.zarr/"
-_LENS2_MEAN_STATS_PATH = "/lzepedanunez/data/lens2/stats/lens2_mean_stats_all_variables_240x121_lonlat_1961-2000.zarr"
-_LENS2_STD_STATS_PATH = "/lzepedanunez/data/lens2/stats/lens2_std_stats_all_variables_240x121_lonlat_1961-2000.zarr"
-# pylint: enable=line-too-long
-
-_ERA5_VARIABLES = {
-    "10m_magnitude_of_wind": None,
-    "2m_temperature": None,
-    "geopotential": {"level": [200, 500]},
-    "mean_sea_level_pressure": None,
-    "specific_humidity": {"level": 1000},
-    "u_component_of_wind": {"level": [200, 850]},
-    "v_component_of_wind": {"level": [200, 850]},
-}
-
-# This is modified to be a tuple of strings, from a tuple of dictionaries of the
-# form : ({"member": "cmip6_1001_001"},)
-_LENS2_MEMBER_INDEXER = ("cmip6_1001_001",)
-_LENS2_VARIABLE_NAMES = (
-    "WSPDSRFAV",
-    "TREFHT",
-    "Z200",
-    "Z500",
-    "PSL",
-    "QREFHT",
-    "U200",
-    "U850",
-    "V200",
-    "V850",
-)
-_LENS2_VARIABLES = {
-    v: {"member": _LENS2_MEMBER_INDEXER[0]} for v in _LENS2_VARIABLE_NAMES
-}
-
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("model_dir", None, "Directory to store model data.")
@@ -87,124 +46,13 @@ config_flags.DEFINE_config_file(
 )
 
 
-def read_stats(
-    era5_variables: dict[str, dict[str, int] | None] | None = None,
-    lens2_variables: dict[str, dict[str, str] | None] | None = None,
-) -> dict[str, np.ndarray]:
-  """Read the stats from the Zarr files.
-
-  Args:
-    era5_variables: A dictionary containing the ERA5 variables.
-    lens2_variables: A dictionary containing the LENS2 variables.
-
-  Returns:
-    A dictionary with the variables.
-  """
-
-  if not era5_variables:
-    era5_variables = _ERA5_VARIABLES
-  if not lens2_variables:
-    lens2_variables = _LENS2_VARIABLES
-
-  mean_era5_dict = dataloaders.read_stats(
-      _ERA5_STATS_PATH, era5_variables, "mean"
-  )
-  std_era5_dict = dataloaders.read_stats(
-      _ERA5_STATS_PATH, era5_variables, "std"
-  )
-
-  mean_lens2_dict = dataloaders.read_stats(
-      _LENS2_STATS_PATH, lens2_variables, "mean"
-  )
-  std_lens2_dict = dataloaders.read_stats(
-      _LENS2_STATS_PATH, lens2_variables, "std"
-  )
-
-  mean_array = []
-  for key, variable in mean_era5_dict.items():
-    mean_array.append(variable)
-    print(key)
-
-  std_array = []
-  for _, variable in std_era5_dict.items():
-    std_array.append(variable)
-
-  mean_era5 = np.concatenate(mean_array, axis=-1)
-  std_era5 = np.concatenate(std_array, axis=-1)
-
-  mean_array_lens2 = []
-  for key, variable in mean_lens2_dict.items():
-    mean_array_lens2.append(variable)
-    print(key)
-
-  std_array_lens2 = []
-  for _, variable in std_lens2_dict.items():
-    std_array_lens2.append(variable)
-
-  mean_lens2 = np.concatenate(mean_array_lens2, axis=-1)
-  std_lens2 = np.concatenate(std_array_lens2, axis=-1)
-
-  return {
-      "mean_era5": mean_era5,
-      "std_era5": std_era5,
-      "mean_lens2": mean_lens2,
-      "std_lens2": std_lens2,
-  }
-
-
-def read_normalized_stats(
-    lens2_variables: dict[str, dict[str, str] | None] | None = None,
-) -> dict[str, np.ndarray]:
-  """Reads the normalization statistics for conditining.
-
-  Args:
-    lens2_variables:
-
-  Returns:
-   The ensemble mean and std of the trajectory mean and std.
-  """
-  if not lens2_variables:
-    lens2_variables = _LENS2_VARIABLES
-
-  print("Reading the normalized statistics of LENS2 across ensemble members.")
-  print(f"LENS2 variables {lens2_variables}")
-
-  # We extract the keys, which are the fields of the dataset.
-  keys_dict = {len: {} for len in lens2_variables.keys()}
-  mean_mean = dataloaders.read_stats(_LENS2_MEAN_STATS_PATH, keys_dict, "mean")
-  mean_std = dataloaders.read_stats(_LENS2_MEAN_STATS_PATH, keys_dict, "std")
-
-  std_mean = dataloaders.read_stats(_LENS2_STD_STATS_PATH, keys_dict, "mean")
-  std_std = dataloaders.read_stats(_LENS2_STD_STATS_PATH, keys_dict, "std")
-
-  mean_mean_array = []
-  for _, variable in mean_mean.items():
-    mean_mean_array.append(variable)
-
-  mean_std_array = []
-  for _, variable in mean_std.items():
-    mean_std_array.append(variable)
-
-  std_mean_array = []
-  for _, variable in std_mean.items():
-    std_mean_array.append(variable)
-
-  std_std_array = []
-  for _, variable in std_std.items():
-    std_std_array.append(variable)
-
-  return {
-      "mean_mean": np.concatenate(mean_mean_array, axis=-1),
-      "mean_std": np.concatenate(mean_std_array, axis=-1),
-      "std_mean": np.concatenate(std_mean_array, axis=-1),
-      "std_std": np.concatenate(std_std_array, axis=-1),
-  }
-
-
 def evaluation_pipeline(
     model_dir: str,
     config_eval: ml_collections.ConfigDict,
     workdir_path: str,
+    lens2_member_indexer: tuple[dict[str, str], ...],
+    lens2_variable_names: tuple[str, ...],
+    era5_variables: dict[str, dict[str, int] | None],
     date_range: tuple[str, str] | None = None,
     verbose: bool = False,
     batch_size_eval: int = 16,
@@ -220,9 +68,6 @@ def evaluation_pipeline(
         "v_component_of_wind_200",
         "v_component_of_wind_850",
     ),
-    lens2_member_indexer: tuple[dict[str, str], ...] | None = None,
-    lens2_variable_names: dict[str, dict[str, str]] | None = None,
-    era5_variables: dict[str, dict[str, int] | None] | None = None,
     num_sampling_steps: int = 100,
 ) -> dict[str, dict[str, dict[str, jax.Array]]]:
   """The evaluation pipeline.
@@ -233,10 +78,6 @@ def evaluation_pipeline(
       parameters for the evaluation.
     workdir_path: The path to the work directory for saving the evaluation
       snapshots, and the metrics.
-    date_range: The date range for the evaluation.
-    verbose: Whether to print the config file.
-    batch_size_eval: The batch size for the evaluation.
-    variables: Names of physical fields that are saved in the files.
     lens2_member_indexer: The member indexer for the LENS2 dataset. This is a
       tuple of dictionaries of the form: ({"member": "cmip6_1001_001"},).
     lens2_variable_names: The names of the variables in the LENS2 dataset. This
@@ -248,6 +89,10 @@ def evaluation_pipeline(
       which the variables are extracted (if None, the variables are surface
       variables). E.g., {"2m_temperature": None, "specific_humidity": {"level":
       1000}, "mean_sea_level_pressure": None, "10m_magnitude_of_wind": None}.
+    date_range: The date range for the evaluation.
+    verbose: Whether to print the config file.
+    batch_size_eval: The batch size for the evaluation.
+    variables: Names of physical fields that are saved in the files.
     num_sampling_steps: The number of sampling steps for solving the ODE.
 
   Returns:
@@ -256,21 +101,11 @@ def evaluation_pipeline(
   """
   del verbose  # Not used for now.
 
-  # Using the default values. TODO: Refactor this.
-  if lens2_member_indexer is None:
-    logging.info("Using the default lens2_member_indexer")
-    lens2_member_indexer = _LENS2_MEMBER_INDEXER
-  if era5_variables is None:
-    logging.info("Using the default era5_variables")
-    era5_variables = _ERA5_VARIABLES
-
   # This is within the lens2_member_indexer tuple of dictionaries.
-  # TODO: Refactor this.
   lens2_indexer = lens2_member_indexer[0]["member"]
 
   # We leverage parallelization among current devices.
   num_devices = jax.local_device_count()
-
   logging.info("number of devices: %d", num_devices)
 
   # Loads the json file with the network configuration.
@@ -282,6 +117,7 @@ def evaluation_pipeline(
   logging.info("Loading config file")
   config = ml_collections.ConfigDict(args)
 
+  # Checks that the number of channels in the input and output are the same.
   if (
       config.input_shapes[0][-1] != config.input_shapes[1][-1]
       or config.input_shapes[0][-1] != config.out_channels
@@ -290,9 +126,8 @@ def evaluation_pipeline(
         "The number of channels in the input and output must be the same."
     )
 
-  logging.info("Building the model")
+  logging.info("Building the model.")
   model = inference_utils.build_model_from_config(config)
-
   try:
     trained_state = trainers.TrainState.restore_from_orbax_ckpt(
         f"{model_dir}/checkpoints", step=None
@@ -300,8 +135,9 @@ def evaluation_pipeline(
   except FileNotFoundError:
     print(f"Could not load checkpoint from {model_dir}/checkpoints.")
     return {}
-  logging.info("Model loaded")
+  logging.info("Model loaded.")
 
+  # Instantiating the sampling function.
   sampling_from_batch_partial = functools.partial(
       inference_utils.sampling_from_batch,
       model=model,

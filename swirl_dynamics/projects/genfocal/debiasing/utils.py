@@ -142,7 +142,6 @@ def get_model_config(config: ml_collections.ConfigDict) -> ReFlowModelConfig:
   )
 
 
-# TODO: This seems to have some issues with the model.
 def build_model_from_config(
     config: ReFlowModelConfig,
 ) -> reflow_models.ReFlowModel:
@@ -259,9 +258,11 @@ def parse_vars_from_config_to_dict(
   )
 
 
-def check_shapes(config: ml_collections.ConfigDict,
-                 input_shape: tuple[int, ...],
-                 cond_shape: dict[str, tuple[int, ...]]) -> None:
+def check_shapes(
+    config: ml_collections.ConfigDict,
+    input_shape: tuple[int, ...],
+    cond_shape: dict[str, tuple[int, ...]],
+) -> None:
   """Checks the shapes of the input and conditioning.
 
   Args:
@@ -288,3 +289,66 @@ def check_shapes(config: ml_collections.ConfigDict,
       raise ValueError("Conditional shape of the std must be 3D for 2D model.")
 
 
+def save_data_in_zarr(
+    time_stamps_array: np.ndarray,
+    input_array: np.ndarray,
+    output_array: np.ndarray,
+    model_dir: str,
+    workdir: str,
+    lens2_member_name: str,
+    target_array: np.ndarray | None = None,
+    time_chunk: int = 256,
+) -> None:
+  """Saves the snapshots in Zarr format after debiasing.
+
+  This function is used to save the snapshots in Zarr format after debiasing.
+  The files are names using the xm experiment id and the index of the LENS2
+  member. So they can be easily identified and traced back to the experiment
+  that trained the model used for debiasing.
+
+  Args:
+    time_stamps_array: Time stamps in np.datetime64 format.
+    input_array: Array with the input data from a member of LENS2.
+    output_array: Array with the reflow data from a member of LENS2.
+    model_dir: The directory containing the model checkpoint and the model
+      configuration file.
+    workdir: The current working directory where the Zarr file will be saved.
+    lens2_member_name: The name of the index of the LENS2 member.
+    target_array: Array with the target data from a member of ERA5. In the case
+      of no target data, we don't save it to the Zarr file.
+    time_chunk: The chunk size of the time dimension in the Zarr file.
+  """
+  # Saving evaluation snapshots in Zarr format.
+  logging.info("Saving data in Zarr format")
+  print(f"Shape of time stamps {time_stamps_array.shape}")
+
+  path_zarr = f"{workdir}/debiasing_lens2_to_era5_{lens2_member_name}.zarr"  # pylint: disable=line-too-long
+
+
+  ds = {}
+
+  # For evaluation we save the target data.
+  if target_array:
+    ds["era5"] = xr.DataArray(
+        target_array,
+        dims=["time", "longitude", "latitude", "variables"],
+        coords={"time": time_stamps_array},
+    )
+
+  ds["lens2"] = xr.DataArray(
+      input_array,
+      dims=["time", "longitude", "latitude", "variables"],
+      coords={"time": time_stamps_array},
+  )
+  ds["reflow"] = xr.DataArray(
+      output_array,
+      dims=["time", "longitude", "latitude", "variables"],
+      coords={"time": time_stamps_array},
+  )
+
+  ds = xr.Dataset(ds)
+  ds = ds.chunk(
+      {"time": time_chunk, "longitude": -1, "latitude": -1, "variables": -1}
+  )
+  ds.to_zarr(path_zarr)
+  logging.info("Data saved in Zarr format in %s", path_zarr)

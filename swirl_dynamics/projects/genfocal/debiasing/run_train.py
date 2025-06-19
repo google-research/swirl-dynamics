@@ -131,8 +131,7 @@ def main(argv):
     logging.info("Using 3D dataloader.")
     time_to_channel = False
   else:
-    logging.info("Using 2D daloader.")
-    time_to_channel = True
+    raise ValueError("This training script only supports 3D models.")
 
   train_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       date_range=config.data_range_train,
@@ -209,15 +208,15 @@ def main(argv):
   else:
     raise ValueError(f"Unknown time sampler: {sampler_type}")
 
+  # Checks the shapes of the input and conditioning.
   input_shape = config.input_shapes[0][1:]
   cond_shape = {
       "channel:mean": config.input_shapes[0][1:],
       "channel:std": config.input_shapes[0][1:],
   }
-
-  # Checks the shapes of the input and conditioning.
   utils.check_shapes(config, input_shape, cond_shape)
 
+  # Defining the model.
   model = models.ConditionalReFlowModel(
       input_shape=input_shape,  # This must agree with the sample shape.
       cond_shape=cond_shape,
