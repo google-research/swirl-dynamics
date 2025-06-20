@@ -154,6 +154,8 @@ If you run several of these scripts in parallel to debias different LENS2
 members, you will need to aggregate the results manually. This is because the
 super-resolution step requires a single `zarr` file as input.
 
+### Results
+
 If you want to look at the already debiased dataset, you can download it using:
 
 ```bash
@@ -163,6 +165,13 @@ gsutil -m -q cp -R gs://genfocal/data/lens_debiased/xm_151818801_1_100_members_1
 
 This file contains the 100 LENS2 members, debiased from 1960 to 2099. This is a
 relatively large file, so it may take a while to download.
+
+### Tutorial
+
+We use rectified flow for the debiasing (for bias-correction) step. For a
+tutorial on this methodology with more low-level details on how to use the
+`swirl-dynamics` templates using a (much!) simpler dataset please see this
+[colab](https://github.com/google-research/swirl-dynamics/blob/main/swirl_dynamics/projects/debiasing/rectified_flow/colab/demo_reflow.ipynb).
 
 ## License
 
