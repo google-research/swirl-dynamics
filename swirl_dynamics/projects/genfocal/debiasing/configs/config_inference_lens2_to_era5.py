@@ -46,7 +46,7 @@ _LENS2_VARIABLE_NAMES = (
 )
 _LENS2_VARIABLES = {v: _LENS2_MEMBER_INDEXER[0] for v in _LENS2_VARIABLE_NAMES}
 # pylint: enable=line-too-long
-_ERA5_DATASET_PATH = "data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_DATASET_PATH = "data/era5/era5_240x121_lonlat_1980-2020_10_vars.zarr"
 _ERA5_STATS_PATH = "data/era5/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 
 # Interpolated dataset to match the resolution of the ERA5 data set.
@@ -56,10 +56,10 @@ _LENS2_DATASET_PATH = "data/lens2/lens2_240x121_lonlat_1960-2020_10_vars_4_train
 _LENS2_STATS_PATH = "data/lens2/lens2_240x121_10_vars_4_members_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
 
 # Mean and STD of the statistics for the LENS2 dataset.
-_LENS2_MEAN_STATS_PATH = (
+_LENS2_MEAN_CLIMATOLOGY_PATH = (
     "data/lens2/mean_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
 )
-_LENS2_STD_STATS_PATH = (
+_LENS2_STD_CLIMATOLOGY_PATH = (
     "data/lens2/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
 )
 
@@ -77,7 +77,7 @@ def get_config():
       "wind_speed",
       "temperature",
       "geopotential_200",
-      "geopotential_200",
+      "geopotential_500",
       "mean_sea_level_pressure",
       "specific_humidity",
       "u_component_of_wind_200",

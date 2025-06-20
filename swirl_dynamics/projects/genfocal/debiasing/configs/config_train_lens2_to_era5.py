@@ -56,7 +56,7 @@ _LENS2_MEMBER_INDEXER = (
 
 # pylint: enable=line-too-long
 # Interpolated dataset to match the resolution of the ERA5 data set.
-_ERA5_DATASET_PATH = "data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_DATASET_PATH = "data/era5/era5_240x121_lonlat_1980-2020_10_vars.zarr"
 _ERA5_STATS_PATH = "data/era5/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 
 # Interpolated dataset to match the resolution of the ERA5 data set.

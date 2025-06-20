@@ -120,10 +120,10 @@ _LENS2_DATASET_PATH = (
 _LENS2_STATS_PATH = "data/lens2/lens2_240x121_10_vars_4_members_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
 
 # Mean and STD of the statistics for the LENS2 dataset.
-_LENS2_MEAN_STATS_PATH = (
+_LENS2_MEAN_CLIMATOLOGY_PATH = (
     "data/lens2/mean_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
 )
-_LENS2_STD_STATS_PATH = (
+_LENS2_STD_CLIMATOLOGY_PATH = (
     "data/lens2/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
 )
 

@@ -31,6 +31,15 @@ def move_time_to_channel(
 ) -> jax.Array:
   """Moves the time dimension to a new or the channel dimension.
 
+  This function is used to reshape a sequence of samples to a batch of samples
+  with a time dimension, into smaller subsequences of length time_chunk_size.
+  If time_to_channel is True, the time dimension is moved to the channel
+  dimension. Otherwise, it is added to another dimension between the batch and
+  the spatial dimensions. The former is prefered when using a model with a
+  two-dimensional topology, where the time dimension is aggregated in the
+  channel dimension, whereas the latter is preferred when using a model with a
+  three-dimensional topology, where the time dimension is not aggregated.
+
   Args:
     input_array: The input array to move the time dimension.
     time_chunk_size: The size of the time chunks in the batch.
@@ -190,8 +199,9 @@ def sampling_from_batch(
   )[-1, :]
 
   # Denormalize the output according to output (ERA5) climatology.
-  # In the case we use the reverse flow, the output is the LENS3 climatology.
-  # This needs to be changed outside this function by modifying the statistics.
+  # In the case we use the reverse flow, the output is the LENS2 climatology.
+  # Thus, it needs to be changed outside this function by modifying the
+  # statistics.
   era5_std = move_time_to_channel(
       batch["output_std"], time_chunk_size, time_to_channel
   )
@@ -200,7 +210,7 @@ def sampling_from_batch(
   )
   out = out * era5_std + era5_mean
 
-  # Move the channel dimension to the time dimension.
+  # Move the channel dimension to the time dimension if necessary.
   out = move_channel_to_time(out, time_chunk_size, time_to_channel)
 
   return out
