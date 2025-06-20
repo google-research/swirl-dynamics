@@ -48,20 +48,10 @@ _LENS2_VARIABLE_NAMES = (
 
 # Indices for the ensemble members (each index is a LENS2 member).
 _LENS2_MEMBER_INDEXER = (
-    "cmip6_1001_001",
-    "cmip6_1041_003",
-    "cmip6_1081_005",
-    "cmip6_1121_007",
-    "cmip6_1231_001",
-    "cmip6_1231_003",
-    "cmip6_1231_005",
-    "cmip6_1231_007",
-    "smbb_1011_001",
-    "smbb_1301_011",
-    "cmip6_1281_001",
-    "cmip6_1301_003",
-    "smbb_1251_013",
-    "smbb_1301_020",
+    {"member": "cmip6_1001_001"},
+    {"member": "cmip6_1251_001"},
+    {"member": "cmip6_1301_010"},
+    {"member": "smbb_1301_020"},
 )
 
 _LENS2_VARIABLES = {v: _LENS2_MEMBER_INDEXER[0] for v in _LENS2_VARIABLE_NAMES}

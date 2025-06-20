@@ -1,5 +1,7 @@
 # Regional climate risk assessment from climate models using probabilistic machine learning
 
+![Diagram of GenFocal](https://github.com/google-research/swirl-dynamics/blob/main/swirl_dynamics/projects/genfocal/figures/genfocal_diagram.png)
+
 This package contains example code to run downscaling models described in
 research paper [GenFocal](https://arxiv.org/abs/2412.08079).
 

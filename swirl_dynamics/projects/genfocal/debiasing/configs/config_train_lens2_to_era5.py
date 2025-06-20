@@ -49,9 +49,9 @@ _LENS2_VARIABLE_NAMES = (
 # members to be used for training.
 _LENS2_MEMBER_INDEXER = (
     {"member": "cmip6_1001_001"},
-    {"member": "cmip6_1021_002"},
-    {"member": "cmip6_1041_003"},
-    {"member": "cmip6_1061_004"},
+    {"member": "cmip6_1251_001"},
+    {"member": "cmip6_1301_010"},
+    {"member": "smbb_1301_020"},
 )
 
 # pylint: enable=line-too-long

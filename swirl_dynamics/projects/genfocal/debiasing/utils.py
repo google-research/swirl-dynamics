@@ -19,14 +19,143 @@ them from either a json or a yaml file.
 """
 
 import dataclasses
+import functools
 import logging
-from typing import Any
+from typing import Any, Literal
 
+import grain.python as pygrain
+import jax
 import ml_collections
 import numpy as np
 from swirl_dynamics.lib.diffusion import unets
+from swirl_dynamics.projects.genfocal.debiasing import dataloaders
 from swirl_dynamics.projects.genfocal.debiasing import models as reflow_models
 import xarray as xr
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DataLoaderConfig:
+  """Configuration class for the Dataloaders.
+
+  Attributes:
+    date_range: Date range for the data loader.
+    batch_size: Batch size for the data loader.
+    time_batch_size: Lenght of the debiasing sequence, it needs to divide the
+      the batch size exactly.
+    chunk_size: The size of the chunk for the contiguous data (for each process)
+      in number of snapshots. This is a multiple of the time_batch_size, and
+      accounts for the local batch size.
+    shuffle: Whether to shuffle the data.
+    worker_count: Number of workers for the data loader.
+    input_dataset_path: Path to the input dataset.
+    input_climatology: Path to the input climatology.
+    input_mean_stats_path: Path to the input mean stats of the climatology.
+    input_std_stats_path: Path to the input std stats of the climatology.
+    input_variable_names: Names of the variables to be used in the input.
+    input_member_indexer: Indexer for the input dataset.
+    output_variables: Variables to be used in the output.
+    output_dataset_path: Path to the output dataset.
+    output_climatology: Path to the output climatology.
+    time_to_channel: Whether to use time as the channel dimension. See the the
+      definition of the `move_time_to_channel` function in the
+      inference_utils.py file. False for model with three-dimensional topology,
+      i.e., the input is a 4-tensor, and True for model with two-dimensional
+      topology, i.e., the input is a 3-tensor.
+  """
+
+  date_range: tuple[str, str]
+  batch_size: int
+  time_batch_size: int
+  chunk_size: int
+  shuffle: bool
+  worker_count: int
+  input_dataset_path: str
+  input_climatology: str
+  input_mean_stats_path: str
+  input_std_stats_path: str
+  input_variable_names: tuple[str, ...]
+  input_member_indexer: tuple[dict[str, str], ...]
+  output_variables: dict[str, dict[str, Any] | None]
+  output_dataset_path: str
+  output_climatology: str
+  time_to_channel: bool
+
+
+def get_dataloader_config(
+    config: ml_collections.ConfigDict,
+    regime: Literal["train", "eval"] = "train",
+) -> DataLoaderConfig:
+  """Returns the data loader config from a ConfigDict.
+
+  Args:
+    config: The configuration from a ConfigDict, this is usually loaded from a
+      json or yaml file.
+    regime: In which regime the data loader is used. This is used to select the
+      date range and the batch size from the config file.
+
+  Returns:
+    The data loader config as a DataLoaderConfig object.
+  """
+  if regime == "train":
+    date_range = config.get("date_range_train")
+    # TODO: change this to batch_size_train.
+    batch_size = config.get("batch_size")
+  elif regime == "eval":
+    date_range = config.get("date_range_eval")
+    batch_size = config.get("batch_size_eval")
+  else:
+    raise ValueError(f"Unknown regime: {regime}")
+
+  return DataLoaderConfig(
+      date_range=date_range,
+      batch_size=batch_size,
+      time_batch_size=config.get("time_batch_size"),
+      chunk_size=config.get("chunk_size"),
+      shuffle=config.get("shuffle", default=True),
+      worker_count=config.get("num_workers", default=0),
+      input_dataset_path=config.get("lens2_dataset_path"),
+      input_climatology=config.get("lens2_stats_path"),
+      input_mean_stats_path=config.get("lens2_mean_stats_path"),
+      input_std_stats_path=config.get("lens2_std_stats_path"),
+      input_variable_names=config.get("lens2_variable_names"),
+      input_member_indexer=config.get("lens2_member_indexer"),
+      output_variables=config.get("era5_variables"),
+      output_dataset_path=config.get("era5_dataset_path"),
+      output_climatology=config.get("era5_stats_path"),
+      time_to_channel=config.get("time_to_channel", default=False),
+  )
+
+
+def build_dataloader_from_config(
+    config: DataLoaderConfig,
+) -> pygrain.DataLoader:
+  """Builds the dataloader from the configuration class.
+
+  Args:
+    config: The configuration class for the dataloaders.
+
+  Returns:
+    The dataloader as a pygrain.DataLoader object.
+  """
+  train_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
+      date_range=config.date_range,
+      batch_size=config.batch_size,
+      time_batch_size=config.time_batch_size,
+      chunk_size=config.chunk_size,
+      shuffle=config.shuffle,
+      worker_count=config.worker_count,
+      input_dataset_path=config.input_dataset_path,
+      input_climatology=config.input_climatology,
+      input_mean_stats_path=config.input_mean_stats_path,
+      input_std_stats_path=config.input_std_stats_path,
+      input_variable_names=config.input_variable_names,
+      input_member_indexer=config.input_member_indexer,
+      output_variables=config.output_variables,
+      output_dataset_path=config.output_dataset_path,
+      output_climatology=config.output_climatology,
+      time_to_channel=config.time_to_channel,
+  )
+  return train_dataloader
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -66,11 +195,14 @@ class ReFlowModelConfig:
       input samples, and the second tuple is output.
     same_dimension: Whether the input and output have the same spatial
       dimensions.
+    time_sampler: The method to sample the time used in the model.
     min_time: The minimum time value for the model while training
     max_time: The maximum time value for the model while training
     normalize_qk: Whether to normalize query and key vectors in the attention
       layers.
     conditional_embedding: Whether to use conditional embedding in the model.
+    ffn_type: The type of the feed-forward network to use in the model in the
+      Attention layers.
     use_3d_model: Whether to use the 3D UViT or a regular 2D UViT architecture.
   """
 
@@ -94,10 +226,12 @@ class ReFlowModelConfig:
   use_local: bool
   input_shapes: tuple[tuple[int, ...], tuple[int, ...]]
   same_dimension: bool
+  time_sampler: Literal["uniform", "lognorm"]
   min_time: float
   max_time: float
   normalize_qk: bool
   conditional_embedding: bool
+  ffn_type: Literal["dense", "conv"]
   use_3d_model: bool
 
 
@@ -134,11 +268,13 @@ def get_model_config(config: ml_collections.ConfigDict) -> ReFlowModelConfig:
       use_local=config.get("use_local", False),
       input_shapes=input_shapes,
       same_dimension=config.get("same_dimension", True),
+      time_sampler=config.get("time_sampler", "uniform"),
       min_time=config.get("min_time", 1e-4),
       max_time=config.get("max_time", 1 - 1e-4),
       normalize_qk=config.get("normalize_qk", True),
       conditional_embedding=config.get("conditional_embedding", False),
-      use_3d_model=config.get("use_3d_model", False),
+      ffn_type=config.get("ffn_type", default="dense"),
+      use_3d_model=config.get("use_3d_model", True),
   )
 
 
@@ -182,6 +318,7 @@ def build_model_from_config(
         use_position_encoding=config.use_position_encoding,
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
+        ffn_type=config.ffn_type,
     )
   else:
     print("Using 2D U-ViT model")
@@ -201,15 +338,34 @@ def build_model_from_config(
         normalize_qk=config.normalize_qk,
     )
 
+  # Setting up the time sampler.
+  if config.time_sampler == "lognorm":
+    time_sampler = reflow_models.lognormal_sampler()
+  elif config.time_sampler == "uniform":
+    time_sampler = functools.partial(
+        jax.random.uniform, dtype=jax.numpy.float32
+    )
+  else:
+    raise ValueError(f"Unknown time sampler: {config.time_sampler}")
+
+  # Checks the shapes of the input and conditioning.
+  input_shape = config.input_shapes[0][1:]
+  cond_shape = {
+      "channel:mean": config.input_shapes[0][1:],
+      "channel:std": config.input_shapes[0][1:],
+  }
+  # TODO: Change the input type.
+  # check_shapes(config, input_shape, cond_shape)
+
   # Building the model. By default the input shape doesn't include the batch
   # dimension, wheres the input_shapes in the config file includes a dummy batch
   # dimension of size 1.
   model = reflow_models.ConditionalReFlowModel(
-      input_shape=config.input_shapes[0][1:],
-      cond_shape={
-          "channel:mean": config.input_shapes[0][1:],
-          "channel:std": config.input_shapes[0][1:],
-      },
+      input_shape=input_shape,  # This must agree with the sample shape.
+      cond_shape=cond_shape,
+      time_sampling=time_sampler,
+      min_train_time=config.min_time,
+      max_train_time=config.max_time,
       flow_model=flow_model,
   )
 
