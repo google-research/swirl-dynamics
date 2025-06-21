@@ -249,11 +249,12 @@ def get_model_config(config: ml_collections.ConfigDict) -> ReFlowModelConfig:
       downsample_ratio=tuple(config.get("downsample_ratio")),
       bfloat16=config.get("bfloat16", False),
       resize_to_shape=tuple(config.get("resize_to_shape")),
+      use_3d_model=config.get("use_3d_model", True),
       num_blocks=config.get("num_blocks"),
       dropout_rate=config.get("dropout_rate"),
       noise_embed_dim=config.get("noise_embed_dim"),
       padding=config.get("padding", "LONLAT"),
-      use_attention=config.get("use_attention", False),
+      use_attention=config.get("use_attention", False),  # Only for 2D model.
       use_spatial_attention=tuple(
           config.get("use_spatial_attention", (False,))
       ),
@@ -274,7 +275,6 @@ def get_model_config(config: ml_collections.ConfigDict) -> ReFlowModelConfig:
       normalize_qk=config.get("normalize_qk", True),
       conditional_embedding=config.get("conditional_embedding", False),
       ffn_type=config.get("ffn_type", default="dense"),
-      use_3d_model=config.get("use_3d_model", True),
   )
 
 
@@ -415,21 +415,21 @@ def parse_vars_from_config_to_dict(
 
 
 def check_shapes(
-    config: ml_collections.ConfigDict,
+    config: ReFlowModelConfig,
     input_shape: tuple[int, ...],
     cond_shape: dict[str, tuple[int, ...]],
 ) -> None:
   """Checks the shapes of the input and conditioning.
 
   Args:
-    config: The instance of the configuration dictionary.
+    config: The instance of the configuration class.
     input_shape: The shape of the input samples.
     cond_shape: The shape of the conditioning signal.
 
   Raises:
     ValueError: If the shapes are not compatible with the model.
   """
-  if config.get("use_3d_model", default=False):
+  if config.use_3d_model:
     if len(input_shape) != 4:
       raise ValueError("Input shape must be 4D for 3D model.")
     if len(cond_shape["channel:mean"]) != 4:

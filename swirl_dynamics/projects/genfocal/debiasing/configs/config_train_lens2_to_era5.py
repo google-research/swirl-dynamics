@@ -124,7 +124,7 @@ def get_config():
   config.norm_stats_loader = True
 
   # Parameters for the data loader.
-  config.data_range_train = ("1960", "2000")
+  config.data_range_train = ("1980", "2000")
   config.data_range_eval = ("2001", "2010")
   config.normalize = True
   config.shuffle = True

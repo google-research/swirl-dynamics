@@ -10,7 +10,9 @@ and code for the super-resolution stage can be found in [projects/probabilistic_
 
 ## Installation
 
-To make the installation seamlessly we can use pip.
+To make the installation seamlessly we use pip. Although the installation should
+work in any Linux-based system, we strongly recommend using a high-memory
+GPU, such as a `A100` (80GB), `H100`, `B100`, or a `TPU v5p`.
 
 1. Create a virtual environment.
 ```bash
@@ -29,10 +31,15 @@ dependencies and it will install genfocal.
 pip install git+https://github.com/google-research/swirl-dynamics.git@main --quiet
 ```
 
+The training and inference routines are written to work in a single accelerator,
+multiple accelerator, or multiple replica (several nodes) regimes.
+This capabilities are access via a flag in the configuration files. We recommend
+to use multiple accelerators for training and inference.
+
 ## Repository Structure
 
 The repository is organized as follows:
-
+```
 genfocal/
 ├── analysis/
 ├── data/
@@ -43,8 +50,9 @@ genfocal/
 ├── figures/
 └── super-resolution/
     └── configs/
+```
 
-As such the repository is organized such that the two steps, debiasing and
+As such, the repository is organized such that the two steps, debiasing and
 super-resolution have their own folders. Demos for each step can be found in
 a respective `colabs` subfolder.
 

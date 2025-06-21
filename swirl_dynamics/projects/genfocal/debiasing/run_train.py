@@ -21,7 +21,6 @@ empiral mean and std. This normalized climatology is used as a conditioning
 signal in the model.
 """
 
-import functools
 import json
 from os import path as osp
 
@@ -34,7 +33,6 @@ from ml_collections import config_flags
 import optax
 from orbax import checkpoint
 from swirl_dynamics.projects.genfocal.debiasing import dataloaders
-from swirl_dynamics.projects.genfocal.debiasing import models
 from swirl_dynamics.projects.genfocal.debiasing import trainers
 from swirl_dynamics.projects.genfocal.debiasing import utils
 from swirl_dynamics.templates import callbacks
@@ -170,61 +168,11 @@ def main(argv):
       time_to_channel=time_to_channel,
   )
 
-  # Setting up the data type.
-  if "bfloat16" in config and config.bfloat16:
-    dtype = jax.numpy.bfloat16
-    param_dtype = jax.numpy.bfloat16
-  else:
-    dtype = jax.numpy.float32
-    param_dtype = jax.numpy.float32
-
-  logging.info("Using 3D model")
-  flow_model = models.RescaledUnet3d(
-      out_channels=config.out_channels,
-      num_channels=config.num_channels,
-      downsample_ratio=config.downsample_ratio,
-      num_blocks=config.num_blocks,
-      noise_embed_dim=config.noise_embed_dim,
-      padding=config.padding,
-      dropout_rate=config.dropout_rate,
-      use_spatial_attention=config.use_spatial_attention,
-      use_temporal_attention=config.use_temporal_attention,
-      resize_to_shape=config.resize_to_shape,
-      use_position_encoding=config.use_position_encoding,
-      num_heads=config.num_heads,
-      normalize_qk=config.normalize_qk,
-      ffn_type=config.get("ffn_type", default="dense"),
-      dtype=dtype,
-      param_dtype=param_dtype,
-  )
-
-  # Setting up the time sampler.
-  if (sampler_type := config.get("time_sampler", None)) == "lognorm":
-    time_sampler = models.lognormal_sampler()
-  elif sampler_type == "uniform":
-    time_sampler = functools.partial(
-        jax.random.uniform, dtype=jax.numpy.float32
-    )
-  else:
-    raise ValueError(f"Unknown time sampler: {sampler_type}")
-
-  # Checks the shapes of the input and conditioning.
-  input_shape = config.input_shapes[0][1:]
-  cond_shape = {
-      "channel:mean": config.input_shapes[0][1:],
-      "channel:std": config.input_shapes[0][1:],
-  }
-  utils.check_shapes(config, input_shape, cond_shape)
-
-  # Defining the model.
-  model = models.ConditionalReFlowModel(
-      input_shape=input_shape,  # This must agree with the sample shape.
-      cond_shape=cond_shape,
-      flow_model=flow_model,
-      time_sampling=time_sampler,
-      min_train_time=config.min_time,  # It should be close to 0.
-      max_train_time=config.max_time,  # It should be close to 1.
-  )
+  # Instantiates the model, in two steps:
+  # 1. Get the model configuration from the config file.
+  # 2. Build the model from the model configuration.
+  model_config = utils.get_model_config(config)
+  model = utils.build_model_from_config(model_config)
 
   # Defines the trainer depending if the training is distributed or not.
   if config.distributed:
@@ -242,6 +190,7 @@ def main(argv):
         ema_decay=config.ema_decay,
     )
 
+  # Loads the parameters from the checkpoint of an already trained model.
   if (trained_state_dir := config.get("trained_state_dir", None)) is not None:
     # Loads the parameters from the checkpoint of an already trained model.
     logging.info("Loading trained state from %s", trained_state_dir)
