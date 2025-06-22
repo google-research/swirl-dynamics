@@ -1,8 +1,8 @@
 region:
-  longitude_start: 234
-  longitude_end: 294
-  latitude_start: 22.5
-  latitude_end: 52.5
+  longitude_start: 260
+  longitude_end: 350
+  latitude_start: 5
+  latitude_end: 50
   input_resolution_degrees: 1.5
   output_resolution_degrees: 0.25
 
@@ -13,7 +13,7 @@ region:
 #    and time of the day).
 # The resulting hourly data should have approximately mean 0 and standard deviation 1.
 train_data:
-  hourly_dataset_path: "/super_resolution/training/example_dataset/era5_0p25deg_residual_1980-2009_conus_t2m_w10m_q1000_msl.zarr"
+  hourly_dataset_path: "/super_resolution/training/example_dataset/era5_0p25deg_residual_1980-2009_nao_t2m_w10m_q1000_msl_z200_z500.zarr"
   hourly_variables:
     - # temperature
       - "2m_temperature"
@@ -23,7 +23,7 @@ train_data:
       - "10m_magnitude_of_wind"
       - null
       - "hourly_w10m"
-    - # specific humidity
+    - # specific humidity @ 1000hPa
       - "specific_humidity"
       - level:
         - 1000
@@ -32,6 +32,16 @@ train_data:
       - "mean_sea_level_pressure"
       - null
       - "hourly_msl"
+    - # geopotential @ 200hPa
+      - "geopotential"
+      - level:
+        - 200
+      - "hourly_z200"
+    - # geopotential @ 500hPa
+      - "geopotential"
+      - level:
+        - 500
+      - "hourly_z500"
   hourly_downsample: 2
   hourly_data_std: 1.0
   daily_dataset_path: "/super_resolution/training/example_dataset/era5_1p5deg_1980-2009_global_t2m_w10m_q1000_msl_z200_z500.zarr"
@@ -53,6 +63,16 @@ train_data:
       - "mean_sea_level_pressure"
       - null
       - "daily_msl"
+    - # geopotential @ 200hPa
+      - "geopotential"
+      - level:
+        - 200
+      - "daily_z200"
+    - # geopotential @ 500hPa
+      - "geopotential"
+      - level:
+        - 500
+      - "daily_z500"
   daily_stats_path: "/super_resolution/training/example_dataset/era5_1p5deg_1980-2009_global_t2m_w10m_q1000_msl_z200_z500.zarr"
   num_days_per_example: 7
   date_range:
@@ -61,11 +81,11 @@ train_data:
   batch_size: 1
   shuffle: true
   worker_count: 0
-  rng_seed: 12
+  rng_seed: 21
   cond_maskout_prob: 0.1
 
 eval_data:
-  hourly_dataset_path: "/super_resolution/training/example_dataset/era5_0p25deg_residual_1980-2009_conus_t2m_w10m_q1000_msl.zarr"
+  hourly_dataset_path: "/super_resolution/training/example_dataset/era5_0p25deg_residual_1980-2009_nao_t2m_w10m_q1000_msl_z200_z500.zarr"
   hourly_variables:
     - # temperature
       - "2m_temperature"
@@ -84,6 +104,16 @@ eval_data:
       - "mean_sea_level_pressure"
       - null
       - "hourly_msl"
+    - # geopotential @ 200hPa
+      - "geopotential"
+      - level:
+        - 200
+      - "hourly_z200"
+    - # geopotential @ 500hPa
+      - "geopotential"
+      - level:
+        - 500
+      - "hourly_z500"
   hourly_downsample: 2
   hourly_data_std: 1.0
   daily_dataset_path: "/super_resolution/training/example_dataset/era5_1p5deg_1980-2009_global_t2m_w10m_q1000_msl_z200_z500.zarr"
@@ -105,6 +135,16 @@ eval_data:
       - "mean_sea_level_pressure"
       - null
       - "daily_msl"
+    - # geopotential @ 200hPa
+      - "geopotential"
+      - level:
+        - 200
+      - "daily_z200"
+    - # geopotential @ 500hPa
+      - "geopotential"
+      - level:
+        - 500
+      - "daily_z500"
   daily_stats_path: "/super_resolution/training/example_dataset/era5_1p5deg_stats_global_t2m_w10m_q1000_msl_z200_z500.zarr"
   num_days_per_example: 7
   date_range:
@@ -129,7 +169,7 @@ model:
     - 512
   downsample_ratio:
     - 3
-    - 2
+    - 3
     - 2
     - 2
   num_blocks: 4
@@ -154,7 +194,7 @@ model:
   cond_embedding_dim: 128
 
 training:
-  work_dir: "/super_resolution/training/work_dir/conus_7d_t2m_w10m_q1000_msl"
+  work_dir: "/super_resolution/training/work_dir/nao_7d_t2m_w10m_q1000_msl"
   total_train_steps: 100000
   checkpoint_every_n_steps: 500
   checkpoint_max_to_keep: 5
@@ -170,9 +210,7 @@ training:
   eval_num_batches_per_step: 1
   eval_denoise: true
   eval_sampling: true
-  eval_num_sde_steps: 128
+  eval_num_sde_steps: 64
   eval_num_samples_per_condition: 1
-  eval_likelihood: true
-  eval_num_ode_steps: 64
   eval_cfg_strength: 0.2
-  eval_num_likelihood_probes: 1
+  eval_likelihood: false

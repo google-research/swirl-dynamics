@@ -16,8 +16,8 @@ r"""Script to run inference.
 
 Run with:
 ```
-python3 run_inference.py \
-    --config=configs/sampling_conus.yaml
+python3 run_sampling.py \
+    --config=configs/conus_sample.yaml
 ```
 """
 
@@ -25,6 +25,8 @@ from collections.abc import Sequence
 
 from absl import app
 from absl import flags
+from absl import logging
+from etils import epath
 import numpy as np
 from swirl_dynamics.lib import diffusion as dfn_lib
 from swirl_dynamics.projects.genfocal.super_resolution import data
@@ -33,6 +35,8 @@ from swirl_dynamics.projects.genfocal.super_resolution import training
 from swirl_dynamics.projects.genfocal.super_resolution.configs import schema as cfg
 import xarray as xr
 import yaml
+
+filesys = epath.backend.tf_backend
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
@@ -55,7 +59,7 @@ def main(argv: Sequence[str]) -> None:
     raise app.UsageError("Too many command-line arguments.")
 
   config_path = FLAGS.config
-  with open(config_path, "r") as f:
+  with filesys.open(config_path, "r") as f:
     config_data = yaml.safe_load(f)
 
   region_cfg = cfg.RegionConfig(**config_data["region"])
@@ -63,8 +67,8 @@ def main(argv: Sequence[str]) -> None:
   sampler_cfg = cfg.SamplerConfig(**config_data["sampler"])
   inference_cfg = cfg.InferenceConfig(**config_data["inference"])
 
-  print("Region config:", region_cfg)
-  print("Inference config:", inference_cfg)
+  logging.info("Region config: %s", region_cfg)
+  logging.info("Inference config: %s", inference_cfg)
   lon_coords = np.arange(
       region_cfg.longitude_start,
       region_cfg.longitude_end,
@@ -86,7 +90,7 @@ def main(argv: Sequence[str]) -> None:
       dims_order=("time", "longitude", "latitude"),
   )
 
-  print("Model config:", model_cfg)
+  logging.info("Model config: %s", model_cfg)
   backbone = dfn_lib.PreconditionedDenoiserUNet3d(
       out_channels=len(inference_cfg.output_variables),
       resize_to_shape=model_cfg.sample_resize,
@@ -113,7 +117,7 @@ def main(argv: Sequence[str]) -> None:
       use_ema=True,
   )
 
-  print("Sampler config:", sampler_cfg)
+  logging.info("Sampler config: %s", sampler_cfg)
   scheme = dfn_lib.create_variance_exploding_scheme(
       sigma=dfn_lib.tangent_noise_schedule(
           clip_max=sampler_cfg.start_noise_level, start=-1.5, end=1.5
@@ -144,10 +148,12 @@ def main(argv: Sequence[str]) -> None:
       sampling_type=sampler_cfg.sampler_type,
   )
 
-  print("Running inference...")
+  logging.info("Running inference.")
   sampler.generate_and_save(sampler_cfg.seed, sampler_cfg.num_samples)
 
-  print("Inference done. Results saved to: ", inference_cfg.output_zarr_path)
+  logging.info(
+      "Inference done. Results saved to: %s", inference_cfg.output_zarr_path
+  )
 
 
 if __name__ == "__main__":

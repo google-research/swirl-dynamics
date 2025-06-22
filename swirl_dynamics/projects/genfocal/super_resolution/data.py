@@ -370,6 +370,14 @@ def create_dataloader(
 ) -> pygrain.DataLoader:
   """Creates a dataloader with paired hourly and daily data.
 
+  Optionally standardizes the input and output, and applies a sequence of
+  transformations including
+    - Rotate the data counterclockwise by 90 degrees.
+    - Stack the variables along a trailing channel dimension.
+    - Nest the inputs inside a `cond` dictionary.
+    - Randomly mask out the input values with zeros (for training
+    classifier-free guidance).
+
   Args:
     date_range: See `DataSource`.
     hourly_dataset_path: See `DataSource`.

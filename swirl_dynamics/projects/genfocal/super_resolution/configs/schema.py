@@ -43,13 +43,19 @@ class RegionConfig:
 class TrainingDataConfig:
   """Data config for training.
 
+  The hourly dataset is assumed to have been preprocessed offline:
+    - It represents the residual between raw hourly and interpolated (linearly
+      in space and replicated in time) daily data.
+    - It is normalized by climatology (specific to day-of-year and hour-of-day).
+
   Attributes:
-    hourly_dataset_path: See `data.create_dataloader`.
+    hourly_dataset_path: See `data.create_dataloader`. Contains normalized
+      residuals.
     hourly_variables: See `data.create_dataloader`.
     hourly_downsample: See `data.create_dataloader`.
     hourly_data_std: The standard deviation of the hourly dataset. This is a
       required for the diffusion scheme to scale the noise level and
-      preconditioning coeffcients.
+      preconditioning coeffcients. Should be 1.0 for normalized hourly data.
     daily_dataset_path: See `data.create_dataloader`.
     daily_variables: See `data.create_dataloader`.
     daily_stats_path: See `data.create_dataloader`.
@@ -161,11 +167,14 @@ class TrainingConfig:
       parameters.
     eval_every_n_steps: The number of steps between evaluations.
     eval_num_batches_per_step: The number of batches to evaluate per step.
+    eval_denoise: See `training.DenoisingModel`.
+    eval_sampling: See `training.DenoisingModel`.
     eval_num_sde_steps: The number of SDE steps for sampling during evaluation.
     eval_num_samples_per_condition: The number of samples per condition to
       generate for evaluation.
-    eval_num_ode_steps: The number of ODE steps for sampling during evaluation.
     eval_cfg_strength: The classifier-free guidance strength during evaluation.
+    eval_likelihood: See `training.DenoisingModel`.
+    eval_num_ode_steps: The number of ODE steps for sampling during evaluation.
     eval_num_likelihood_probes: The number of likelihood probes during
       evaluation.
   """
@@ -184,10 +193,13 @@ class TrainingConfig:
   ema_decay: float = 0.9999
   eval_every_n_steps: int = 2000
   eval_num_batches_per_step: int = 1
+  eval_denoise: bool = True
+  eval_sampling: bool = True
   eval_num_sde_steps: int = 128
   eval_num_samples_per_condition: int = 1
-  eval_num_ode_steps: int = 64
   eval_cfg_strength: float = 0.2
+  eval_likelihood: bool = True
+  eval_num_ode_steps: int = 64
   eval_num_likelihood_probes: int = 1
 
 

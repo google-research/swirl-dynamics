@@ -1,8 +1,8 @@
 region:
-  longitude_start: 234
-  longitude_end: 294
-  latitude_start: 22.5
-  latitude_end: 52.5
+  longitude_start: 260
+  longitude_end: 350
+  latitude_start: 5
+  latitude_end: 50
   input_resolution_degrees: 1.5
   output_resolution_degrees: 0.25
 
@@ -19,7 +19,7 @@ model:
     - 512
   downsample_ratio:
     - 3
-    - 2
+    - 3
     - 2
     - 2
   num_blocks: 4
@@ -51,29 +51,33 @@ sampler:
   cfg_strength: 1.0
   sampler_type: "sde"
   batch_size: 1
-  seed: 567
+  seed: 765
 
 inference:
-  start_date: "2015-08-01"
+  start_date: "2015-10-01"
   # The total number of days derives from the number of devices, the number of days accounted by a
   # single model instance (segment length) and the number of overlapping days.
-  # Here we have a single device, so the total number of days sampled is equal to the number of days
-  # for the model.
+  # Here we have 4 devices, so the total number of days sampled is equal to
+  # (num_devices [4] - 1) * (model.num_days [7] - sampler.num_overlap_days [1]) + model.num_days [7] = 25
   # See `sampling.TrajectorySamplerParallel` for more details.
-  total_sample_days: 7
+  total_sample_days: 25
   input_variables:
     - "T2m"
     - "W10m"
     - "Q1000"
     - "MSL"
+    - "Z200"
+    - "Z500"
   output_variables:
     - "T2m"
     - "W10m"
     - "Q1000"
     - "MSL"
+    - "Z200"
+    - "Z500"
   # The following paths should be updated to point to the correct data.
   input_file_path: "/super_resolution/inference/example_inputs/era5_1p5deg_2015_global_t2m_w10m_q1000_msl_z200_z500.zarr"
   input_stats_path: "/super_resolution/inference/example_inputs/era5_1p5deg_stats_global_t2m_w10m_q1000_msl_z200_z500.zarr"
-  output_zarr_path: "/super_resolution/inference/example_outputs/era5_0p25deg_conus_t2m_w10m_q1000_msl.zarr"
-  output_stats_path: "/super_resolution/inference/example_inputs/era5_0p25deg_residual_clim_conus_t2m_w10m_q1000_msl.zarr"
-  model_checkpoint_path: "/super_resolution/checkpoints/conus_7d_20150801_t2m_w10m_q1000_msl"
+  output_zarr_path: "/super_resolution/inference/example_outputs/era5_0p25deg_nao_t2m_w10m_q1000_msl_z200_z500.zarr"
+  output_stats_path: "/super_resolution/inference/example_inputs/era5_0p25deg_residual_clim_nao_t2m_w10m_q1000_msl_z200_z500.zarr"
+  model_checkpoint_path: "/super_resolution/checkpoints/nao_25d_20151001_t2m_w10m_q1000_msl_z200_z500"

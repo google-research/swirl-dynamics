@@ -25,6 +25,9 @@ from collections.abc import Sequence
 
 from absl import app
 from absl import flags
+from absl import logging
+from etils import epath
+import jax
 import optax
 from orbax import checkpoint
 from swirl_dynamics import templates
@@ -33,6 +36,8 @@ from swirl_dynamics.projects.genfocal.super_resolution import data
 from swirl_dynamics.projects.genfocal.super_resolution import training
 from swirl_dynamics.projects.genfocal.super_resolution.configs import schema as cfg
 import yaml
+
+filesys = epath.backend.tf_backend
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
@@ -100,7 +105,7 @@ def main(argv: Sequence[str]) -> None:
     raise app.UsageError("Too many command-line arguments.")
 
   config_path = FLAGS.config
-  with open(config_path, "r") as f:
+  with filesys.open(config_path, "r") as f:
     config_data = yaml.safe_load(f)
 
   region_cfg = cfg.RegionConfig(**config_data["region"])
@@ -109,13 +114,13 @@ def main(argv: Sequence[str]) -> None:
   model_cfg = cfg.ModelConfig(**config_data["model"])
   training_cfg = cfg.TrainingConfig(**config_data["training"])
 
-  print("Training data config:", train_data_cfg)
+  logging.info("Training data config: %s", train_data_cfg)
   train_dataloader = build_dataloader(train_data_cfg, region_cfg)
 
-  print("Eval data config:", eval_data_cfg)
+  logging.info("Eval data config: %s", eval_data_cfg)
   eval_dataloader = build_dataloader(eval_data_cfg, region_cfg)
 
-  print("Model config:", model_cfg)
+  logging.info("Model config: %s", model_cfg)
   backbone = dfn_lib.PreconditionedDenoiserUNet3d(
       out_channels=len(train_data_cfg.hourly_variables),
       resize_to_shape=model_cfg.sample_resize,
@@ -150,8 +155,8 @@ def main(argv: Sequence[str]) -> None:
   model = training.DenoisingModel(
       sample_shape=(
           nt,
-          int(lon_span / region_cfg.output_resolution_degrees),
           int(lat_span / region_cfg.output_resolution_degrees),
+          int(lon_span / region_cfg.output_resolution_degrees),
           len(train_data_cfg.hourly_variables),
       ),
       denoiser=backbone,
@@ -164,8 +169,8 @@ def main(argv: Sequence[str]) -> None:
       cond_shape={
           "channel:daily_mean": (
               nt,
-              int(lon_span / region_cfg.input_resolution_degrees),
               int(lat_span / region_cfg.input_resolution_degrees),
+              int(lon_span / region_cfg.input_resolution_degrees),
               len(train_data_cfg.daily_variables),
           )
       },
@@ -177,9 +182,9 @@ def main(argv: Sequence[str]) -> None:
       num_likelihood_probes=training_cfg.eval_num_likelihood_probes,
   )
 
-  print("Training config:", training_cfg)
+  logging.info("Training config: %s", training_cfg)
   trainer = training.DenoisingTrainer(
-      rng=training_cfg.trainer_rng_seed,
+      rng=jax.random.key(training_cfg.trainer_rng_seed),
       model=model,
       optimizer=optax.chain(
           optax.clip_by_global_norm(max_norm=training_cfg.clip_grad_norm),
