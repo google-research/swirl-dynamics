@@ -24,11 +24,26 @@ python3 -m venv genfocal
 source genfocal/bin/activate
 ```
 
-3. Install `swirl-dynamics`. This steps will install all the required
-dependencies and it will install genfocal.
+3. Install jax with the accelerator support that matches your system. If you
+have a GPU then, following jax installation [instructions](https://docs.jax.dev/en/latest/installation.html#)
+you can type
+
+```bash
+pip install -U "jax[cuda12]"
+```
+
+4. Install `swirl-dynamics`. This steps will install all the required
+dependencies and it will install genfocal. Here we assume that you have `git`
+already installed in your system.
 
 ```bash
 pip install git+https://github.com/google-research/swirl-dynamics.git@main --quiet
+```
+
+5. Clone the repository to your machine.
+
+```bash
+git clone https://github.com/google-research/swirl-dynamics.git
 ```
 
 The training and inference routines are written to work in a single accelerator,
@@ -43,12 +58,12 @@ The repository is organized as follows:
 genfocal/
 ├── analysis/
 ├── data/
-├── debiasing/
-│   ├── colabs/  <!-- disableFinding(SPACES) -->
-│   ├── configs/
-│   └── figures/
+├── debiasing/        # contains the code for th bias-correction step.
+│   ├── colabs/       # demo for debiasing.
+│   ├── configs/      # examples of configuration files.
+│   └── figures/      # figures for the readmes and notebooks.
 ├── figures/
-└── super-resolution/
+└── super-resolution/ # contains the code for the super-resolution step.
     └── configs/
 ```
 

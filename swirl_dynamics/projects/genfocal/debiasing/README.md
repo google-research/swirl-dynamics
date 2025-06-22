@@ -107,7 +107,7 @@ You can then train the model (here, we use the provided config file) by running:
 
 ```bash
 mkdir -p experiments/001/
-python run_train.py --config=configs/config_train_lens2_to_era5.py --workdir=experiments/001
+python run_train.py --workdir=experiments/001 -- --config=configs/config_train_lens2_to_era5.py
 ```
 
 This will create a working directory and train the model.
@@ -115,18 +115,18 @@ This will create a working directory and train the model.
 ### Validating a Model
 
 To validate the model, you need a training checkpoint and a config file. We also
- provide a config file to run the validation. The configuration file primarily
- dictates the validation period, the LENS2 ensemble members to use, and the
- model to evaluate. By default, it takes the root folder of several experiments
- and runs the validation in bulk. It then stores the results, which can be
- opened afterward, in an `hdf5` file within a working folder.
+provide a config file to run the validation. The configuration file primarily
+dictates the validation period, the LENS2 ensemble members to use, and the
+model to evaluate. By default, it takes the root folder of several experiments
+and runs the validation in bulk. It then stores the results, which can be
+opened afterward, in an `hdf5` file within a working folder.
 
 As such, you can validate the models in a root directory (such as the
 `experiments` folder used above) by running:
 
 ```bash
 mkdir -p validation_folder/
-python run_validation.py --config=configs/config_validation_lens2_to_era5.py --workdir=validation_folder/
+python run_validation.py --workdir=validation_folder -- --config=configs/config_validation_lens2_to_era5.py
 ```
 
 ### Running Inference
@@ -147,7 +147,7 @@ used above) by running:
 
 ```bash
 mkdir -p inference_folder/
-python run_inference.py --config=configs/config_inference_lens2_to_era5.py --workdir=inference_folder/
+python run_inference.py --workdir=inference_folder -- --config=configs/config_inference_lens2_to_era5.py
 ```
 
 If you run several of these scripts in parallel to debias different LENS2

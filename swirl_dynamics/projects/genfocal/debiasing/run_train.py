@@ -28,11 +28,9 @@ from absl import app
 from absl import flags
 from absl import logging
 import jax
-import ml_collections
 from ml_collections import config_flags
 import optax
 from orbax import checkpoint
-from swirl_dynamics.projects.genfocal.debiasing import dataloaders
 from swirl_dynamics.projects.genfocal.debiasing import trainers
 from swirl_dynamics.projects.genfocal.debiasing import utils
 from swirl_dynamics.templates import callbacks
@@ -82,7 +80,7 @@ def main(argv):
       json.dump(conf_json, f)
   tf.config.experimental.set_visible_devices([], "GPU")
 
-  # Defining experiments through the config file.
+  # Defining the optimizer.
   schedule = optax.warmup_cosine_decay_schedule(
       init_value=config.initial_lr,
       peak_value=config.peak_lr,
@@ -99,74 +97,16 @@ def main(argv):
       ),
   )
 
-  if (
-      config.input_shapes[0][-1] != config.input_shapes[1][-1]
-      or config.input_shapes[0][-1] != config.out_channels
-  ):
-    raise ValueError(
-        "The number of channels in the input and output must be the same."
-    )
+  # Checks the shapes of the inputs and the channels.
+  utils.checks_input_shapes(config.input_shapes, config.out_channels)
 
-  # This is to avoid the default behavior of the ConfigDict, which converts to
-  # ConfigDict any nested dictionaries.
-  era5_variables = config.get("era5_variables")
-  if isinstance(era5_variables, ml_collections.ConfigDict):
-    era5_variables = era5_variables.to_dict()
-
-  lens2_member_indexer = config.get("lens2_member_indexer")
-  if isinstance(lens2_member_indexer, ml_collections.ConfigDict):
-    lens2_member_indexer = lens2_member_indexer.to_dict()
-
-  lens2_variable_names = config.get("lens2_variable_names")
-
-  if jax.process_index() == 0:
-    print("ERA5 variables", flush=True)
-    print(era5_variables, flush=True)
-    print("LENS2 variable names", flush=True)
-    print(lens2_variable_names, flush=True)
-
-  if config.get("use_3d_model", default=False):
-    logging.info("Using 3D dataloader.")
-    time_to_channel = False
-  else:
-    raise ValueError("This training script only supports 3D models.")
-
-  train_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
-      date_range=config.data_range_train,
-      batch_size=config.batch_size,
-      chunk_size=config.chunk_size,
-      shuffle=True,
-      worker_count=config.num_workers,
-      input_dataset_path=config.lens2_dataset_path,
-      input_climatology=config.lens2_stats_path,
-      input_mean_stats_path=config.lens2_mean_stats_path,
-      input_std_stats_path=config.lens2_std_stats_path,
-      input_variable_names=lens2_variable_names,
-      input_member_indexer=lens2_member_indexer,
-      output_variables=era5_variables,
-      time_batch_size=config.time_batch_size,
-      output_dataset_path=config.era5_dataset_path,
-      output_climatology=config.era5_stats_path,
-      time_to_channel=time_to_channel,
-  )
-  eval_dataloader = dataloaders.create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
-      date_range=config.data_range_eval,
-      batch_size=config.batch_size_eval,
-      chunk_size=config.chunk_size,
-      shuffle=True,
-      worker_count=config.num_workers,
-      input_dataset_path=config.lens2_dataset_path,
-      input_climatology=config.lens2_stats_path,
-      input_mean_stats_path=config.lens2_mean_stats_path,
-      input_std_stats_path=config.lens2_std_stats_path,
-      input_variable_names=lens2_variable_names,
-      input_member_indexer=lens2_member_indexer,
-      output_variables=era5_variables,
-      time_batch_size=config.time_batch_size,
-      output_dataset_path=config.era5_dataset_path,
-      output_climatology=config.era5_stats_path,
-      time_to_channel=time_to_channel,
-  )
+  # Instantiates the dataloaders for training and evaluation in two steps:
+  # 1. Get the dataloader configuration from the config file.
+  # 2. Build the dataloader from the dataloader configuration.
+  train_dataloader_config = utils.get_dataloader_config(config, "train")
+  train_dataloader = utils.build_dataloader_from_config(train_dataloader_config)
+  eval_dataloader_config = utils.get_dataloader_config(config, "eval")
+  eval_dataloader = utils.build_dataloader_from_config(eval_dataloader_config)
 
   # Instantiates the model, in two steps:
   # 1. Get the model configuration from the config file.

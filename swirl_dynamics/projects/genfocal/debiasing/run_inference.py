@@ -38,6 +38,7 @@ from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.projects.genfocal.debiasing import dataloaders
 from swirl_dynamics.projects.genfocal.debiasing import inference_utils
 from swirl_dynamics.projects.genfocal.debiasing import trainers
+from swirl_dynamics.projects.genfocal.debiasing import utils
 import tensorflow as tf
 import xarray as xr
 
@@ -110,13 +111,8 @@ def inference_pipeline(
   logging.info("Loading config file")
   config = ml_collections.ConfigDict(args)
 
-  if (
-      config.input_shapes[0][-1] != config.input_shapes[1][-1]
-      or config.input_shapes[0][-1] != config.out_channels
-  ):
-    raise ValueError(
-        "The number of channels in the input and output must be the same."
-    )
+  # Checks the shapes of the inputs and the channels.
+  utils.checks_input_shapes(config.input_shapes, config.out_channels)
 
   logging.info("Building the model")
   model = inference_utils.build_model_from_config(config)
@@ -168,6 +164,7 @@ def inference_pipeline(
 
   logging.info("Batch size per device: %d", batch_size_eval)
 
+  # Running the inference loop.
   for ii, batch in enumerate(eval_dataloader):
 
     logging.info("Iteration: %d", ii)
@@ -175,7 +172,7 @@ def inference_pipeline(
     # Saves the time stamps, regardless of whether the checkpoint exists or not.
     time_stamps.append(batch["input_time_stamp"])
 
-    # Check if the sample already exists in a checkpoint file.
+    # Check if the sample already exists in a checkpoint file. If so, skip.
     path_checkpoint = f"{workdir_path}/checkpoint_{ii}.hdf5"
     if tf.io.gfile.exists(path_checkpoint):
       logging.info("Checkpoint %s already exists, skipping", path_checkpoint)
@@ -183,18 +180,11 @@ def inference_pipeline(
       output_list.append(saved_dict["samples"])
       continue
 
-    # Running the inference loop.
+    # Extractin only the fiekds that are needed for the parallel sampling.
     batch_par = {key: batch[key] for key in par_keys}
+    # Reshaping the batch to be compatible with the parallel sampling function.
     parallel_batch = jax.tree.map(
-        lambda x: x.reshape(
-            (
-                num_devices,
-                -1,
-            )
-            + x.shape[1:]
-        ),
-        batch_par,
-    )
+        lambda x: x.reshape((num_devices, -1,) + x.shape[1:]), batch_par)
 
     # Running the parallel sampling and saving the output.
     samples = np.array(parallel_sampling_fn(parallel_batch))
@@ -208,6 +198,7 @@ def inference_pipeline(
 
     output_list.append(samples)
 
+  # Concatenating the output and the time stamps.
   output_array = np.concatenate(output_list, axis=0)
   time_stamps = np.concatenate(time_stamps, axis=0).reshape((-1,))
 
@@ -270,15 +261,12 @@ def main(argv):
     index_member = lens2_indexer
 
     # Checking that the file wasn't already saved.
-    xm, num = model_dir.split("/")[-2:]
-    path_zarr = (
-        f"{workdir}/debiasing_lens2_to_era5_xm_{xm}_{num}_{index_member}.zarr"
-    )
+    path_zarr = f"{workdir}/debiasing_lens2_to_era5_{index_member}.zarr"
 
     if tf.io.gfile.exists(path_zarr):
       logging.info("File %s already exists, skipping", path_zarr)
     else:
-      # Runs the inference pipeline.
+      # Runs the inference pipeline on a single LENS2 member.
       data_dict = inference_pipeline(
           model_dir=model_dir,
           config_eval=config,

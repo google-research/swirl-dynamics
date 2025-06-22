@@ -27,6 +27,7 @@ import grain.python as pygrain
 import jax
 import ml_collections
 import numpy as np
+import optax
 from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.projects.genfocal.debiasing import dataloaders
 from swirl_dynamics.projects.genfocal.debiasing import models as reflow_models
@@ -38,7 +39,8 @@ class DataLoaderConfig:
   """Configuration class for the Dataloaders.
 
   Attributes:
-    date_range: Date range for the data loader.
+    date_range: Date range for the data loader, in the format of ("start_date",
+      "end_date").
     batch_size: Batch size for the data loader.
     time_batch_size: Lenght of the debiasing sequence, it needs to divide the
       the batch size exactly.
@@ -84,6 +86,7 @@ class DataLoaderConfig:
 def get_dataloader_config(
     config: ml_collections.ConfigDict,
     regime: Literal["train", "eval"] = "train",
+    verbose: bool = False,
 ) -> DataLoaderConfig:
   """Returns the data loader config from a ConfigDict.
 
@@ -92,19 +95,40 @@ def get_dataloader_config(
       json or yaml file.
     regime: In which regime the data loader is used. This is used to select the
       date range and the batch size from the config file.
+    verbose: Whether to print the ERA5 variables and the LENS2 variable names
+      and indexer. This is useful for debugging.
 
   Returns:
     The data loader config as a DataLoaderConfig object.
   """
   if regime == "train":
     date_range = config.get("date_range_train")
-    # TODO: change this to batch_size_train.
     batch_size = config.get("batch_size")
   elif regime == "eval":
     date_range = config.get("date_range_eval")
     batch_size = config.get("batch_size_eval")
   else:
     raise ValueError(f"Unknown regime: {regime}")
+
+  # This is to avoid the default behavior of the ConfigDict, which converts to
+  # ConfigDict any nested dictionaries.
+  era5_variables = config.get("era5_variables")
+  if isinstance(era5_variables, ml_collections.ConfigDict):
+    era5_variables = era5_variables.to_dict()
+
+  lens2_member_indexer = config.get("lens2_member_indexer")
+  if isinstance(lens2_member_indexer, ml_collections.ConfigDict):
+    lens2_member_indexer = lens2_member_indexer.to_dict()
+
+  if verbose:
+    print(f"Date range for {regime}: {date_range}", flush=True)
+    print(f"Batch size for {regime}: {batch_size}", flush=True)
+    print("ERA5 variables", flush=True)
+    print(era5_variables, flush=True)
+    print("LENS2 variable names", flush=True)
+    print(config.get("lens2_variable_names"), flush=True)
+    print("LENS2 member indexer", flush=True)
+    print(lens2_member_indexer, flush=True)
 
   return DataLoaderConfig(
       date_range=date_range,
@@ -118,8 +142,8 @@ def get_dataloader_config(
       input_mean_stats_path=config.get("lens2_mean_stats_path"),
       input_std_stats_path=config.get("lens2_std_stats_path"),
       input_variable_names=config.get("lens2_variable_names"),
-      input_member_indexer=config.get("lens2_member_indexer"),
-      output_variables=config.get("era5_variables"),
+      input_member_indexer=lens2_member_indexer,
+      output_variables=era5_variables,
       output_dataset_path=config.get("era5_dataset_path"),
       output_climatology=config.get("era5_stats_path"),
       time_to_channel=config.get("time_to_channel", default=False),
@@ -372,6 +396,71 @@ def build_model_from_config(
   return model
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class OptimizerConfig:
+  """Configuration class for the rectified flow model.
+
+  Attributes:
+    init_value: Initial value of the learning rate.
+    peak_value: Peak value of the learning rate for the schedule.
+    warmup_steps: Number of steps to linearly warm up the learning rate.
+    decay_steps: Number of steps to decay the learning rate.
+    end_value: The final value of the learning rate.
+    max_norm: Maximum norm of the gradient before clipping.
+    beta1: The momentum for the Adam optimizer.
+  """
+
+  init_value: float
+  peak_value: float
+  warmup_steps: int
+  decay_steps: int
+  end_value: float
+  max_norm: float
+  beta1: float
+
+
+def get_optimizer_config(config: ml_collections.ConfigDict) -> OptimizerConfig:
+  """Returns the optimizer config from the config dict."""
+  return OptimizerConfig(
+      init_value=config.get("initial_lr"),
+      peak_value=config.get("peak_lr"),
+      warmup_steps=config.get("warmup_steps"),
+      decay_steps=config.get("num_train_steps"),
+      end_value=config.get("end_lr"),
+      max_norm=config.get("max_norm"),
+      beta1=config.get("beta1"),
+  )
+
+
+def build_optimizer_from_config(
+    config: OptimizerConfig,
+) -> optax.GradientTransformation:
+  """Builds the optimizer from the config file.
+
+  Args:
+    config: The configuration object.
+
+  Returns:
+    The optimizer as an optax.GradientTransformation.
+  """
+  schedule = optax.warmup_cosine_decay_schedule(
+      init_value=config.init_value,
+      peak_value=config.peak_value,
+      warmup_steps=config.warmup_steps,
+      decay_steps=config.decay_steps,
+      end_value=config.end_value,
+  )
+
+  optimizer = optax.chain(
+      optax.clip_by_global_norm(config.max_norm),
+      optax.adam(
+          learning_rate=schedule,
+          b1=config.beta1,
+      ),
+  )
+  return optimizer
+
+
 def parse_vars_from_config_to_dict(
     config: ml_collections.ConfigDict,
 ) -> dict[str, Any]:
@@ -412,6 +501,25 @@ def parse_vars_from_config_to_dict(
       lens2_variable_names=lens2_variable_names,
       lens2_member_indexer_tuple=lens2_member_indexer_tuple,
   )
+
+
+def checks_input_shapes(
+    input_shapes: tuple[tuple[int, ...], tuple[int, ...]],
+    out_channels: int,
+) -> None:
+  """Checks the shapes of the inputs and the channels.
+
+  Args:
+    input_shapes: The shapes of both input and output of the network.
+    out_channels: The number of the channels of the output of the network.
+  """
+  if (
+      input_shapes[0][-1] != input_shapes[1][-1]
+      or input_shapes[0][-1] != out_channels
+  ):
+    raise ValueError(
+        "The number of channels in the input and output must be the same."
+    )
 
 
 def check_shapes(
