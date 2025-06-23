@@ -25,6 +25,7 @@ dependencies = [
   "absl-py",
   "chex",
   "clu",
+  "dask",
   "etils",
   "flax",
   "h5py",
@@ -40,6 +41,7 @@ dependencies = [
   "xarray",
   "xarray_tensorstore",
   "pyyaml",
+  "zarr",
 ]
 
 # `version` is automatically set by flit to use `swirl_dynamics.__version__`

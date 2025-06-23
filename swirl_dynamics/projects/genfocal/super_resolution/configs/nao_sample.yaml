@@ -10,7 +10,7 @@ model:
   num_days: 7
   hour_interval: 2
   skip_interp_method: "linear"
-  num_output_channels: 4
+  num_output_channels: 6
   sample_resize: null
   num_latent_channels:
     - 128
