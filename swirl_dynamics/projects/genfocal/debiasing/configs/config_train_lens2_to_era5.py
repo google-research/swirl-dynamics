@@ -122,16 +122,21 @@ def get_config():
   config.date_range_train = ("1980", "2000")
   config.date_range_eval = ("2005", "2010")
   config.shuffle = True
-  config.batch_size = 32  # effective batch size is batch_size/time_batch_size.
-  config.chunk_size = 32  # We only call one chunk per device.
+
+  # Batching params.
+  # This is the batch size per host. The effective batch size is
+  # batch_size/time_batch_size. So it using multiple accelerators, then the
+  # effective batch size should be a multiple of the number of accelerators.
+  config.batch_size = 8  # effective batch size is batch_size/time_batch_size.
+  config.chunk_size = 8  # We only call one chunk per device.
   config.time_batch_size = 8
-  config.batch_size_eval = 32
+  config.batch_size_eval = 8
   # So far it doesn't work with more than 0 workers.
   config.num_workers = 0
 
   # Model params
   config.out_channels = 10
-  config.num_channels = (128, 128, 128, 256, 256, 256)
+  config.num_channels = (128, 128, 128, 128, 128, 128)
   config.downsample_ratio = (2, 2, 2, 2, 2, 2)
 
   config.bfloat16 = False

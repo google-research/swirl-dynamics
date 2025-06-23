@@ -107,10 +107,12 @@ You can then train the model (here, we use the provided config file) by running:
 
 ```bash
 mkdir -p experiments/001/
-python run_train.py --workdir=experiments/001 -- --config=configs/config_train_lens2_to_era5.py
+python run_train.py --workdir=experiments/001 --config=configs/config_train_lens2_to_era5.py
 ```
 
-This will create a working directory and train the model.
+This will create a working directory and train the model. You may need to
+provide the absolute path in `workdir` options as the checkpointer requires
+an absolute path.
 
 ### Validating a Model
 
@@ -126,7 +128,7 @@ As such, you can validate the models in a root directory (such as the
 
 ```bash
 mkdir -p validation_folder/
-python run_validation.py --workdir=validation_folder -- --config=configs/config_validation_lens2_to_era5.py
+python run_validation.py --workdir=validation_folder --config=configs/config_validation_lens2_to_era5.py
 ```
 
 ### Running Inference
@@ -147,7 +149,7 @@ used above) by running:
 
 ```bash
 mkdir -p inference_folder/
-python run_inference.py --workdir=inference_folder -- --config=configs/config_inference_lens2_to_era5.py
+python run_inference.py --workdir=inference_folder --config=configs/config_inference_lens2_to_era5.py
 ```
 
 If you run several of these scripts in parallel to debias different LENS2

@@ -67,24 +67,29 @@ genfocal/
     └── configs/
 ```
 
-As such, the repository is organized such that the two steps, debiasing and
-super-resolution have their own folders. Demos for each step can be found in
-a respective `colabs` subfolder.
+The repository is organized into two primary folders for the debiasing and
+super-resolution steps. Each folder contains a `colabs` subfolder with
+corresponding demos.
 
-We provide a data folder which contains notebooks for loading and
-visualizing data.
+The `data` folder includes notebooks for loading and visualizing the data.
 
-The `analysis` folder contains code to showcase the analysis performed in the
-paper. As some of the analysis requires `TempestExtremes` and the size of the
-data is several Terabytes, thus running the full evaluation pipeline takes
-considerable time, we only provide with notebooks to reproduce the
-figure, while providing the code for the analysis which requires more
-computational resources.
+The `analysis` folder contains the code to reproduce the analysis in our paper.
+Note that running the full evaluation pipeline is computationally expensive due
+to its reliance on `TempestExtremes` and terabytes of data. Therefore, we
+provide notebooks to reproduce the figures and the source code for the more
+intensive analyses.
 
 ## Workflow
 
 As GenFocal has two distinct steps the workshop is also split in two.
 Each step is specified in the README files inside the corresponding folders.
+
+## Tropical Cyclones
+
+Below we show one of the main results in the paper, which shows the tracks and
+their corresponding ensemble density, for the biased climate dataset (LENS2),
+their downscaled version given by GenFocal, and the reference given by ERA5.
+![GenFocal TC results](https://github.com/google-research/swirl-dynamics/blob/main/swirl_dynamics/projects/genfocal/figures/tc_densities.png)
 
 ## License
 
