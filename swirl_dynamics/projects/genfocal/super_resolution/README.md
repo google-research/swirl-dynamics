@@ -75,7 +75,7 @@ To train a SR model, make sure that all paths referred to in the config file
 exist and run command:
 
 ```bash
-python3 run_training.py --config=configs/conus_train.yaml
+python run_training.py --config=configs/conus_train.yaml
 ```
 
 The model parameters in the included config files are full replicas of the ones
@@ -126,7 +126,7 @@ To generate samples with a trained SR model, make sure that all paths referred
 to in the config file exist and run command:
 
 ```bash
-python3 run_sampling.py --config=configs/conus_sample.yaml
+python run_sampling.py --config=configs/conus_sample.yaml
 ```
 
 This example config generates a 7-day trajectory using one accelerator device

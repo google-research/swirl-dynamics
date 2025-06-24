@@ -6,7 +6,7 @@ This package contains example code to run downscaling models described in
 research paper [GenFocal](https://arxiv.org/abs/2412.08079).
 
 Code for the debiasing stage can be found in the `debiasing/` sub-folder
-and code for the super-resolution stage can be found in the `super_resolution`
+and code for the super-resolution stage can be found in the `super_resolution/`
 sub-folder.
 
 ## Installation
@@ -60,10 +60,11 @@ The repository is organized as follows:
 genfocal/
 ├── analysis/
 ├── data/
-├── debiasing/        # contains the code for th bias-correction step.
+├── debiasing/        # contains the code for the bias-correction step.
 │   ├── colabs/       # demo for debiasing.
 │   ├── configs/      # examples configuration files.
 │   └── figures/      # figures for the readmes and notebooks.
+├── evaluation/       # contains example evaluation scripts.
 ├── figures/
 └── super-resolution/ # contains the code for the super-resolution step.
     └── colabs/       # demo for super-resolution.

@@ -16,7 +16,7 @@ r"""Script to run training.
 
 Run with:
 ```
-python3 run_training.py \
+python run_training.py \
     --config=configs/conus_train.yaml
 ```
 """

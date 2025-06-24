@@ -16,7 +16,7 @@ r"""Script to run inference.
 
 Run with:
 ```
-python3 run_sampling.py \
+python run_sampling.py \
     --config=configs/conus_sample.yaml
 ```
 """
