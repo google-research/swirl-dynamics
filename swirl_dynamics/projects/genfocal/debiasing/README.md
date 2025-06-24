@@ -110,7 +110,7 @@ You can then train the model (here, we use the provided config file) by running:
 ```bash
 current_dir=$(pwd)
 mkdir -p experiments/001/
-absolute_path="{$current_dir}/experiments/001"
+absolute_path="$current_dir/experiments/001"
 
 python run_train.py --workdir=${absolute_path} --config=configs/config_train_lens2_to_era5.py
 ```
