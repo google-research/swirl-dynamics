@@ -13,7 +13,8 @@ sub-folder.
 
 To make the installation seamlessly we use pip. Although the installation should
 work in any Linux-based system, we strongly recommend using a high-memory
-GPU, such as a `A100` (80GB), `H100`, `B100`, or a `TPU v5p`.
+GPU, such as a `A100` (80GB), `H100`, `B100`, or a `TPU v5p`. We also recommend
+using `python=3.12`.
 
 1. Create a virtual environment.
 ```bash

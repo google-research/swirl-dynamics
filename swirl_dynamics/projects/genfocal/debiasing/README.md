@@ -89,6 +89,8 @@ gsutil -m -q cp -R gs://genfocal/data/era5/era5_240x121_lonlat_1980-2020_10_vars
 gsutil -m -q cp -R gs://genfocal/debiasing/climatology/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr data/era5/
 ```
 
+The total storage footprint should be around `80 GB`.
+
 ### Training a Model
 
 Training a model requires a configuration file. This file contains the paths to
@@ -106,13 +108,21 @@ training statistics (readable by TensorBoard) will be stored.
 You can then train the model (here, we use the provided config file) by running:
 
 ```bash
+current_dir=$(pwd)
 mkdir -p experiments/001/
-python run_train.py --workdir=experiments/001 --config=configs/config_train_lens2_to_era5.py
+absolute_path="{$current_dir}/experiments/001"
+
+python run_train.py --workdir=${absolute_path} --config=configs/config_train_lens2_to_era5.py
 ```
 
 This will create a working directory and train the model. You may need to
 provide the absolute path in `workdir` options as the checkpointer requires
-an absolute path.
+an absolute path. This was tested on a host with four `A100s` with `40GB` each
+and a host with four `H100s` with `80GB` each. The training took around 3 and
+2 days respectively. The model in the [paper](https://arxiv.org/abs/2412.08079),
+whose checkpoints we provide in the
+[bucket](https://console.cloud.google.com/storage/browser/genfocal),
+was trained for 3 days in 16 `TPU v5p`.
 
 ### Validating a Model
 

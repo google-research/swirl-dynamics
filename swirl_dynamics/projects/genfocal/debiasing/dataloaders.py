@@ -234,6 +234,17 @@ class CommonSourceEnsemble(abc.ABC):
   time stamps. The pairs feed to the model are selected such that the time
   stamps are roughly the same, so the climatological statistics are roughly
   aligned between the two datasets.
+
+  This class provides the interface to the zarr files that will be used to
+  to extract the data, and all the extra fields that are needed for processing
+  the data before being fed to the model, such as the climatological statistics
+  and the time stamps.
+
+  The main interface is the _compute_indices function, which is responsible for
+  transform the index of the data to actually indices for underlying xarray
+  datasets. This function dictates how the data will be read. It is also
+  responsible for extracting either one, or sequence of snapshots, depending
+  on the downstream task.
   """
 
   @abc.abstractmethod
@@ -305,8 +316,12 @@ class CommonSourceEnsemble(abc.ABC):
       resample_seed: The random seed for resampling.
       time_stamps: Wheter to add the time stamps to the samples.
       load_stats: Whether to load the climatology statistics to memory when
-        using the data loader. This allows for a faster loading.
-      max_retries: The maximum number of retries for NaN or KeyError.
+        using the data loader. This allows for a faster loading at the expense
+        of a larger memory footprints.
+      max_retries: The maximum number of retries for NaN or KeyError. This is
+        used to avoid the failure of the whole job if there is a small number of
+        NaNs or KeyErrors in the data. It increases robustness at the expense
+        of the speed.
     """
 
     # Using LENS2 as input, they need to be modified.
@@ -323,13 +338,13 @@ class CommonSourceEnsemble(abc.ABC):
     output_stats_ds = xrts.open_zarr(output_climatology)
 
     # Transpose the datasets if necessary.
-    if dims_order_input:
+    if dims_order_input is not None:
       input_ds = input_ds.transpose(*dims_order_input)
-    if dims_order_output:
+    if dims_order_output is not None:
       output_ds = output_ds.transpose(*dims_order_output)
-    if dims_order_output_stats:
+    if dims_order_output_stats is not None:
       output_stats_ds = output_stats_ds.transpose(*dims_order_output_stats)
-    if dims_order_input_stats:
+    if dims_order_input_stats is not None:
       input_stats_ds = input_stats_ds.transpose(*dims_order_input_stats)
 
     # Selects the input arrays and builds the dictionary of xarray datasets
@@ -394,7 +409,7 @@ class CommonSourceEnsemble(abc.ABC):
     if not idx < self.__len__():
       raise ValueError(f"Index out of range: {idx} / {self.__len__() - 1}")
 
-    # Retries if KeyError found.
+    # Retries if KeyError or NaN found in the data.
     for _ in range(self._max_retries + 1):
       try:
         item = self.get_item(idx)

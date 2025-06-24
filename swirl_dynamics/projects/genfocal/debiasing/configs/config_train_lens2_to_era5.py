@@ -120,17 +120,18 @@ def get_config():
   config.time_to_channel = False  # creates 3D tensors.
 
   config.date_range_train = ("1980", "2000")
-  config.date_range_eval = ("2005", "2010")
+  config.date_range_eval = ("2000", "2010")
   config.shuffle = True
 
   # Batching params.
   # This is the batch size per host. The effective batch size is
   # batch_size/time_batch_size. So it using multiple accelerators, then the
-  # effective batch size should be a multiple of the number of accelerators.
-  config.batch_size = 8  # effective batch size is batch_size/time_batch_size.
-  config.chunk_size = 8  # We only call one chunk per device.
+  # effective batch size should be a multiple of the number of accelerators
+  # This was tested with 4 A100s with one sample of 8 snapshots per accelerator.
+  config.batch_size = 32  # effective batch size is batch_size/time_batch_size.
+  config.chunk_size = 32  # We only call one chunk per device.
   config.time_batch_size = 8
-  config.batch_size_eval = 8
+  config.batch_size_eval = 32
   # So far it doesn't work with more than 0 workers.
   config.num_workers = 0
 
