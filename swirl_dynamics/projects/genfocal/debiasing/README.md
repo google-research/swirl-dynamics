@@ -59,8 +59,8 @@ In what follows, we provide instructions on how to run the first part.
 ### Downloading the Data
 
 First, we download the data necessary for training the models. One can read the
-data on-demand from the Google Cloud [bucket](https://console.cloud.google.com/storage/browser/genfocal)
-; however, for simplicity, we will download the data directly.
+data on-demand from the Google Cloud [bucket](https://console.cloud.google.com/storage/browser/genfocal);
+however, for simplicity, we will download the data directly.
 
 Since the data is located in a bucket, we use `gsutil` to download it.
 
@@ -172,7 +172,7 @@ relatively large file, so it may take a while to download.
 
 We use rectified flow for the debiasing (for bias-correction) step. For a
 tutorial on this methodology with more low-level details on how to use the
-`swirl-dynamics` templates using a (much!) simpler dataset please see this
+`swirl-dynamics` templates using a (much!) simpler dataset, please see this
 [colab](https://github.com/google-research/swirl-dynamics/blob/main/swirl_dynamics/projects/debiasing/rectified_flow/colab/demo_reflow.ipynb).
 
 ## License

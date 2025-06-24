@@ -5,8 +5,9 @@
 This package contains example code to run downscaling models described in
 research paper [GenFocal](https://arxiv.org/abs/2412.08079).
 
-Code for the debiasing stage can be found in [projects/debiasing/rectified_flow](https://github.com/google-research/swirl-dynamics/tree/main/swirl_dynamics/projects/debiasing/rectified_flow)
-and code for the super-resolution stage can be found in [projects/probabilistic_diffusion/downscaling/era5](https://github.com/google-research/swirl-dynamics/tree/main/swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5).
+Code for the debiasing stage can be found in the `debiasing/` sub-folder
+and code for the super-resolution stage can be found in the `super_resolution`
+sub-folder.
 
 ## Installation
 
@@ -32,8 +33,9 @@ you can type
 pip install -U "jax[cuda12]"
 ```
 
-4. Install `swirl-dynamics`. This steps will install all the required
-dependencies and it will install genfocal. Here we assume that you have `git`
+4. Install `swirl-dynamics`. This steps will install all the
+[basic required dependencies](https://github.com/google-research/swirl-dynamics/blob/main/pyproject.toml)
+and it will install genfocal. Here we assume that you have `git`
 already installed in your system.
 
 ```bash
@@ -60,11 +62,12 @@ genfocal/
 ├── data/
 ├── debiasing/        # contains the code for th bias-correction step.
 │   ├── colabs/       # demo for debiasing.
-│   ├── configs/      # examples of configuration files.
+│   ├── configs/      # examples configuration files.
 │   └── figures/      # figures for the readmes and notebooks.
 ├── figures/
 └── super-resolution/ # contains the code for the super-resolution step.
-    └── configs/
+    └── colabs/       # demo for super-resolution.
+    └── configs/      # example configuration files.
 ```
 
 The repository is organized into two primary folders for the debiasing and
