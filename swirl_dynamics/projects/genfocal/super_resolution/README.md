@@ -144,11 +144,11 @@ docstring of `sampling.TrajectorySamplerParallel` for details.
 We provide access to the full end-to-end inference results
 (GenFocal debiasing & super-resolution):
 
-| Region | Date range             | Chunk  | Dataset (common prefix `gs://genfocal/results/`) |
+| Region | Date range             | Chunk  | Dataset (common prefix `gs://genfocal/results/e2e_inference/`) |
 |--------|------------------------|--------|--------------------------------------------------|
-| CONUS  | 2010-2019, Jun-Jul-Aug | Pixel  | `e2e_conus_jja10s_800members_pixel_chunks.zarr`  |
-| CONUS  | 2010-2019, Jun-Jul-Aug | Member | `e2e_conus_jja10s_800members_member_chunks.zarr` |
-| NAO    | 2019-2019, Aug-Sep-Oct | Member | `e2e_nao_aso10s_800members_member_chunks.zarr`   |
+| CONUS  | 2010-2019, Jun-Jul-Aug | Pixel  | `conus_jja10s_800members_pixel_chunks.zarr`  |
+| CONUS  | 2010-2019, Jun-Jul-Aug | Member | `conus_jja10s_800members_member_chunks.zarr` |
+| NAO    | 2019-2019, Aug-Sep-Oct | Member | `nao_aso10s_800members_member_chunks.zarr`   |
 
 All results contain 800 members (100 LENS members, 8 SR samples per LENS member)
 over test period 2010-2019. We offer results in two possible chunking schemes,
