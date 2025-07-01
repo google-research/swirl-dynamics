@@ -23,7 +23,6 @@ data/
     ├-- lens2_240x121_lonlat_1960-2020_10_vars_4_train_members.zarr/
     ├-- lens2_240x121_lonlat_1960-2100_10_vars_100_members.zarr/
 ```
-
 ## ERA5
 This directory contains downsampled ERA5 data matching the grid used by
 [LENS2](https://www.cesm.ucar.edu/community-projects/lens2).
@@ -50,12 +49,12 @@ a zarr file containing these variables:
  - temperature at 2 meters
  - mean sea level pressure
  - near-surface specific humidity
-One copy of the dataset
-is chunked by grid pixel, facilitating visualization of time series. The other
+One copy of the dataset is chunked by grid pixel, facilitating visualization of
+time series. The other
 copy is chunked by ensemble member to facilitate spatial visualizations.
 ### nao
-This directory contains GenFocal forecasts over the North Atlantic Oscillation
-(NAO) region for the months of June, July, and August for 2010-2019. The dataset
+This directory contains GenFocal forecasts over the North Atlantic hurricane
+basin (NAO) for the months of June, July, and August for 2010-2019. The dataset
 is a zarr file containing these variables:
  - wind speed at 10 meters
  - temperature at 2 meters
