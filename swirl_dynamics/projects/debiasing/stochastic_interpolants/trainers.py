@@ -161,3 +161,14 @@ class DistributedStochasticInterpolantTrainer(
   """Multi-device trainer for rectified flow models."""
 
   # TODO: Write a test for this trainer.
+
+
+class DistributedStochasticInterpolantScoreTrainer(
+    StochasticInterpolantScoreTrainer,
+    trainers.BasicDistributedTrainer[
+        models.StochasticInterpolantModel, TrainState
+    ],
+):
+  """Multi-device trainer for stochastic interpolants score models."""
+
+  # TODO: Write a test for this trainer.
