@@ -134,7 +134,7 @@ class StochasticInterpolantTrainer(
     )
 
 
-class StochasticInterpolantScoreTrainer(StochasticInterpolantTrainer):
+class StochasticInterpolantFlowScoreTrainer(StochasticInterpolantTrainer):
   """Single-device trainer for stochastic interpolants score models.
 
   This trainer inherits most of its functionality from the
@@ -159,5 +159,16 @@ class DistributedStochasticInterpolantTrainer(
     ],
 ):
   """Multi-device trainer for rectified flow models."""
+
+  # TODO: Write a test for this trainer.
+
+
+class DistributedStochasticInterpolantFlowScoreTrainer(
+    StochasticInterpolantFlowScoreTrainer,
+    trainers.BasicDistributedTrainer[
+        models.StochasticInterpolantModel, TrainState
+    ],
+):
+  """Multi-device trainer for stochastic interpolants score models."""
 
   # TODO: Write a test for this trainer.
