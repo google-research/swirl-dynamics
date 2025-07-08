@@ -398,7 +398,7 @@ def build_model_from_config(
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class OptimizerConfig:
-  """Configuration class for the rectified flow model.
+  """Configuration class for the optimizer.
 
   Attributes:
     init_value: Initial value of the learning rate.
@@ -435,7 +435,7 @@ def get_optimizer_config(config: ml_collections.ConfigDict) -> OptimizerConfig:
 def build_optimizer_from_config(
     config: OptimizerConfig,
 ) -> optax.GradientTransformation:
-  """Builds the optimizer from the config file.
+  """Builds the optimizer from the config object.
 
   Args:
     config: The configuration object.

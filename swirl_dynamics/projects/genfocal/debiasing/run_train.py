@@ -29,7 +29,6 @@ from absl import flags
 from absl import logging
 import jax
 from ml_collections import config_flags
-import optax
 from orbax import checkpoint
 from swirl_dynamics.projects.genfocal.debiasing import trainers
 from swirl_dynamics.projects.genfocal.debiasing import utils
@@ -80,37 +79,24 @@ def main(argv):
       json.dump(conf_json, f)
   tf.config.experimental.set_visible_devices([], "GPU")
 
-  # Defining the optimizer.
-  schedule = optax.warmup_cosine_decay_schedule(
-      init_value=config.initial_lr,
-      peak_value=config.peak_lr,
-      warmup_steps=config.warmup_steps,
-      decay_steps=config.num_train_steps,
-      end_value=config.end_lr,
-  )
-
-  optimizer = optax.chain(
-      optax.clip_by_global_norm(config.max_norm),
-      optax.adam(
-          learning_rate=schedule,
-          b1=config.beta1,
-      ),
-  )
-
   # Checks the shapes of the inputs and the channels.
   utils.checks_input_shapes(config.input_shapes, config.out_channels)
 
-  # Instantiates the dataloaders for training and evaluation in two steps:
-  # 1. Get the dataloader configuration from the config file.
-  # 2. Build the dataloader from the dataloader configuration.
+  # Instantiates the different components of the training pipeline, in 2 steps:
+  # 1. Obtain the object-specific configuration class from the config file.
+  # 2. Instantiate the component from the configuration.
+
+  # Defining the optimizer with scheduler from the configuration.
+  optimizer_config = utils.get_optimizer_config(config)
+  optimizer = utils.build_optimizer_from_config(optimizer_config)
+
+  # Defining the dataloaders from the configuration.
   train_dataloader_config = utils.get_dataloader_config(config, "train")
   train_dataloader = utils.build_dataloader_from_config(train_dataloader_config)
   eval_dataloader_config = utils.get_dataloader_config(config, "eval")
   eval_dataloader = utils.build_dataloader_from_config(eval_dataloader_config)
 
-  # Instantiates the model, in two steps:
-  # 1. Get the model configuration from the config file.
-  # 2. Build the model from the model configuration.
+  # Instantiates the model from the configuration.
   model_config = utils.get_model_config(config)
   model = utils.build_model_from_config(model_config)
 
