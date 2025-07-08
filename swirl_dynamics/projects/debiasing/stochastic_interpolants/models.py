@@ -34,8 +34,8 @@ from clu import metrics as clu_metrics
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.lib.diffusion import unets3d
+from swirl_dynamics.projects.debiasing.stochastic_interpolants import backbones
 from swirl_dynamics.projects.debiasing.stochastic_interpolants import interpolants
 from swirl_dynamics.projects.debiasing.stochastic_interpolants import losses
 from swirl_dynamics.templates import models
@@ -687,9 +687,12 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
 
   Attributes:
     cond_shape: Shape of the conditional input.
+    conditioning_keys: Tuple of keys to use for the conditioning. We assume that
+      the batch contains the conditioning information under these keys.
   """
 
   cond_shape: ShapeDict | None = None
+  conditioning_keys: tuple[str, ...] = ("channel:mean", "channel:std")
 
   def initialize(self, rng: Array) -> models.PyTree:
     x = jnp.ones((1,) + self.input_shape)
@@ -740,10 +743,7 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)
 
     # Extracting the conditioning.
-    cond = {
-        "channel:mean": batch["channel:mean"],
-        "channel:std": batch["channel:std"],
-    }
+    cond = {key: batch[key] for key in self.conditioning_keys}
 
     v_t = self.flow_model.apply(
         {"params": params},
@@ -815,10 +815,8 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     x_1 = batch_reorg["x_1"]
     noise = self.noising_process_interp(noise_rng, x_1.shape)
 
-    cond = {
-        "channel:mean": batch_reorg["channel:mean"],
-        "channel:std": batch_reorg["channel:std"],
-    }
+    # Extracting the conditioning.
+    cond = {key: batch_reorg[key] for key in self.conditioning_keys}
 
     x_t = self.interpolant(time_eval, x_0, x_1, noise)
     flow_fn = self.inference_fn(variables, self.flow_model)
@@ -852,7 +850,7 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     return _flow
 
 
-class RescaledUnet(unets.UNet):
+class RescaledUnet(backbones.UNet):
   """Rescaled flow model.
 
   Attributes:

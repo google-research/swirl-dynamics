@@ -159,7 +159,6 @@ class DistributedStochasticInterpolantTrainer(
     ],
 ):
   """Multi-device trainer for rectified flow models."""
-
   # TODO: Write a test for this trainer.
 
 
