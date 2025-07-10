@@ -59,8 +59,15 @@ class FourierEmbedding(nn.Module):
 
   Attributes:
     dims: The output channel dimension.
-    max_freq: The maximum frequency (only used for exponential scaling)
-    min_freq: The minimum frequency (only used for exponential scaling)
+    max_freq: The maximum frequency (only used for exponential scaling). The
+      default is quite high. For flow-map and mean-flow models, this value
+      should be much lower, as the time-derivate in the losses potentially
+      renders the training unstable.
+    min_freq: The minimum frequency (only used for exponential scaling). The
+      default is 1.0 which is the same as the one used in the original
+      swirl_dynamics.lib.diffusion.unets. For flow-map and mean-flow models,
+      this value should be much lower, the training dynamics seem to benefit
+      from having a smaller minimum frequency.
     projection: Whether to add a projection layer.
     act_fun: The activation function.
     frequency_scaling: Type of scaling of the frequencies, either "linear" or
@@ -73,7 +80,7 @@ class FourierEmbedding(nn.Module):
 
   dims: int = 64
   max_freq: float = 2e4
-  min_freq: float = 1.
+  min_freq: float = 1.0
   projection: bool = True
   act_fun: Callable[[Array], Array] = nn.silu
   frequency_scaling: Literal["linear", "exponential"] = "exponential"
@@ -91,8 +98,8 @@ class FourierEmbedding(nn.Module):
       x = jnp.pi * freqs[None, :] * x[:, None] - self.frequency_shift
     elif self.frequency_scaling == "exponential":
       # Using an exponential scaling of the frequencies.
-      logfreqs = (
-          jnp.linspace(0, jnp.log(self.max_freq/self.min_freq), self.dims // 2)
+      logfreqs = jnp.linspace(
+          0, jnp.log(self.max_freq / self.min_freq), self.dims // 2
       )
       logfreqs *= jnp.log(self.min_freq)
       logfreqs -= self.frequency_shift
@@ -123,7 +130,48 @@ class FourierEmbedding(nn.Module):
 
 
 class FlowMapUNet(nn.Module):
-  """UNet model with two time-inputs."""
+  """UNet model with two time-inputs.
+
+  Attributes:
+    out_channels: Number of output channels.
+    resize_to_shape: The shape of the internal resolution of the UNet. If None,
+      the output resolution will be the same as the input resolution.
+    num_channels: Number of channels for each UNet level. The number of levels
+      is determined by the length of the tuple.
+    downsample_ratio: The downsample ratio for each UNet level. The number of
+      levels is determined by the length of the tuple, and it should be the same
+      as the number of channels.
+    num_blocks: Number of residual blocks in each UNet level.
+    noise_embed_dim: Dimension of the Fourier embedding for the noise.
+    padding: Type of padding to use in the UNet.
+    dropout_rate: Dropout rate for the UNet.
+    use_attention: Whether to use attention in the UNet at the coarsest level.
+    use_position_encoding: Whether to use position encoding in the UNet.
+    num_heads: Number of heads in the self-attention layer.
+    normalize_qk: Whether to normalize the query and key in the self-attention
+      layer.
+    use_global_skip: Whether to use a global skip connection in the UNet.
+    cond_resize_method: If the resize_to_shape is defined, this parameter
+      defines the method used for resizing the conditional inputs.
+    cond_embed_dim: The dimension of the conditional embedding.
+    time_embed_act_fun: The function used for the activation of the time
+      embedding.
+    max_freq: The maximum frequency for the time embedding.
+    min_freq: The minimum frequency for the time embedding.
+    frequency_scaling: The scaling of the frequencies for the time embedding,
+      either "linear" or "exponential".
+    frequency_shift: Frequency shift for the time embedding.
+    time_embedding_merge: Mode for merging the time embedding stemming from the
+      time t and s, either "concat" or "add".
+    cond_merging_fn: Function for merging the conditional inputs across the
+      channel dimension, which will be concatenated to the input of the UNet.
+    cond_embed_fn: Function for embedding the conditional inputs. The embedding
+      will be concatenated to the time embedding.
+    cond_embed_kwargs: Parameters for the conditional embedding function.
+    precision: Precicion for the computation.
+    dtype: The data type of the computation.
+    param_dtype: The data type of the parameters.
+  """
 
   out_channels: int
   resize_to_shape: tuple[int, ...] | None = None  # spatial dims only
@@ -140,6 +188,9 @@ class FlowMapUNet(nn.Module):
   use_global_skip: bool = False
   cond_resize_method: str = "bilinear"
   cond_embed_dim: int = 128
+  time_embed_act_fun: Callable[[Array], Array] = nn.silu
+  max_freq: float = 2e4
+  min_freq: float = 1.0
   frequency_scaling: Literal["linear", "exponential"] = "exponential"
   frequency_shift: float = 0.0
   time_embedding_merge: Literal["concat", "add"] = "concat"
@@ -218,12 +269,18 @@ class FlowMapUNet(nn.Module):
         dims=self.noise_embed_dim,
         frequency_scaling=self.frequency_scaling,
         frequency_shift=self.frequency_shift,
+        min_freq=self.min_freq,
+        max_freq=self.max_freq,
+        act_fun=self.time_embed_act_fun,
         name="time_embedding_for_t",
     )(t)
     emb_s = FourierEmbedding(
         dims=self.noise_embed_dim,
         frequency_scaling=self.frequency_scaling,
         frequency_shift=self.frequency_shift,
+        min_freq=self.min_freq,
+        max_freq=self.max_freq,
+        act_fun=self.time_embed_act_fun,
         name="time_embedding_for_s",
     )(s)
 
