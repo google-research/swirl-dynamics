@@ -60,6 +60,7 @@ class FourierEmbedding(nn.Module):
   Attributes:
     dims: The output channel dimension.
     max_freq: The maximum frequency (only used for exponential scaling)
+    min_freq: The minimum frequency (only used for exponential scaling)
     projection: Whether to add a projection layer.
     act_fun: The activation function.
     frequency_scaling: Type of scaling of the frequencies, either "linear" or
@@ -72,6 +73,7 @@ class FourierEmbedding(nn.Module):
 
   dims: int = 64
   max_freq: float = 2e4
+  min_freq: float = 1.
   projection: bool = True
   act_fun: Callable[[Array], Array] = nn.silu
   frequency_scaling: Literal["linear", "exponential"] = "exponential"
@@ -90,9 +92,10 @@ class FourierEmbedding(nn.Module):
     elif self.frequency_scaling == "exponential":
       # Using an exponential scaling of the frequencies.
       logfreqs = (
-          jnp.linspace(0, jnp.log(self.max_freq), self.dims // 2)
-          - self.frequency_shift
+          jnp.linspace(0, jnp.log(self.max_freq/self.min_freq), self.dims // 2)
       )
+      logfreqs *= jnp.log(self.min_freq)
+      logfreqs -= self.frequency_shift
       x = jnp.pi * jnp.exp(logfreqs)[None, :] * x[:, None]
     else:
       raise ValueError(
