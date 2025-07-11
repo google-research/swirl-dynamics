@@ -919,7 +919,8 @@ def create_ensemble_lens2_era5_loader_with_climatology(
     worker_count: Number of workers for parallelizing the data loading.
     time_stamps: Whether to include the time stamps in the output.
     inference_mode: Whether to use the inference dataset, and provide a dummy
-      output.
+      output, or use the validation dataset, and use an output with the same
+      time stamps as the input.
     num_epochs: Number of epochs, by defaults the loader will run forever.
 
   Returns:
@@ -1753,7 +1754,7 @@ def build_inference_dataloader(
   """
 
   if date_range is None:
-    logging.info("Using the default date ranges.")
+    logging.info("Using the date ranges from the config file.")
     if regime == "train":
       date_range = config.date_range_train
     elif regime == "eval" or regime == "test":

@@ -73,6 +73,7 @@ def inference_pipeline(
         "wind_speed",
     ),
     num_sampling_steps: int = 100,
+    reverse_flow: bool = False,
 ) -> dict[str, np.ndarray]:
   """The evaluation pipeline.
 
@@ -91,6 +92,8 @@ def inference_pipeline(
     batch_size_eval: The batch size for the evaluation.
     variables: Names of physical fields.
     num_sampling_steps: The number of sampling steps for solving the ODE.
+    reverse_flow: Whether to reverse the flow. If True, it debiases ERA5 to
+      LENS2. If False, it debiases LENS2 to ERA5.
 
   Returns:
     A dictionary with the data both input and output with their corresponding
@@ -133,7 +136,7 @@ def inference_pipeline(
       num_sampling_steps=num_sampling_steps,
       time_chunk_size=config.time_batch_size,  # This is the time chunk size.
       time_to_channel=config.get("time_to_channel", default=True),
-      reverse_flow=False,
+      reverse_flow=reverse_flow,
   )
 
   logging.info("Pmapping the sampling function.")
@@ -150,7 +153,7 @@ def inference_pipeline(
       lens2_variable_names=lens2_variable_names,
       era5_variables=era5_variables,
       date_range=date_range,
-      regime="test",  # This is the inference regime.
+      regime="test" if not reverse_flow else "eval",
   )
 
   output_list = []
@@ -160,7 +163,23 @@ def inference_pipeline(
   n_lon = 240
   n_lat = 121
   n_field = len(variables)
-  par_keys = ("channel:mean", "channel:std", "output_mean", "output_std", "x_0")
+  # We can debias either LENS2 to ERA5 or ERA5 to LENS2, by reversing the flow.
+  if reverse_flow:
+    par_keys = {
+        "channel:mean": "channel:mean",
+        "channel:std": "channel:std",
+        "output_mean": "input_mean",
+        "output_std": "input_std",
+        "x_0": "x_1",
+    }
+  else:
+    par_keys = {
+        "channel:mean": "channel:mean",
+        "channel:std": "channel:std",
+        "output_mean": "output_mean",
+        "output_std": "output_std",
+        "x_0": "x_0",
+    }
 
   logging.info("Batch size per device: %d", batch_size_eval)
 
@@ -181,7 +200,7 @@ def inference_pipeline(
       continue
 
     # Extractin only the fiekds that are needed for the parallel sampling.
-    batch_par = {key: batch[key] for key in par_keys}
+    batch_par = {key1: batch[key2] for key1, key2 in par_keys.items()}
     # Reshaping the batch to be compatible with the parallel sampling function.
     parallel_batch = jax.tree.map(
         lambda x: x.reshape((num_devices, -1,) + x.shape[1:]), batch_par)
@@ -219,6 +238,7 @@ def main(argv):
   date_range = config.date_range
   batch_size_eval = config.batch_size_eval
   variables = config.variables
+  reverse_flow = config.get("reverse_flow", default=False)
 
   # Dump config as json to workdir.
   workdir = FLAGS.workdir
@@ -260,8 +280,12 @@ def main(argv):
     print("Evaluating on CMIP dataset indexer: ", lens2_indexer)
     index_member = lens2_indexer
 
+    # Changing the prefix path depending on whether we are debiasing LENS2 to
+    # ERA5 or vice versa.
+    prefix_path = "era5_to_lens2" if reverse_flow else "lens2_to_era5"
+
     # Checking that the file wasn't already saved.
-    path_zarr = f"{workdir}/debiasing_lens2_to_era5_{index_member}.zarr"
+    path_zarr = f"{workdir}/debiasing_{prefix_path}_{index_member}.zarr"
 
     if tf.io.gfile.exists(path_zarr):
       logging.info("File %s already exists, skipping", path_zarr)
@@ -280,6 +304,7 @@ def main(argv):
           lens2_variable_names=lens2_variable_names,
           era5_variables=era5_variables,
           num_sampling_steps=num_sampling_steps,
+          reverse_flow=reverse_flow,
       )
 
       if jax.process_index() == 0:
@@ -287,6 +312,7 @@ def main(argv):
 
         print(f"Shape of time stamps {data_dict['time_stamps'].shape}")
 
+        # TODO: Add the variable names to the zarr file here.
         ds = {}
         ds["reflow"] = xr.DataArray(
             data_dict["output_array"],
