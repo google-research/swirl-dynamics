@@ -160,7 +160,8 @@ class MeanFlowModel(models.BaseModel):
       the interpolant to compute the flow.
     params_flow: The parameters of the flow model used as a teacher model. If
       None, we use the interpolant to compute the flow.
-    interpolant: The interpolant to use for the training.
+    interpolant: The interpolant to use for the training. In most of the cases,
+      we use a RectifiedFlow interpolant.
     noising_process: A Callable that samples noise from the noising process.
     time_sampling: A Callable that samples the interpolation times at training.
     min_train_time: Minimum time at which the flow map and flow are sampled at
@@ -181,7 +182,7 @@ class MeanFlowModel(models.BaseModel):
   mean_flow_model: nn.Module
   flow_model: nn.Module | None = None
   params_flow: VariableDict | None = None
-  interpolant: interpolants.StochasticInterpolant
+  interpolant: interpolants.StochasticInterpolant = interpolants.RectifiedFlow()
   noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
   # TODO: Transfer the time sampling logic to the time_sampling
   # function instead of being handled inside the loss_fn.
@@ -594,6 +595,26 @@ class ConditionalMeanFlowModel(MeanFlowModel):
 
     return eval_losses  # pytype: disable=bad-return-type
 
+  @classmethod
+  def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):
+    """Returns the inference conditional mean flow function."""
+
+    def _flow(
+        x: Array,
+        t: float | Array,
+        s: float | Array,
+        cond: CondDict | None = None,
+    ) -> Array:
+      # This is a wrapper to vectorize time if it is a float.
+      if not jnp.shape(jnp.asarray(t)):
+        t *= jnp.ones((x.shape[0],))
+        s *= jnp.ones((x.shape[0],))
+      return mean_flow_model.apply(
+          variables, x_s=x, t=t, s=s, cond=cond, is_training=False
+      )
+
+    return _flow
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
@@ -695,7 +716,7 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
     )
 
     u_target_t = v_t - (time_t - time_s) * dt_u_st
-    u_target_s = -v_s + (time_t - time_s) * ds_u_st
+    u_target_s = - v_s + (time_t - time_s) * ds_u_st
 
     # Using the adaptive norm in section 4.3 of [1].
     loss_t = jnp.mean(jnp.square(u_ts - jax.lax.stop_gradient(u_target_t)))
