@@ -702,21 +702,22 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
           rngs={"dropout": dropout_rng},
       )
 
-    # Partial derivate with respect to t of the flow map.
+    # Derivate with respect to t of the mean flow.
     u_ts, dt_u_st = jax.jvp(
         partial_flow_map,
         (x_t, time_t, time_s),
         (v_t, jnp.ones_like(time_t), jnp.zeros_like(time_s)),
     )
 
+    # Partial derivate with respect to s of the mean flow.
     _, ds_u_st = jax.jvp(
         partial_flow_map,
         (x_t, time_t, time_s),
-        (jnp.zeros_like(time_t), jnp.zeros_like(time_t), jnp.ones_like(time_s)),
+        (jnp.zeros_like(x_t), jnp.zeros_like(time_t), jnp.ones_like(time_s)),
     )
 
     u_target_t = v_t - (time_t - time_s) * dt_u_st
-    u_target_s = - v_s + (time_t - time_s) * ds_u_st
+    u_target_s = v_s + (time_t - time_s) * ds_u_st
 
     # Using the adaptive norm in section 4.3 of [1].
     loss_t = jnp.mean(jnp.square(u_ts - jax.lax.stop_gradient(u_target_t)))
