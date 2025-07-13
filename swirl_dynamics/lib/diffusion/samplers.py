@@ -14,8 +14,9 @@
 
 """Diffusion samplers."""
 
-from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from collections.abc import Callable, Mapping, Sequence
+import functools
+from typing import Any, Protocol, TypeAlias, TypeVar
 
 import flax
 import jax
@@ -26,9 +27,10 @@ from swirl_dynamics.lib.diffusion import guidance
 from swirl_dynamics.lib.solvers import ode
 from swirl_dynamics.lib.solvers import sde
 
-Array = jax.Array
-ArrayMapping = Mapping[str, Array]
-Params = Mapping[str, Any]
+Array: TypeAlias = jax.Array
+ArrayMapping: TypeAlias = Mapping[str, Array]
+Params: TypeAlias = Mapping[str, Any]
+Logp = TypeVar("Logp", Array, None)
 
 
 class DenoiseFn(Protocol):
@@ -65,6 +67,66 @@ def denoiser2score(
     return jnp.divide(target - x_hat, scale * jnp.square(sigma))
 
   return _score
+
+
+def eval_fn_and_trace_jac(
+    fn: Callable[[Array], Array],
+    x: Array,
+    num_probes: int | None = None,
+    rng: Array | None = None,
+) -> tuple[Array, Array]:
+  """Evaluates the value and the trace of the Jacobian of `fn` at `x`.
+
+  If `num_probes` is `None`, the trace is evaluated exactly using
+  vector-Jacobian products vmapped over rows of an identity matrix. The cost
+  is proportional to the number of sample dimensions, which can be expensive.
+
+  Otherwise, the trace is approximated with Hutchinson's trace estimator
+  (eq. 7, https://arxiv.org/abs/1810.01367):
+
+    Trace(dF/dx) = E [εᵀ(dF/dx)ε],
+
+  where E denotes expection over ε, which are typically sampled from standard
+  Gaussian distributions. The cost of this estimator is proportional to the
+  number of probes (i.e. `num_probes`) instead of the sample dimension.
+
+  Args:
+    fn: The function to evaluate. It must take a single argument and return a
+      single output of the same shape.
+    x: The input to `fn`. The batch dimension should be the leading axis.
+    num_probes: The number of probes to use for Hutchinson's trace estimator. If
+      `None`, the trace is computed exactly.
+    rng: Random key for sampling probes. Required if `num_probes` is not `None`.
+
+  Returns:
+    The evaluated function value and the trace of its Jacobian.
+  """
+  if num_probes is not None and rng is None:
+    raise ValueError("`rng` is required if `num_probes` is not `None`.")
+
+  fn_flat = lambda x_flat: fn(x_flat.reshape(*x.shape)).reshape(*x_flat.shape)
+  y, vjp_fn = jax.vjp(fn_flat, x.reshape(x.shape[0], -1))
+
+  if num_probes is None:
+    # Exact trace computation.
+    eye = jnp.stack([jnp.eye(y.shape[1])] * x.shape[0], axis=0)
+    (dfndx,) = jax.vmap(vjp_fn, in_axes=1, out_axes=1)(eye)
+    trace_jac = jnp.trace(dfndx, axis1=1, axis2=2)
+  else:
+    # Approximate trace computation using Hutchinson's trace estimator.
+    eps = jax.random.bernoulli(rng, shape=(num_probes, *y.shape))
+    eps = eps.astype(x.dtype) * 2 - 1  # scale to {-1, 1}
+    (eps_vjp,) = jax.vmap(vjp_fn)(eps)
+    trace_jac = jnp.mean(jnp.einsum("nbd,nbd->nb", eps_vjp, eps), axis=0)
+
+  return y.reshape(*x.shape), trace_jac
+
+
+def array_to_int(data: Array) -> Array:
+  """Hashes an arbitrary array to an integer."""
+  bits = jax.lax.bitcast_convert_type(data.ravel(), jnp.uint32)
+  primes = jnp.arange(1, bits.size + 1, dtype=jnp.uint32) * 63689
+  return jnp.sum(bits * primes).astype(jnp.uint64)
 
 
 # ********************
@@ -246,13 +308,17 @@ class Sampler:
 
 @flax.struct.dataclass
 class OdeSampler(Sampler):
-  """Draw samples by solving an probability flow ODE.
+  """Use an probability flow ODE to generate samples or compute log likelihood.
 
   Attributes:
     integrator: The ODE solver for solving the sampling ODE.
+    num_probes: The number of probes to use for Hutchinson's trace estimator
+      when computing the log likelihood of samples. If `None`, the trace is
+      computed exactly.
   """
 
   integrator: ode.OdeSolver = ode.HeunsMethod()
+  num_probes: int | None = None
 
   def denoise(
       self,
@@ -272,7 +338,7 @@ class OdeSampler(Sampler):
 
   @property
   def dynamics(self) -> ode.OdeDynamics:
-    """The RHS of the sampling ODE.
+    """The right-hand side function of the sampling ODE.
 
     In score function (eq. 3 in Karras et al. https://arxiv.org/abs/2206.00364):
 
@@ -304,7 +370,7 @@ class OdeSampler(Sampler):
       inputs: Array,
       cond: ArrayMapping | None = None,
       guidance_inputs: ArrayMapping | None = None,
-      eps: Array | None = None,
+      rng: Array | None = None,
   ) -> Array:
     """Computes the log likelihood of given data using the probability flow.
 
@@ -321,10 +387,8 @@ class OdeSampler(Sampler):
       cond: Conditioning inputs for the denoise function. The batch dimension
         should match that of `data`.
       guidance_inputs: Inputs for constructing the guided denoising function.
-      eps: The 'probes' to use for Hutchinson's trace estimator (see
-        `.log_likelihood_augmented_dynamics_approximate`). Expected to have
-        shape (batch, num_probes, *input_shape). If `None`, the trace is
-        computed exactly (see `.log_likelihood_augmented_dynamics_exact`).
+      rng: A random key for sampling probes. Required if using the approximate
+        trace estimator (i.e. `num_probes` is not `None`).
 
     Returns:
       The computed log likelihood.
@@ -335,23 +399,11 @@ class OdeSampler(Sampler):
           f" {self.input_shape}, but has shape {inputs.shape} instead."
       )
 
-    if eps is not None and (
-        eps.shape[2:] != self.input_shape or eps.shape[0] != inputs.shape[0]
-    ):
-      raise ValueError(
-          "`eps` is expected to have shape (batch_size, num_probes,"
-          f" *input_shape) but has shape {eps.shape} instead."
-      )
-
     batch_size = inputs.shape[0]
     dim = np.prod(self.input_shape)
-    params = dict(cond=cond, guidance_inputs=guidance_inputs)
+    params = dict(cond=cond, guidance_inputs=guidance_inputs, rng=rng)
 
-    if eps is not None:
-      params["eps"] = jnp.reshape(eps, (*eps.shape[:2], dim))
-      dynamics_fn = self.log_likelihood_augmented_dynamics_approximate
-    else:
-      dynamics_fn = self.log_likelihood_augmented_dynamics_exact
+    dynamics_fn = self.log_likelihood_augmented_dynamics
 
     q0 = jnp.concatenate(
         [jnp.reshape(inputs, (batch_size, -1)), jnp.zeros((batch_size, 1))],
@@ -373,7 +425,7 @@ class OdeSampler(Sampler):
     return log_p1 - dlogp01
 
   @property
-  def log_likelihood_augmented_dynamics_exact(self) -> ode.OdeDynamics:
+  def log_likelihood_augmented_dynamics(self) -> ode.OdeDynamics:
     """Exact augmented dynamics for computing the log likelihood.
 
     The probability flow ODE dynamics is augmented with the dynamics of the log
@@ -382,53 +434,234 @@ class OdeSampler(Sampler):
 
       d(log p(x))/dt = - Trace(dF/dx),
 
-    where F denotes RHS of the probability flow. The trace is evaluated exactly
-    using vector-Jacobian products vmapped over rows of an identity matrix.
-    The cost is proportional to the number of sample dimensions, which can be
-    expensive.
+    where F denotes right-hand side of the probability flow.
     """
 
-    def _exact_dynamics(x: Array, t: Array, params: Params) -> Array:
+    def _augmented_dynamics(x: Array, t: Array, params: Params) -> Array:
       x = x[:, :-1]
-      fn = lambda x: self.dynamics(
-          x.reshape(x.shape[0], *self.input_shape), t, params
-      ).reshape(x.shape[0], -1)
-      dxdt, vjp_fn = jax.vjp(fn, x)
-      eye = jnp.stack([jnp.eye(x.shape[-1])] * x.shape[0], axis=0)
-      (dfndx,) = jax.vmap(vjp_fn, in_axes=1, out_axes=1)(eye)
-      dlogp = -jnp.trace(dfndx, axis1=1, axis2=2)
-      return jnp.concatenate([dxdt, dlogp[:, None]], axis=-1)
-
-    return _exact_dynamics
-
-  @property
-  def log_likelihood_augmented_dynamics_approximate(self) -> ode.OdeDynamics:
-    """Approximate augmented dynamics for computing the log likelihood.
-
-    The trace in the augmented log density dynamics (see
-    `.log_likelihood_augmented_dynamics_exact`) is approximated with
-    Hutchinson's trace estimator (eq. 7, https://arxiv.org/abs/1810.01367):
-
-      Trace(dF/dx) = E [εᵀ(dF/dx)ε],
-
-    where E denotes expection over ε, which are typically sampled from standard
-    Gaussian distributions. The cost of this estimator is proportional to the
-    number of probes (i.e. ε samples) instead of the sample dimension.
-    """
-
-    def _approximate_dynamics(x: Array, t: Array, params: Params) -> Array:
-      x = x[:, :-1]
-      fn = lambda x: self.dynamics(
-          x.reshape(x.shape[0], *self.input_shape), t, params
-      ).reshape(x.shape[0], -1)
-      dxdt, vjp_fn = jax.vjp(fn, x)
-      (eps_vjp,) = jax.vmap(vjp_fn, in_axes=1, out_axes=1)(params["eps"])
-      dlogp = -jnp.mean(
-          jnp.einsum("bnd,bnd->bn", eps_vjp, params["eps"]), axis=1
+      fn = functools.partial(self.dynamics, t=t, params=params)
+      rng = jax.random.fold_in(params["rng"], array_to_int(t))
+      dxdt, trace_jac = eval_fn_and_trace_jac(
+          fn, x.reshape(x.shape[0], *self.input_shape), self.num_probes, rng
       )
-      return jnp.concatenate([dxdt, dlogp[:, None]], axis=-1)
+      return jnp.concatenate(
+          [dxdt.reshape(*x.shape), -trace_jac[:, None]], axis=-1
+      )
 
-    return _approximate_dynamics
+    return _augmented_dynamics
+
+
+@flax.struct.dataclass
+class ExponentialOdeSampler(Sampler):
+  """Draw samples by solving the sampling ODE with 1st-order exponential solver.
+
+  Solves (see `OdeSampler.dynamics`)
+
+    dx = [σ̇(t)/σ(t) + ṡ(t)/s(t)] x - [s(t)σ̇(t)/σ(t)] D(x/s(t), σ(t)) dt
+
+  where s(t), σ(t) are the scale and noise schedule of the diffusion scheme
+  respectively. D() is the denoising function.
+  """
+
+  num_probes: int | None = None
+
+  def __post_init__(self):
+    if self.return_full_paths:
+      raise ValueError(
+          "`ExponentialOdeSampler` does not currently support returning full"
+          " paths."
+      )
+
+  def denoise(
+      self,
+      noisy: Array,
+      rng: Array,
+      tspan: Array,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
+  ) -> Array:
+    """Applies iterative denoising to given noisy states."""
+    params = dict(guidance_inputs=guidance_inputs, cond=cond)
+
+    def cond_fn(loop_state: tuple[int, Array]) -> bool:
+      return loop_state[0] < len(tspan) - 1
+
+    def body_fn(loop_state: tuple[int, Array]) -> tuple[int, Array]:
+      i, xi = loop_state
+      x_next = self.backward_step(
+          x1=xi, t1=tspan[i], t0=tspan[i + 1], params=params
+      )
+      return i + 1, x_next
+
+    _, samples = jax.lax.while_loop(cond_fn, body_fn, (0, noisy))
+    return samples
+
+  def backward_step(
+      self, x1: Array, t1: Array, t0: Array, params: Params
+  ) -> Array:
+    """Applies one step of the exponential solver to the sampling ODE.
+
+    The step formula reads
+
+      x₀ = (s₀σ₀) / (s₁σ₁) x₁ + s₀(1 - σ₀ / σ₁) D(x₁/s₁, σ₁)
+
+    where x₁ is the current state; s₁, σ₁ are the scale and noise levels at the
+    current time; s₀, σ₀ are for the output time. t0 < t1.
+
+    Args:
+      x1: The current state.
+      t1: The current time.
+      t0: The output time.
+      params: The parameters for the denoise function.
+
+    Returns:
+      The stepped state.
+    """
+    denoise_fn = self.get_guided_denoise_fn(
+        guidance_inputs=params["guidance_inputs"]
+    )
+    s0, sigma0 = self.scheme.scale(t0), self.scheme.sigma(t0)
+    s1, sigma1 = self.scheme.scale(t1), self.scheme.sigma(t1)
+    x0 = (s0 * sigma0) / (s1 * sigma1) * x1
+    x0 += (
+        s0
+        * (1 - sigma0 / sigma1)
+        * denoise_fn(jnp.divide(x1, s1), sigma1, params["cond"])
+    )
+    return x0
+
+  def forward_step(
+      self,
+      x0: Array,
+      t0: Array,
+      t1: Array,
+      params: Params,
+      logp0: Logp = None,
+      rng: Array | None = None,
+  ) -> tuple[Array, Logp]:
+    """Applies one forward step of the exponential solver to the sampling ODE.
+
+    The forward step formula reads
+
+      x₁ = (s₁σ₁) / (s₀σ₀) x₀ + s₁(1 - σ₁ / σ₀) D(x₀/s₀, σ₀)
+
+    with the associated log likelihood evolving as
+
+      log p₁ = log p₀ + N (log (s₁ / s₀) + log (σ₁ / σ₀))
+               + (log (σ₀ / σ₁) Trace(∂D/∂x)(x=x₀/s₀, σ₀=σ₀))
+
+    where x₀ is the current state; s₀, σ₀ are the scale and noise levels at the
+    current time; s₀, σ₀ are for the output time; N is the number of dimensions
+    in x. t1 > t0.
+
+    Args:
+      x0: The current state.
+      t0: The current time.
+      t1: The output time.
+      params: The parameters for the denoise function.
+      logp0: The log likelihood of the current state. If provided, the ODE will
+        be augmented to include the log likelihood.
+      rng: A random key for sampling probes. Required if using the approximate
+        trace estimator (i.e. `num_probes` is not `None`).
+
+    Returns:
+      The stepped state.
+    """
+    denoise_fn = self.get_guided_denoise_fn(
+        guidance_inputs=params["guidance_inputs"]
+    )
+    s0, sigma0 = self.scheme.scale(t0), self.scheme.sigma(t0)
+    s1, sigma1 = self.scheme.scale(t1), self.scheme.sigma(t1)
+
+    if logp0 is None:
+      denoised = denoise_fn(jnp.divide(x0, s0), sigma0, params["cond"])
+      x1 = (s1 * sigma1) / (s0 * sigma0) * x0
+      x1 += s1 * (1 - sigma1 / sigma0) * denoised
+      logp1 = None
+
+    else:
+      denoise_fn0 = lambda x: denoise_fn(x, sigma0, params["cond"])
+      denoised, trace_jac = eval_fn_and_trace_jac(
+          fn=denoise_fn0,
+          x=jnp.divide(x0, s0),
+          num_probes=self.num_probes,
+          rng=rng,
+      )
+      x1 = (s1 * sigma1) / (s0 * sigma0) * x0
+      x1 += s1 * (1 - sigma1 / sigma0) * denoised
+      logp1 = (
+          logp0
+          + np.prod(x1.shape[1:])
+          * (jnp.log(s1 / s0) + jnp.log(sigma1 / sigma0))
+          + (jnp.log(sigma0 / sigma1)) * trace_jac
+      )
+    return x1, logp1
+
+  def compute_log_likelihood(
+      self,
+      inputs: Array,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
+      rng: Array | None = None,
+  ) -> Array:
+    """Computes the log likelihood of given data using the probability flow.
+
+    Solves the augmented probability flow ODE forward (from zero to max noise
+    level) with an 1st-order exponential solver.
+
+    Args:
+      inputs: Data whose log likelihood is computed. Expected to have shape
+        `(batch, *input_shape)`.
+      cond: Conditioning inputs for the denoise function. The batch dimension
+        should match that of `data`.
+      guidance_inputs: Inputs for constructing the guided denoising function.
+      rng: A random key for sampling probes. Required if using the approximate
+        trace estimator (i.e. `self.num_probes` is not `None`).
+
+    Returns:
+      The computed log likelihood.
+    """
+    if inputs.shape[1:] != self.input_shape:
+      raise ValueError(
+          "`inputs` is expected to have shape (batch_size,) +"
+          f" {self.input_shape}, but has shape {inputs.shape} instead."
+      )
+
+    batch_size = inputs.shape[0]
+    dim = np.prod(self.input_shape)
+    params = dict(cond=cond, guidance_inputs=guidance_inputs)
+
+    def cond_fn(loop_state: tuple[int, Array, Array]) -> bool:
+      return loop_state[0] < len(self.tspan) - 1
+
+    def body_fn(
+        loop_state: tuple[int, Array, Array],
+    ) -> tuple[int, Array, Array]:
+      i, xi, logpi = loop_state
+      x_next, logp_next = self.forward_step(
+          x0=xi,
+          t1=self.tspan[::-1][i],
+          t0=self.tspan[::-1][i + 1],
+          params=params,
+          logp0=logpi,
+          rng=rng,
+      )
+      return i + 1, x_next, logp_next
+
+    _, x1, dlogp01 = jax.lax.while_loop(
+        cond_fn, body_fn, (0, inputs, jnp.zeros((batch_size,)))
+    )
+
+    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.sigma(self.tspan[0])
+    x1_flat = x1.reshape(batch_size, -1)
+    log_p1 = (
+        -dim / 2 * jnp.log(2 * jnp.pi)
+        - dim * jnp.log(sigma1)
+        - 0.5 * jnp.einsum("nd,nd->n", x1_flat, x1_flat) / jnp.square(sigma1)
+    )
+    # The sign before `dlogp01` is minus because the integration limits are
+    # reversed compared to eq. 3 in https://arxiv.org/abs/1810.01367
+    return log_p1 - dlogp01
 
 
 @flax.struct.dataclass
@@ -506,3 +739,92 @@ class SdeSampler(Sampler):
       return jnp.sqrt(dsquare_sigma_dt) * self.scheme.scale(t)
 
     return sde.SdeDynamics(_drift, _diffusion)
+
+
+@flax.struct.dataclass
+class ExponentialSdeSampler(Sampler):
+  """Draw samples by solving the sampling SDE with 1st-order exponential solver.
+
+  Solves (see `SdeSampler.dynamics`)
+
+    dx = [2 σ̇(t)/σ(t) + ṡ(t)/s(t)] x - [2 s(t)σ̇(t)/σ(t)] D(x/s(t), σ(t)) dt
+         + s(t) √[2σ̇(t)σ(t)] dωₜ
+
+  where s(t), σ(t) are the scale and noise schedule of the diffusion scheme
+  respectively. D() is the denoising function.
+  """
+
+  def __post_init__(self):
+    if self.return_full_paths:
+      raise ValueError(
+          "`ExponentialSdeSampler` does not currently support returning full"
+          " paths."
+      )
+
+  def denoise(
+      self,
+      noisy: Array,
+      rng: Array,
+      tspan: Array,
+      cond: ArrayMapping | None = None,
+      guidance_inputs: ArrayMapping | None = None,
+  ) -> Array:
+    """Applies iterative denoising to given noisy states."""
+    params = dict(guidance_inputs=guidance_inputs, cond=cond)
+    rngs = jax.random.split(rng, len(tspan))
+
+    def cond_fn(loop_state: tuple[int, Array]) -> bool:
+      return loop_state[0] < len(tspan) - 1
+
+    def body_fn(loop_state: tuple[int, Array]) -> tuple[int, Array]:
+      i, xi = loop_state
+      x_next = self.backward_step(
+          x1=xi, t1=tspan[i], t0=tspan[i + 1], rng=rngs[i], params=params
+      )
+      return i + 1, x_next
+
+    _, samples = jax.lax.while_loop(cond_fn, body_fn, (0, noisy))
+    return samples
+
+  def backward_step(
+      self, x1: Array, t1: Array, t0: Array, rng: Array, params: Params
+  ) -> Array:
+    """Applies one backward step of the exponential solver to the sampling SDE.
+
+    The step formula reads
+
+      x₀ = (s₀σ²₀) / (s₁σ²₁) x₁ + s₀(1 - σ²₀ / σ²₁) D(x₁/s₁, σ₁)
+          + s₀(σ₀ / σ₁) √[σ²₁ - σ²₀] ε
+
+    where x₁ is the current state; s₁, σ₁ are the scale and noise levels at the
+    current time; s₀, σ₀ are for the output time; ε ~ N(0, 1) is a standard
+    normal random sample.
+
+    Args:
+      x1: The current state.
+      t1: The current time.
+      t0: The output time.
+      rng: The random key for the drawing noise samples.
+      params: The parameters for the denoise function.
+
+    Returns:
+      The stepped state.
+    """
+    denoise_fn = self.get_guided_denoise_fn(
+        guidance_inputs=params["guidance_inputs"]
+    )
+    s0, sigma0 = self.scheme.scale(t0), self.scheme.sigma(t0)
+    s1, sigma1 = self.scheme.scale(t1), self.scheme.sigma(t1)
+    x0 = (s0 * sigma0**2) / (s1 * sigma1**2) * x1
+    x0 += (
+        s0
+        * (1 - sigma0**2 / sigma1**2)
+        * denoise_fn(jnp.divide(x1, s1), sigma1, params["cond"])
+    )
+    x0 += (
+        s0
+        * (sigma0 / sigma1)
+        * jnp.sqrt(sigma1**2 - sigma0**2)
+        * jax.random.normal(rng, x1.shape, x1.dtype)
+    )
+    return x0

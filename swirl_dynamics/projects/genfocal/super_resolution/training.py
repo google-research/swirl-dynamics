@@ -284,14 +284,7 @@ class DenoisingModel(templates.BaseModel):
         inputs=batch["x"],
         cond=batch["cond"],
         guidance_inputs=batch.get("guidance_inputs", {}),
-        eps=jax.random.normal(
-            key=rng,
-            shape=(
-                batch["x"].shape[0],
-                self.num_likelihood_probes,
-                *self.sample_shape,
-            ),
-        ),
+        rng=rng,
     )
     return {
         "sample_log_likelihood_per_dim": jnp.mean(
@@ -327,6 +320,7 @@ class DenoisingModel(templates.BaseModel):
         tspan=dfn_lib.edm_noise_decay(
             self.diffusion_scheme, num_steps=self.num_ode_steps
         ),
+        num_probes=self.num_likelihood_probes,
     )
 
   @classmethod
