@@ -340,22 +340,42 @@ def main(argv):
 
   if config.get("use_3d_model", default=False):
     logging.info("Using 3D model")
-    flow_model = models.RescaledUnet3d(
-        out_channels=config.out_channels,
-        num_channels=config.num_channels,
-        downsample_ratio=config.downsample_ratio,
-        num_blocks=config.num_blocks,
-        noise_embed_dim=config.noise_embed_dim,
-        padding=config.padding,
-        dropout_rate=config.dropout_rate,
-        use_spatial_attention=config.use_spatial_attention,
-        use_temporal_attention=config.use_temporal_attention,
-        resize_to_shape=config.resize_to_shape,
-        use_position_encoding=config.use_position_encoding,
-        num_heads=config.num_heads,
-        normalize_qk=config.normalize_qk,
-        ffn_type=config.get("ffn_type", default="dense"),
-    )
+    if config.get("use_subtracted_model", default=False):
+      logging.info("Using subtracted 3D model")
+      flow_model = models.RescaledSubstractedUnet3d(
+          out_channels=config.out_channels,
+          num_channels=config.num_channels,
+          downsample_ratio=config.downsample_ratio,
+          num_blocks=config.num_blocks,
+          noise_embed_dim=config.noise_embed_dim,
+          padding=config.padding,
+          dropout_rate=config.dropout_rate,
+          use_spatial_attention=config.use_spatial_attention,
+          use_temporal_attention=config.use_temporal_attention,
+          resize_to_shape=config.resize_to_shape,
+          use_position_encoding=config.use_position_encoding,
+          num_heads=config.num_heads,
+          normalize_qk=config.normalize_qk,
+          ffn_type=config.get("ffn_type", default="dense"),
+      )
+    else:
+      logging.info("Using vanilla 3D model")
+      flow_model = models.RescaledUnet3d(
+          out_channels=config.out_channels,
+          num_channels=config.num_channels,
+          downsample_ratio=config.downsample_ratio,
+          num_blocks=config.num_blocks,
+          noise_embed_dim=config.noise_embed_dim,
+          padding=config.padding,
+          dropout_rate=config.dropout_rate,
+          use_spatial_attention=config.use_spatial_attention,
+          use_temporal_attention=config.use_temporal_attention,
+          resize_to_shape=config.resize_to_shape,
+          use_position_encoding=config.use_position_encoding,
+          num_heads=config.num_heads,
+          normalize_qk=config.normalize_qk,
+          ffn_type=config.get("ffn_type", default="dense"),
+      )
 
   else:
     # Setting up the neural network for the flow model.

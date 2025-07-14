@@ -22,7 +22,7 @@ and $X_1 \sim \mu_1$.
 
 Rectified flow achieves this by by minimizing the loss
   $E_{t ~ U[\eps, 1-\eps]} E_{X_0, X_1} [ \| X_1 - X_0 - v(X_t, t)  \|^2]$,
-where $X_t = t * X_1 + (1 - t) X_0$, for $t \in [0,1]$.
+where $X_t = t X_1 + (1 - t) X_0$, for $t \in [0,1]$.
 Basically, the loss tries to obtain a straight line between x_0 and x_1, i.e.,
 $X_1 = X_0 + \Delta t v_0$, for $\Delta t = 1$. However, one can
 evaluate the speed v at any point in the trajectory, and if v is constant it
@@ -33,6 +33,9 @@ References:
 [1] Xingchao Liu, Chengyue Gong and Qiang Liu. "Flow Straight and Fast:
   Learning to Generate and Transfer Data with Rectified Flow" NeurIPS 2022,
   Workshop on Score-Based Methods.
+
+[2] Xixi Hu, Runlong Liao, Keyang Xu, Bo Liu, Yeqing Li, Eugene Ie, Hongliang
+Fei, and Qiang Liu: "Improving Rectified Flow with Boundary Conditions", 2025.
 """
 
 from collections.abc import Callable, Mapping
@@ -533,3 +536,52 @@ class RescaledUnet3d(unets3d.UNet3d):
     f_x = super().__call__(x, time, cond, is_training=is_training)
 
     return f_x
+
+
+class RescaledSubstractedUnet3d(unets3d.UNet3d):
+  """Rescaled flow model with subtracted input following Eq. 10 in [2].
+
+  This model is constrained so v(x, 1) = x for all x.
+
+  Attributes:
+    time_rescale: Factor for rescaling the time, which normally is in [0, 1] and
+      the input to the UNet which is a noise level, which has a much wider range
+      of values.
+  """
+
+  time_rescale: float = 1000.0
+
+  @nn.compact
+  def __call__(
+      self,
+      x: Array,
+      sigma: Array,
+      cond: dict[str, Array] | None = None,
+      *,
+      is_training: bool,
+  ) -> Array:
+    """Runs rescaled Unet3d with noise input."""
+    if x.shape[-1] != self.out_channels:
+      raise ValueError(
+          f"Number of channels in the input ({x.shape[-1]}) must "
+          "match the number of channels in the output "
+          f"{self.out_channels})."
+      )
+
+    if sigma.ndim < 1:
+      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
+
+    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
+      raise ValueError(
+          "sigma must be 1D and have the same leading (batch) dimension as x"
+          f" ({x.shape[0]})!"
+      )
+
+    # TODO: We assume that the expectation of x_0 is zero.
+    time = sigma * self.time_rescale
+    time_1 = jnp.ones_like(sigma) * self.time_rescale
+
+    m_theta_t = super().__call__(x, time, cond, is_training=is_training)
+    m_theta_1 = super().__call__(x, time_1, cond, is_training=is_training)
+
+    return x + m_theta_t - m_theta_1
