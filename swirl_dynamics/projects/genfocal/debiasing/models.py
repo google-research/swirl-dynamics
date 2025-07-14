@@ -282,7 +282,8 @@ class ConditionalReFlowModel(ReFlowModel):
   """Training a conditional flow-based model for distribution matching.
 
   Attributes:
-    cond_shape: Shape of the conditional input.
+    cond_shape: Dictionary containing the keys and shapes of the conditional
+      input.
   """
   cond_shape: ShapeDict | None = None
 
@@ -336,10 +337,10 @@ class ConditionalReFlowModel(ReFlowModel):
     )
 
     # Extracting the conditioning.
-    cond = {
-        "channel:mean": batch["channel:mean"],
-        "channel:std": batch["channel:std"],
-    }
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
 
@@ -412,10 +413,11 @@ class ConditionalReFlowModel(ReFlowModel):
 
     x_0 = batch_reorg["x_0"]
     x_1 = batch_reorg["x_1"]
-    cond = {
-        "channel:mean": batch_reorg["channel:mean"],
-        "channel:std": batch_reorg["channel:std"],
-    }
+    # Extracting the conditioning.
+    if self.cond_shape is not None:
+      cond = {key: batch_reorg[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     vmap_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     x_t = vmap_mult(x_1, time_eval) + vmap_mult(x_0, 1 - time_eval)

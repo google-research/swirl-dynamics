@@ -401,7 +401,6 @@ class ConditionalMeanFlowModel(MeanFlowModel):
   """
 
   cond_shape: ShapeDict | None = None
-  cond_keys: tuple[str, ...] = ("emb:label",)
   number_of_eval_steps: tuple[int, ...] = (1,)
 
   def initialize(self, rng: Array) -> models.PyTree:
@@ -453,8 +452,11 @@ class ConditionalMeanFlowModel(MeanFlowModel):
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
     x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
 
-    # Extracting the conditioning. In this case it is just the label.
-    cond = {key: batch[key] for key in self.cond_keys}
+    # Extracting the conditioning.
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.
@@ -541,7 +543,10 @@ class ConditionalMeanFlowModel(MeanFlowModel):
     x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
 
     # Extracting the conditioning.
-    cond = {key: batch[key] for key in self.cond_keys}
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.
@@ -662,8 +667,11 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
     # Shall we add constraint that x_tt = x_t?
     x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
 
-    # Extracting the conditioning. In this case it is just the label.
-    cond = {key: batch[key] for key in self.cond_keys}
+    # Extracting the conditioning.
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.

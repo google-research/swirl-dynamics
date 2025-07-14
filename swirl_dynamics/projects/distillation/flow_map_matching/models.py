@@ -326,10 +326,10 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
 
   Attributes:
     cond_shape: Shape of the conditional input.
+    number_of_eval_steps: Number of steps to take in the evaluation loop.
   """
 
   cond_shape: ShapeDict | None = None
-  cond_keys: tuple[str, ...] = ("emb:label",)
   number_of_eval_steps: tuple[int, ...] = (1,)
 
   def initialize(self, rng: Array) -> models.PyTree:
@@ -395,7 +395,10 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
 
     # Extracting the conditioning. In this case it is just the label.
-    cond = {key: batch[key] for key in self.cond_keys}
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     # Partial flow map to compute the gradient vector product.
     def partial_flow_map(x_s, t, s):
@@ -474,8 +477,11 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     time_t, time_s = (jnp.where(time_t > time_s, time_t, time_s),
                       jnp.where(time_t < time_s, time_t, time_s))
 
-    # Extracting the conditioning.
-    cond = {key: batch[key] for key in self.cond_keys}
+    # Extracting the conditioning. In this case it is just the label.
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)

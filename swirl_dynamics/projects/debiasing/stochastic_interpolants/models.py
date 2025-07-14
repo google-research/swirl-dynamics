@@ -686,13 +686,11 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
   """Training a conditional flow-based model for distribution matching.
 
   Attributes:
-    cond_shape: Shape of the conditional input.
-    conditioning_keys: Tuple of keys to use for the conditioning. We assume that
-      the batch contains the conditioning information under these keys.
+    cond_shape: Dictionary containing the keys and shapes of the conditional
+      input.
   """
 
   cond_shape: ShapeDict | None = None
-  conditioning_keys: tuple[str, ...] = ("channel:mean", "channel:std")
 
   def initialize(self, rng: Array) -> models.PyTree:
     x = jnp.ones((1,) + self.input_shape)
@@ -743,7 +741,10 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)
 
     # Extracting the conditioning.
-    cond = {key: batch[key] for key in self.conditioning_keys}
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     v_t = self.flow_model.apply(
         {"params": params},
@@ -816,7 +817,10 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     noise = self.noising_process_interp(noise_rng, x_1.shape)
 
     # Extracting the conditioning.
-    cond = {key: batch_reorg[key] for key in self.conditioning_keys}
+    if self.cond_shape is not None:
+      cond = {key: batch_reorg[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
 
     x_t = self.interpolant(time_eval, x_0, x_1, noise)
     flow_fn = self.inference_fn(variables, self.flow_model)
