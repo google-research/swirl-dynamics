@@ -711,7 +711,10 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     date_input = self._input_time_array[idx_time]
     # We don't need the date of the output. But to conform with the interface,
     # we set it to be first date of the output.
-    date_output_dummy = self._output_time_array[0]
+    if self._output_time_array.size > 0:  # If not empty.
+      date_output_dummy = self._output_time_array[0]
+    else:
+      date_output_dummy = np.datetime64("2000-01-01T00:00:00.000000000")
     dayofyear = int(
         (date_input - np.datetime64(str(date_input.astype("datetime64[Y]"))))
         / np.timedelta64(1, "D")

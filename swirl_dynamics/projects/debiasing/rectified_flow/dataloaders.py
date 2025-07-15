@@ -232,6 +232,16 @@ class CommonSourceEnsemble(abc.ABC):
     input_stats_ds = xrts.open_zarr(input_climatology)
     output_stats_ds = xrts.open_zarr(output_climatology)
 
+    # Read the time arrays.
+    self._input_time_array = xrts.read(input_ds["time"]).data
+    self._output_time_array = xrts.read(output_ds["time"]).data
+
+    # TODO: Refactor the code to avoid this hack.
+    if self._output_time_array.size == 0:
+      # This may happen when using the inference dataloader.
+      logging.warning("Output time array is empty, setting to dummy value.")
+      output_ds = xrts.open_zarr(output_dataset)
+
     # Transpose the datasets if necessary.
     if dims_order_input:
       input_ds = input_ds.transpose(*dims_order_input)
@@ -287,8 +297,6 @@ class CommonSourceEnsemble(abc.ABC):
     # Member index.
     self._indexes = [ind["member"] for ind in input_member_indexer]
     self._len_time = np.min([input_ds.dims["time"], output_ds.dims["time"]])
-    self._input_time_array = xrts.read(input_ds["time"]).data
-    self._output_time_array = xrts.read(output_ds["time"]).data
     # Common time array (to avoid issues with leap years).
     self._common_time_array = np.intersect1d(
         self._input_time_array, self._output_time_array
@@ -608,7 +616,12 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     date_input = self._input_time_array[idx_time]
     # We don't need the date of the output. But to conform with the interface,
     # we set it to be first date of the output.
-    date_output_dummy = self._output_time_array[0]
+    # We assume that there is at least some overlap between the input and output
+    # datasets.
+    if self._output_time_array.size > 0:  # If not empty.
+      date_output_dummy = self._output_time_array[0]
+    else:
+      date_output_dummy = np.datetime64("2000-01-01T00:00:00.000000000")
     dayofyear = int(
         (date_input - np.datetime64(str(date_input.astype("datetime64[Y]"))))
         / np.timedelta64(1, "D")
