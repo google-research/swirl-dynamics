@@ -17,7 +17,7 @@
 import abc
 from collections.abc import Callable, Mapping, Sequence
 import types
-from typing import Any, Literal, SupportsIndex
+from typing import Any, Literal, SupportsIndex, TypeAlias
 
 from etils import epath
 import grain.python as pygrain
@@ -28,9 +28,9 @@ from swirl_dynamics.projects.debiasing.rectified_flow import pygrain_transforms 
 import xarray_tensorstore as xrts
 
 
-Array = jax.Array
-PyTree = Any
-DynamicsFn = Callable[[Array, Array, PyTree], Array]
+Array: TypeAlias = jax.Array
+PyTree: TypeAlias = Any
+DynamicsFn: TypeAlias = Callable[[Array, Array, PyTree], Array]
 
 _ERA5_VARIABLES = types.MappingProxyType({
     "2m_temperature": None,

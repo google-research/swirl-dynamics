@@ -34,7 +34,7 @@ from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
 
 
-MergeChannelCond = unets.MergeChannelCond
+MergeChannelCond: TypeAlias = unets.MergeChannelCond
 PrecisionLike: TypeAlias = (
     None
     | str

@@ -16,7 +16,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
-from typing import Any, KeysView, Literal
+from typing import Any, KeysView, Literal, TypeAlias
 
 from etils import epath
 import grain.python as pygrain
@@ -24,7 +24,7 @@ import numpy as np
 import scipy.optimize as spopt
 import xarray_tensorstore as xrts
 
-FlatFeatures = dict[str, Any]
+FlatFeatures: TypeAlias = dict[str, Any]
 
 
 def read_stats(

@@ -13,8 +13,10 @@
 # limitations under the License.
 
 """Trainers for ReFlow models."""
+
 from collections.abc import Callable
 import functools
+from typing import TypeAlias
 
 from clu import metrics as clu_metrics
 import flax
@@ -24,8 +26,9 @@ from swirl_dynamics.projects.genfocal.debiasing import models
 from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
 
-Array = jax.Array
-VariableDict = trainers.VariableDict
+
+Array: TypeAlias = jax.Array
+VariableDict: TypeAlias = trainers.VariableDict
 
 
 class ReFlowTrainState(train_states.BasicTrainState):

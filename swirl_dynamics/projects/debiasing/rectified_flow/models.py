@@ -41,7 +41,7 @@ Fei, and Qiang Liu: "Improving Rectified Flow with Boundary Conditions", 2025.
 from collections.abc import Callable, Mapping
 import dataclasses
 import functools
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar, Protocol, TypeAlias
 
 from clu import metrics as clu_metrics
 import flax.linen as nn
@@ -52,12 +52,12 @@ from swirl_dynamics.lib.diffusion import unets3d
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
-Array = jax.Array
-CondDict = Mapping[str, Array]
-Metrics = clu_metrics.Collection
-ShapeDict = Mapping[str, Any]  # may be nested
-PyTree = Any
-VariableDict = trainers.VariableDict
+Array: TypeAlias = jax.Array
+CondDict: TypeAlias = Mapping[str, Array]
+Metrics: TypeAlias = clu_metrics.Collection
+ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
+PyTree: TypeAlias = Any
+VariableDict: TypeAlias = trainers.VariableDict
 
 
 class FlowFlaxModule(Protocol):
