@@ -22,6 +22,11 @@ conditional inputs to the model following a labeled embedding.
 We also implement a new Fourier embedding that is more flexible than the one
 in swirl_dynamics.lib.diffusion.unets. We also change the activation function to
 silu from swish, and we add a different scaling of the frequencies.
+
+References:
+[1] Analyzing and Improving the Training Dynamics of Diffusion Models. Tero
+Karras, Miika Aittala, Jaakko Lehtinen, Janne Hellsten, Timo Aila, Samuli Laine.
+CVPR 2024.
 """
 import functools
 from typing import Any, Callable, Literal, Mapping, Sequence, TypeAlias
@@ -131,6 +136,7 @@ class FourierEmbedding(nn.Module):
       "exponential".
     frequency_shift: The shift of the frequencies.
     precision: The precision of the computation.
+    normalization: Whether to normalize the Fourier embedding following [1].
     dtype: The dtype of the computation.
     param_dtype: The dtype of the parameters.
   """
@@ -143,6 +149,7 @@ class FourierEmbedding(nn.Module):
   frequency_scaling: Literal["linear", "exponential"] = "exponential"
   frequency_shift: float = 0.0
   precision: PrecisionLike = None
+  normalization: bool = False
   dtype: jnp.dtype = jnp.float32
   param_dtype: jnp.dtype = jnp.float32
 
@@ -167,6 +174,8 @@ class FourierEmbedding(nn.Module):
       )
 
     x = jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
+    if self.normalization:
+      x = x * jnp.sqrt(2)
 
     if self.projection:
       x = nn.Dense(
