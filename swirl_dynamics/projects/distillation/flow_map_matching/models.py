@@ -26,7 +26,10 @@ Michael S. Albergo, Nicholas M. Boffi, Eric Vanden-Eijnden.
 [2]: Flow map matching with stochastic interpolants: A mathematical framework
 for consistency models. Nicholas M. Boffi,  Michael S. Albergo, and Eric
 Vanden-Eijnden.
-
+[3]: How to build a consistency model: Learning flow maps via self-distillation.
+Nicholas M Boffi, Michael S Albergo, Eric Vanden-Eijnden.
+[4]: Mean Flows for One-step Generative Modeling: Zhengyang Geng, Mingyang Deng,
+Xingjian Bai, J. Zico Kolter, and Kaiming He. (2025).
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -84,15 +87,11 @@ class LagrangianFlowMapModel(models.BaseModel):
     interpolant: The interpolant to use for the training.
     noising_process: A Callable that samples noise from the noising process.
     time_sampling: A Callable that samples the interpolation times at training.
-    num_eval_cases_per_lvl: int = 1
     min_train_time: Minimum time at which the flow map and flow are sampled at
       training.
     max_train_time: Maximum time at which the flow map and flow are sampled at
       training.
-    max_gap: Maximum gap between the times at which the flow map is sampled.
     number_of_eval_steps: Number of steps for the evaluation.
-    weighted_norm: The norm to use for the loss, if None we use euclidean norm,
-      otherwise we use weighted norm.
   """
 
   input_shape: tuple[int, ...]
@@ -101,19 +100,12 @@ class LagrangianFlowMapModel(models.BaseModel):
   params_flow: VariableDict
   interpolant: interpolants.StochasticInterpolant
   noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
-  # TODO: Transfer the time sampling logic to the time_sampling
-  # function instead of being handled inside the loss_fn.
-  time_sampling: Callable[[Array, tuple[int, ...]], Array] = functools.partial(
-      jax.random.uniform, dtype=jnp.float32
-  )
+  time_sampling: Callable[[Array, int, float, float], tuple[Array, Array]] = (
+      backbones.time_sampler_mean_flow)
 
   min_train_time: float = 1e-4  # This should be close to 0.
   max_train_time: float = 1.0 - 1e-4  # It should be close to 1.
-  # Refactor the sampling time logic to be handled in the time_sampling
-  # function.
-  max_gap: float = 1.0
 
-  num_eval_cases_per_lvl: int = 1
   number_of_eval_steps: tuple[int, ...] = (1, 4, 8)
 
   def initialize(self, rng: Array):
@@ -150,29 +142,19 @@ class LagrangianFlowMapModel(models.BaseModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, time_sample_rng_s, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=4)
+    time_sample_rng_t, dropout_rng, noise_rng = (
+        jax.random.split(rng, num=3)
     )
     # Sampling the time.
-    # TODO: encapsulate this in a function.
-    time_range = self.max_train_time - self.min_train_time
-    time_t = (
-        time_range * self.time_sampling(time_sample_rng_t, (batch_size,))
-        + self.min_train_time
+    time_t, time_s = self.time_sampling(
+        time_sample_rng_t,
+        batch_size,
+        self.min_train_time,
+        self.max_train_time,
     )
-    time_s = (
-        time_range * self.time_sampling(time_sample_rng_s, (batch_size,))
-        + self.min_train_time
-    )
-
-    # Ensures that t>s.
-    time_t, time_s = (jnp.where(time_t > time_s, time_t, time_s),
-                      jnp.where(time_t < time_s, time_t, time_s))
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    # Shall we add constraint that x_tt = x_t?
-    # x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
     x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
 
     # Partial flow map to compute the gradient vector product.
@@ -230,29 +212,19 @@ class LagrangianFlowMapModel(models.BaseModel):
     # We bootstrap the samples from the batch, but we keep them paired by using
     # the same random number generator seed.
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, time_sample_rng_s, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=4)
+    time_sample_rng_t, dropout_rng, noise_rng = (
+        jax.random.split(rng, num=3)
     )
     # Sampling the time.
-    # TODO: encapsulate this in a function.
-    time_range = self.max_train_time - self.min_train_time
-    time_t = (
-        time_range * self.time_sampling(time_sample_rng_t, (batch_size,))
-        + self.min_train_time
+    time_t, time_s = self.time_sampling(
+        time_sample_rng_t,
+        batch_size,
+        self.min_train_time,
+        self.max_train_time,
     )
-    time_s = (
-        time_range * self.time_sampling(time_sample_rng_s, (batch_size,))
-        + self.min_train_time
-    )
-
-    # Ensures that t>s.
-    time_t, time_s = (jnp.where(time_t > time_s, time_t, time_s),
-                      jnp.where(time_t < time_s, time_t, time_s))
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    # Shall we add constraint that x_tt = x_t?
-    # x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
     x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
 
     # Partial flow map to compute the gradient vector product.
@@ -282,8 +254,7 @@ class LagrangianFlowMapModel(models.BaseModel):
 
     loss = jnp.mean(jnp.abs(dt_x_st - v_t))
 
-    # TODO: Perform an evaluation and save the samples to be
-    # visualized in tensorboard.
+    # Evaluation samples to be used for visualization.
     eval_samples = {}
     def body_for_loop(i, x, delta_t):
       return partial_flow_map(
@@ -301,9 +272,6 @@ class LagrangianFlowMapModel(models.BaseModel):
 
     eval_losses = {"eval_loss": loss, **eval_samples}
 
-    # In order to plot the samples, we return a dictionary of the form
-    # Mapping[str, jax.Array | Mapping[str, jax.Array]],
-    # which is different from the type annotation. We disable the pytype error.
     return eval_losses  # pytype: disable=bad-return-type
 
   @classmethod
@@ -328,7 +296,6 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     cond_shape: Shape of the conditional input.
     number_of_eval_steps: Number of steps to take in the evaluation loop.
   """
-
   cond_shape: ShapeDict | None = None
   number_of_eval_steps: tuple[int, ...] = (1,)
 
@@ -367,31 +334,19 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, time_sample_rng_s, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=4)
+    time_sample_rng_t, dropout_rng, noise_rng = (
+        jax.random.split(rng, num=3)
     )
     # Sampling the time.
-    # TODO: encapsulate this in a function.
-    time_range = self.max_train_time - self.min_train_time
-    time_t = (
-        time_range * self.time_sampling(time_sample_rng_t, (batch_size,))
-        + self.min_train_time
+    time_t, time_s = self.time_sampling(
+        time_sample_rng_t,
+        batch_size,
+        self.min_train_time,
+        self.max_train_time,
     )
-    time_s = (
-        time_range * self.time_sampling(time_sample_rng_s, (batch_size,))
-        + self.min_train_time
-    )
-
-    # Ensures that t>s.
-    # TODO: learn this even if t<s. Would it make sense to add
-    # symmetries here?
-    time_t, time_s = (jnp.where(time_t > time_s, time_t, time_s),
-                      jnp.where(time_t < time_s, time_t, time_s))
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    # Shall we add constraint that x_tt = x_t?
-    # x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
     x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
 
     # Extracting the conditioning. In this case it is just the label.
@@ -458,35 +413,25 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     # the same random number generator seed.
     # TODO: Avoid repeated code in here.
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, time_sample_rng_s, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=4)
+    time_sample_rng_t, dropout_rng, noise_rng = (
+        jax.random.split(rng, num=3)
     )
     # Sampling the time.
-    # TODO: encapsulate this in a function.
-    time_range = self.max_train_time - self.min_train_time
-    time_t = (
-        time_range * self.time_sampling(time_sample_rng_t, (batch_size,))
-        + self.min_train_time
-    )
-    time_s = (
-        time_range * self.time_sampling(time_sample_rng_s, (batch_size,))
-        + self.min_train_time
+    time_t, time_s = self.time_sampling(
+        time_sample_rng_t,
+        batch_size,
+        self.min_train_time,
+        self.max_train_time,
     )
 
-    # # Ensures that t>s.
-    time_t, time_s = (jnp.where(time_t > time_s, time_t, time_s),
-                      jnp.where(time_t < time_s, time_t, time_s))
-
-    # Extracting the conditioning. In this case it is just the label.
+    # Extracting the conditioning.
     if self.cond_shape is not None:
       cond = {key: batch[key] for key in self.cond_shape.keys()}
     else:
       cond = None
 
-    # Interpolation between x_0 and x_1 (check the interpolant)
+    # Interpolation between x_0 and x_1 (check the stochastic interpolant code).
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    # Shall we add constraint that x_tt = x_t?
-    # x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
     x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
 
     # Partial flow map to compute the gradient vector product.
@@ -558,6 +503,301 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     return _flow
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
+  """Training a conditional flow-based model for distribution matching.
+
+  Here we use a Lagrangian self distillation loss. We train the flow map using
+  the mean flow model. This follows the setup in [3].
+
+  Attributes:
+    input_shape: The tensor shape of a single sample (i.e. without any batch
+      dimension).
+    mean_flow_model: The flax module to use for the mean flow map.
+    interpolant: The interpolant to use for the training.
+    noising_process: A Callable that samples noise from the noising process.
+    time_sampling: A Callable that samples the interpolation times at training.
+    min_train_time: Minimum time at which the flow map and flow are sampled at
+      training.
+    max_train_time: Maximum time at which the flow map and flow are sampled at
+      training.
+    number_of_eval_steps: Number of steps for the evaluation.
+    cond_shape: Shape of the conditional input.
+  """
+
+  input_shape: tuple[int, ...]
+  mean_flow_model: nn.Module
+  interpolant: interpolants.StochasticInterpolant
+  noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
+  time_sampling: Callable[[Array, int, float, float], tuple[Array, Array]] = (
+      backbones.time_sampler_mean_flow)
+
+  min_train_time: float = 1e-4  # This should be close to 0.
+  max_train_time: float = 1.0 - 1e-4  # It should be close to 1.
+
+  number_of_eval_steps: tuple[int, ...] = (1,)
+  cond_shape: ShapeDict | None = None
+
+  def initialize(self, rng: Array) -> models.PyTree:
+    x = jnp.ones((1,) + self.input_shape)
+    cond = cond_sample_from_shape(self.cond_shape, batch_dims=(1,))
+
+    return self.mean_flow_model.init(  # add conditional input here.
+        rng,
+        x_s=x,
+        t=jnp.ones((1,)),
+        s=jnp.ones((1,)),
+        cond=cond,
+        is_training=False,
+    )
+
+  def loss_fn(
+      self,
+      params: models.PyTree,
+      batch: models.BatchType,
+      rng: Array,
+      mutables: models.PyTree,
+  ) -> models.LossAndAux:
+    """Computes the flow matching loss on a training batch.
+
+    Args:
+      params: The parameters of the flow model to differentiate against.
+      batch: A batch of training data expected to contain two fields, namely
+        `x_0` and `x_1` corresponding to samples from different sets. Each field
+        is expected to have a shape of `(batch, *spatial_dims, channels)`.
+      rng: A Jax random key.
+      mutables: The mutable (non-differentiated) parameters of the flow model
+        (e.g. batch stats); *currently assumed empty*.
+
+    Returns:
+      The loss value and a tuple of training metric and mutables.
+    """
+    batch_size = len(batch["x_0"])
+    time_sample_rng_t, dropout_rng, noise_rng = (
+        jax.random.split(rng, num=3)
+    )
+    # Sampling the time.
+    time_t, time_s = self.time_sampling(
+        time_sample_rng_t,
+        batch_size,
+        self.min_train_time,
+        self.max_train_time,
+    )
+
+    # Interpolation between x_0 and x_1 (check the interpolant)
+    noise = self.noising_process(noise_rng, batch["x_0"].shape)
+    # Shall we add constraint that x_tt = x_t?
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+
+    # Extracting the conditioning. In this case it is just the label.
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
+
+    # Partial flow map to compute the gradient vector product.
+    def partial_flow_map(x_s: Array, t: Array, s: Array) -> Array:
+      # Broadcast the delta time to the spatial dimensions.
+      delta_time = t - s
+      delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
+      return x_s + delta_time * self.mean_flow_model.apply(
+          {"params": params},
+          x_s,
+          t,
+          s,
+          cond=cond,
+          is_training=True,
+          rngs={"dropout": dropout_rng},
+      )
+
+    # Partial derivate with respect to s of the flow map.
+    x_st, dt_x_st = jax.jvp(
+        partial_flow_map,
+        (x_s, time_t, time_s),
+        (jnp.zeros_like(x_s), jnp.ones_like(time_t), jnp.zeros_like(time_s)),
+    )
+
+    # Derivative of the interpolant with respect to t.
+    dinterp_dt = self.interpolant.calculate_time_derivative_interpolant(
+        time_t, batch["x_0"], batch["x_1"], noise
+    )
+
+    # Evaluating the mean flow map at X^{s,t}(x_s).
+    v_tt_st = self.mean_flow_model.apply(
+        {"params": params},
+        x_st,
+        time_t,
+        time_t,
+        cond=cond,
+        is_training=True,
+        rngs={"dropout": dropout_rng},
+    )
+    # Evaluating the mean flow map at x_t.
+    v_tt = self.mean_flow_model.apply(
+        {"params": params},
+        x_t,
+        time_t,
+        time_t,
+        cond=cond,
+        is_training=True,
+        rngs={"dropout": dropout_rng},
+    )
+
+    # This is the loss as defined in Eq. 11 in [3], by adding Eqs. 12 and 13.
+    loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))
+    loss_x = jnp.mean(jnp.square(dt_x_st - v_tt_st))
+
+    loss = loss_v + loss_x
+    metric = dict(loss=loss, loss_v=loss_v, loss_x=loss_x)
+    return loss, (metric, mutables)
+
+  def eval_fn(
+      self,
+      variables: models.PyTree,
+      batch: models.BatchType,
+      rng: Array,
+  ) -> models.ArrayDict:
+    """Compute metrics on an eval batch.
+
+    Randomly selects members of the batch and interpolates them at different
+    points between 0 and 1 and computed the flow. The error of the flow at each
+    point is aggregated.
+
+    Args:
+      variables: The full model variables for the flow module.
+      batch: A batch of evaluation data expected to contain two fields `x_0` and
+        `x_1` fields, representing samples of each set. Both fields are expected
+        to have shape of `(batch, *spatial_dims, channels)`.
+      rng: A Jax random key.
+
+    Returns:
+      A dictionary of evaluation metrics.
+    """
+    # We bootstrap the samples from the batch, but we keep them paired by using
+    # the same random number generator seed.
+    batch_size = len(batch["x_0"])
+    time_sample_rng_t, dropout_rng, noise_rng = (
+        jax.random.split(rng, num=3)
+    )
+    # Sampling the time.
+    time_t, time_s = self.time_sampling(
+        time_sample_rng_t,
+        batch_size,
+        self.min_train_time,
+        self.max_train_time,
+    )
+
+    # Extracting the conditioning.
+    if self.cond_shape is not None:
+      cond = {key: batch[key] for key in self.cond_shape.keys()}
+    else:
+      cond = None
+
+    # Interpolation between x_0 and x_1. See stochastic_interpolants code
+    noise = self.noising_process(noise_rng, batch["x_0"].shape)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+
+    # Partial flow map to compute the gradient vector product.
+    def partial_flow_map(x_s: Array, t: Array, s: Array) -> Array:
+      # Broadcast the delta time to the spatial dimensions.
+      delta_time = t - s
+      delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
+      return x_s + delta_time * self.mean_flow_model.apply(
+          variables,
+          x_s,
+          t,
+          s,
+          cond=cond,
+          is_training=False,
+          rngs={"dropout": dropout_rng},
+      )
+
+    # Partial derivate with respect to s of the flow map.
+    x_st, dt_x_st = jax.jvp(
+        partial_flow_map,
+        (x_s, time_t, time_s),
+        (jnp.zeros_like(x_s), jnp.ones_like(time_t), jnp.zeros_like(time_s)),
+    )
+
+    # Derivative of the interpolant with respect to t.
+    dinterp_dt = self.interpolant.calculate_time_derivative_interpolant(
+        time_t, batch["x_0"], batch["x_1"], noise
+    )
+
+    # Evaluating the mean flow map at X^{s,t}(x_s).
+    v_tt_st = self.mean_flow_model.apply(
+        variables,
+        x_st,
+        time_t,
+        time_t,
+        cond=cond,
+        is_training=False,
+        rngs={"dropout": dropout_rng},
+    )
+    # Evaluating the mean flow map at x_t.
+    v_tt = self.mean_flow_model.apply(
+        variables,
+        x_t,
+        time_t,
+        time_t,
+        cond=cond,
+        is_training=False,
+        rngs={"dropout": dropout_rng},
+    )
+
+    loss = jnp.mean(
+        jnp.square(dt_x_st - v_tt_st) + jnp.square(v_tt - dinterp_dt)
+    )
+
+    eval_samples = {}
+    def body_for_loop(i, x, delta_t):
+      return partial_flow_map(
+          x,
+          delta_t * (i + 1) * jnp.ones((x.shape[0],)),
+          delta_t * i * jnp.ones((x.shape[0],)),
+      )
+
+    for num_steps in self.number_of_eval_steps:
+      delta_t = 1./ num_steps
+      body_for_loop = functools.partial(body_for_loop, delta_t=delta_t)
+      samples = jax.lax.fori_loop(0, num_steps, body_for_loop, batch["x_0"])
+      # Using the casting to jnp.array to avoid a type error.
+      eval_samples[f"{num_steps}"] = jnp.array(samples)
+
+    eval_losses = {"eval_loss": loss, **eval_samples}
+
+    return eval_losses  # pytype: disable=bad-return-type
+
+  @classmethod
+  def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):
+    """Returns the inference conditional flow function."""
+
+    def _flow(
+        x: Array,
+        t: float | Array,
+        s: float | Array,
+        cond: CondDict | None = None,
+    ) -> Array:
+      # This is a wrapper to vectorize time if it is a float.
+      t = jnp.asarray(t)
+      s = jnp.asarray(s)
+      if not t.shape:
+        t = jnp.ones((x.shape[0],)) * t
+      if not s.shape:
+        s = jnp.ones((x.shape[0],)) * s
+
+      # Broadcast the delta time to the spatial dimensions.
+      delta_time = t - s
+      delta_time = delta_time.reshape((x.shape[0],) + (x.ndim - 1) * (1,))
+      return x + delta_time * mean_flow_model.apply(
+          variables, x_s=x, t=t, s=s, cond=cond, is_training=False
+      )
+
+    return _flow
+
+
 class RescaledFlowMapUNet(backbones.FlowMapUNet):
   """Rescaled flow map model.
 
@@ -614,5 +854,59 @@ class RescaledFlowMapUNet(backbones.FlowMapUNet):
     # Imposes the boundary condition exactly. See Eq. 4.1 in [2].
     x_t = x_s * (1 - delta_time) + delta_time * s_theta
     return x_t
+
+
+class RescaledMeanFlowUNet(backbones.FlowMapUNet):
+  """Rescaled mean flow model following [4].
+
+  Attributes:
+    time_rescale: Factor for rescaling the time, which normally is in [0, 1] and
+      the input to the UNet which is a noise level, which has a much wider range
+      of values.
+  """
+
+  time_rescale: float = 1.0
+
+  @nn.compact
+  def __call__(
+      self,
+      x_s: Array,
+      t: Array,
+      s: Array,
+      cond: dict[str, Array] | None = None,
+      *,
+      is_training: bool,
+  ) -> Array:
+    """Runs rescaled Unet with noise input."""
+    if x_s.shape[-1] != self.out_channels:
+      raise ValueError(
+          f"Number of channels in the input ({x_s.shape[-1]}) must "
+          "match the number of channels in the output "
+          f"{self.out_channels})."
+      )
+    if t.ndim != s.ndim:
+      raise ValueError(f"Time dimensions must be equal ({t.ndim} != {s.ndim}).")
+
+    if s.ndim < 1:
+      s = jnp.broadcast_to(s, (x_s.shape[0],))
+      t = jnp.broadcast_to(t, (x_s.shape[0],))
+
+    if s.ndim != 1 or x_s.shape[0] != s.shape[0] or x_s.shape[0] != t.shape[0]:
+      raise ValueError(
+          "s must be 1D and have the same leading (batch) dimension as x and t."
+          f"Instead x_s has leading dimension ({x_s.shape[0]}),"
+          f"s has leading dimension ({s.shape[0]}), and "
+          f"t has leading dimension ({t.shape[0]})."
+      )
+
+    time_s = s * self.time_rescale
+    time_t = t * self.time_rescale
+
+    u_theta = super().__call__(
+        x_s, time_t, time_s, cond, is_training=is_training
+    )
+
+    return u_theta
+
 
 # TODO: Create a three-dimensional version of this model.

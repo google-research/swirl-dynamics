@@ -23,7 +23,7 @@ We also implement a new Fourier embedding that is more flexible than the one
 in swirl_dynamics.lib.diffusion.unets. We also change the activation function to
 silu from swish, and we add a different scaling of the frequencies.
 """
-
+import functools
 from typing import Any, Callable, Literal, Mapping, Sequence, TypeAlias
 
 from clu import metrics as clu_metrics
@@ -48,6 +48,63 @@ CondDict: TypeAlias = Mapping[str, Array]
 Metrics: TypeAlias = clu_metrics.Collection
 ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
 PyTree: TypeAlias = Any
+
+
+def logit_normal_dist(
+    rng: Array,
+    shape: ArrayShape,
+    mean: float = 0.0,
+    std: float = 1.0,
+    dtype: jnp.dtype = jnp.float32,
+):
+  rnd_normal = jax.random.normal(rng, shape, dtype=dtype)
+  return nn.sigmoid(rnd_normal * std + mean)
+
+
+def time_sampler_mean_flow(
+    rng: Array,
+    batch_size: int,
+    min_train_time: float = 1e-4,
+    max_train_time: float = 1.0 - 1e-4,
+    time_sampling: Callable[
+        [Array, tuple[int, ...]], Array
+    ] = functools.partial(jax.random.uniform, dtype=jnp.float32),
+) -> tuple[Array, Array]:
+  """Samples the time for the mean flow model.
+
+  Args:
+    rng: The random key.
+    batch_size: The batch size.
+    min_train_time: The minimum time at which the flow map and flow are sampled
+      at training.
+    max_train_time: The maximum time at which the flow map and flow are sampled
+      at training.
+    time_sampling: The function to use for the time sampling of t and s.
+
+  Returns:
+    The sampled times t and s.
+  """
+  time_sample_rng_t, time_sample_rng_s = jax.random.split(
+      rng, num=2
+  )
+
+  time_range = max_train_time - min_train_time
+  time_t = (
+      time_range * time_sampling(time_sample_rng_t, (batch_size,))
+      + min_train_time
+  )
+  time_s = (
+      time_range * time_sampling(time_sample_rng_s, (batch_size,))
+      + min_train_time
+  )
+
+  # Ensures that t>s.
+  time_t, time_s = (
+      jnp.where(time_t >= time_s, time_t, time_s),
+      jnp.where(time_t < time_s, time_t, time_s),
+  )
+
+  return time_t, time_s
 
 
 class FourierEmbedding(nn.Module):
