@@ -474,7 +474,7 @@ class InputLoader:
 
   def __init__(
       self,
-      date_range: tuple[str, str],
+      date_range: tuple[str, str] | None,
       daily_dataset_path: epath.PathLike,
       daily_variables: DatasetVariables,
       daily_stats_path: epath.PathLike,
@@ -495,9 +495,10 @@ class InputLoader:
     if daily_stats_variables is None:
       daily_stats_variables = daily_variables
 
-    date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
-
-    ds = xr.open_zarr(daily_dataset_path).sel(time=slice(*date_range))
+    ds = xr.open_zarr(daily_dataset_path)
+    if date_range is not None:
+      date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
+      ds = ds.sel(time=slice(*date_range))
     ds = ds.reindex(
         latitude=np.sort(ds.latitude), longitude=np.sort(ds.longitude)
     )

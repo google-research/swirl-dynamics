@@ -93,8 +93,8 @@ class TrajectorySamplerParallel:
     batch_size: The number of samples to generate in one batch.
     num_model_days: The number of days in a single sampling segment. This is a
       property of the trained model.
-    num_overlap_days: The number of overlapping days between continguous sampled
-      segments.
+    num_overlap_days: The number of overlapping days (>= 0) between continguous
+      sampled segments.
     sampling_type: The sampling type. Can be either "ode" or "sde".
     sde_noise_inflate: The SDE noise inflation.
     interp_method: The interpolation method for the low-resolution dataset. This
@@ -154,7 +154,7 @@ class TrajectorySamplerParallel:
         self.num_overlap_days * 24 // self.hour_interval
     )
     conds = []
-    for i in range(0, len(self.time_coords), interval):
+    for i in range(0, len(self.time_coords) - model_time_size + 1, interval):
       days = self.time_coords[i : i + model_time_size].astype("datetime64[D]")
       cond = jax.tree.map(
           lambda x: jnp.stack([x] * self.batch_size),
@@ -162,8 +162,7 @@ class TrajectorySamplerParallel:
       )
       conds.append(cond)
 
-    # Note that the last one is excluded (goes over the boundary).
-    conds = jax.tree.map(lambda *x: jnp.concatenate(x, axis=1), *conds[:-1])
+    conds = jax.tree.map(lambda *x: jnp.concatenate(x, axis=1), *conds)
     return conds
 
   @functools.cached_property
@@ -226,7 +225,8 @@ class TrajectorySamplerParallel:
           len(self.variables),
       )
       x1 = jax.random.normal(rng[0], shape)
-      x1 = self._consolidate(x1, _left, _right, noise_inflate=True)
+      if self.num_overlap_days > 0:
+        x1 = self._consolidate(x1, _left, _right, noise_inflate=True)
       return x1
 
     return jax.jit(_shard_initialize)
@@ -271,7 +271,10 @@ class TrajectorySamplerParallel:
           jnp.rot90(x1, k=1, axes=(-3, -2)) / s1, sigma1, cond
       )
       denoised = jnp.rot90(denoised, k=-1, axes=(-3, -2))
-      denoised = self._consolidate(denoised, _left, _right, noise_inflate=False)
+      if self.num_overlap_days > 0:
+        denoised = self._consolidate(
+            denoised, _left, _right, noise_inflate=False
+        )
 
       # ODE with exponential solver.
       if self.sampling_type == "ode":
@@ -293,7 +296,8 @@ class TrajectorySamplerParallel:
             * jax.random.normal(rng[0], x0.shape)
         )
         # Averaging noise reduces its variance - we need to compensate it.
-        noise = self._consolidate(noise, _left, _right, noise_inflate=True)
+        if self.num_overlap_days > 0:
+          noise = self._consolidate(noise, _left, _right, noise_inflate=True)
         noise = noise * self.sde_noise_inflate  # Additional noise inflation.
         x0 += noise
       else:
@@ -321,8 +325,9 @@ class TrajectorySamplerParallel:
     d = (self.num_model_days - self.num_overlap_days) * 24 // self.hour_interval
 
     # Sanity check: overlaps are equal.
-    overlap = self.num_overlap_days * 24 // self.hour_interval
-    assert jnp.all(state[:, :-1, -overlap:] == state[:, 1:, :overlap])
+    if self.num_overlap_days > 0:
+      overlap = self.num_overlap_days * 24 // self.hour_interval
+      assert jnp.all(state[:, :-1, -overlap:] == state[:, 1:, :overlap])
 
     state0 = state[:, :-1, :d]
     state0 = jnp.reshape(

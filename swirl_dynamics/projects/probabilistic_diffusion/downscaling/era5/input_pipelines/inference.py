@@ -42,7 +42,7 @@ class DefaultCondLoader:
 
   def __init__(
       self,
-      date_range: tuple[str, str],
+      date_range: tuple[str, str] | None,
       dataset: epath.PathLike,
       dataset_variables: DatasetVariables,
       stats: epath.PathLike,
@@ -52,9 +52,11 @@ class DefaultCondLoader:
     if stats_variables is None:
       stats_variables = dataset_variables
 
-    date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
+    ds = xr.open_zarr(dataset)
+    if date_range is not None:
+      date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
+      ds = ds.sel(time=slice(*date_range))
 
-    ds = xr.open_zarr(dataset).sel(time=slice(*date_range))
     ds = ds.reindex(
         latitude=np.sort(ds.latitude), longitude=np.sort(ds.longitude)
     )
