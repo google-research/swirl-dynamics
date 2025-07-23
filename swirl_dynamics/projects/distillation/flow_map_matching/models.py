@@ -523,6 +523,12 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       training.
     number_of_eval_steps: Number of steps for the evaluation.
     cond_shape: Shape of the conditional input.
+    weight_v: Weight of the v-term in the Lagrangian self-distillation loss.
+      The term for x is defined as 1 - weight_v.
+    use_adaptive_norm: Whether to use adaptive normalization in each loss as
+      defined in [4].
+    norm_power: Power of the adaptive normalization.
+    norm_regularization: Regularization term of the adaptive normalization.
   """
 
   input_shape: tuple[int, ...]
@@ -537,6 +543,20 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
 
   number_of_eval_steps: tuple[int, ...] = (1,)
   cond_shape: ShapeDict | None = None
+
+  weight_v: float = 0.5
+  use_adaptive_norm: bool = False
+  norm_power: float = 1.0
+  norm_regularization: float = 1e-2
+
+  def __post_init__(self):
+
+    # Check that the weight of the velocity term is between 0 and 1.
+    if self.weight_v < 0.0 or self.weight_v > 1.0:
+      raise ValueError(
+          "The weight of the v-term in the Lagrangian self-distillation loss"
+          " should be between 0 and 1."
+      )
 
   def initialize(self, rng: Array) -> models.PyTree:
     x = jnp.ones((1,) + self.input_shape)
@@ -596,59 +616,80 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     else:
       cond = None
 
-    # Partial flow map to compute the gradient vector product.
-    def partial_flow_map(x_s: Array, t: Array, s: Array) -> Array:
-      # Broadcast the delta time to the spatial dimensions.
-      delta_time = t - s
-      delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
-      return x_s + delta_time * self.mean_flow_model.apply(
+    # Computing the loss for the velocity term.
+    if self.weight_v > 0.0:
+      # Derivative of the interpolant with respect to t.
+      dinterp_dt = self.interpolant.calculate_time_derivative_interpolant(
+          time_t, batch["x_0"], batch["x_1"], noise
+      )
+
+      # Evaluating the mean flow map at x_t.
+      v_tt = self.mean_flow_model.apply(
           {"params": params},
-          x_s,
-          t,
-          s,
+          x_t,
+          time_t,
+          time_t,
           cond=cond,
           is_training=True,
           rngs={"dropout": dropout_rng},
       )
 
-    # Partial derivate with respect to s of the flow map.
-    x_st, dt_x_st = jax.jvp(
-        partial_flow_map,
-        (x_s, time_t, time_s),
-        (jnp.zeros_like(x_s), jnp.ones_like(time_t), jnp.zeros_like(time_s)),
-    )
+      # This is the loss as defined in Eq. 12 in [1].
+      loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))
+    else:
+      loss_v = jnp.zeros((), dtype=x_t.dtype)
 
-    # Derivative of the interpolant with respect to t.
-    dinterp_dt = self.interpolant.calculate_time_derivative_interpolant(
-        time_t, batch["x_0"], batch["x_1"], noise
-    )
+    # Computing the loss for the flow map term.
+    if self.weight_v < 1.0:
+      # Partial flow map to compute the gradient vector product.
+      def partial_flow_map(x_s: Array, t: Array, s: Array) -> Array:
+        # Broadcast the delta time to the spatial dimensions.
+        delta_time = t - s
+        delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
+        return x_s + delta_time * self.mean_flow_model.apply(
+            {"params": params},
+            x_s,
+            t,
+            s,
+            cond=cond,
+            is_training=True,
+            rngs={"dropout": dropout_rng},
+        )
 
-    # Evaluating the mean flow map at X^{s,t}(x_s).
-    v_tt_st = self.mean_flow_model.apply(
-        {"params": params},
-        x_st,
-        time_t,
-        time_t,
-        cond=cond,
-        is_training=True,
-        rngs={"dropout": dropout_rng},
-    )
-    # Evaluating the mean flow map at x_t.
-    v_tt = self.mean_flow_model.apply(
-        {"params": params},
-        x_t,
-        time_t,
-        time_t,
-        cond=cond,
-        is_training=True,
-        rngs={"dropout": dropout_rng},
-    )
+      # Partial derivate with respect to s of the flow map.
+      x_st, dt_x_st = jax.jvp(
+          partial_flow_map,
+          (x_s, time_t, time_s),
+          (jnp.zeros_like(x_s), jnp.ones_like(time_t), jnp.zeros_like(time_s)),
+      )
 
-    # This is the loss as defined in Eq. 11 in [3], by adding Eqs. 12 and 13.
-    loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))
-    loss_x = jnp.mean(jnp.square(dt_x_st - v_tt_st))
+      # Evaluating the mean flow map at X^{s,t}(x_s).
+      v_tt_st = self.mean_flow_model.apply(
+          {"params": params},
+          x_st,
+          time_t,
+          time_t,
+          cond=cond,
+          is_training=True,
+          rngs={"dropout": dropout_rng},
+      )
+      # This is the loss as defined in Eq. 13 in [3]
+      loss_x = jnp.mean(jnp.square(dt_x_st - v_tt_st))
+    else:
+      # Here we only compute the flow loss. This is to avoid extra computation
+      # in the first stage of the annealing.
+      loss_x = jnp.zeros((), dtype=x_t.dtype)
 
-    loss = loss_v + loss_x
+    # Using the adaptive norm in [4].
+    if self.use_adaptive_norm:
+      adaptive_weight_x = (loss_x + self.norm_regularization) ** self.norm_power
+      loss_x = loss_x / jax.lax.stop_gradient(adaptive_weight_x)
+
+      adaptive_weight_v = (loss_v + self.norm_regularization) ** self.norm_power
+      loss_v = loss_v / jax.lax.stop_gradient(adaptive_weight_v)
+
+    # Adding the two losses. This is the loss as defined in Eq. 11 in [1].
+    loss = self.weight_v * loss_v + (1. - self.weight_v) * loss_x
     metric = dict(loss=loss, loss_v=loss_v, loss_x=loss_x)
     return loss, (metric, mutables)
 
@@ -747,9 +788,10 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
         rngs={"dropout": dropout_rng},
     )
 
-    loss = jnp.mean(
-        jnp.square(dt_x_st - v_tt_st) + jnp.square(v_tt - dinterp_dt)
-    )
+    loss_x = jnp.mean(jnp.square(dt_x_st - v_tt_st))
+    loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))
+
+    loss = self.weight_v * loss_v + (1. - self.weight_v) * loss_x
 
     eval_samples = {}
     def body_for_loop(i, x, delta_t):
@@ -766,7 +808,10 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       # Using the casting to jnp.array to avoid a type error.
       eval_samples[f"{num_steps}"] = jnp.array(samples)
 
-    eval_losses = {"eval_loss": loss, **eval_samples}
+    eval_losses = {"eval_loss": loss,
+                   "eval_loss_v": loss_v,
+                   "eval_loss_x": loss_x,
+                   **eval_samples}
 
     return eval_losses  # pytype: disable=bad-return-type
 

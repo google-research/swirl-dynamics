@@ -162,6 +162,8 @@ class ConditionalLagrangianSelfDistilledFlowMapTrainer(
   def EvalMetrics(self) -> Collection:
     evaluation_metrics = {
         "eval_loss": clu_metrics.Average.from_output("eval_loss"),
+        "eval_loss_x": clu_metrics.Average.from_output("eval_loss_x"),
+        "eval_loss_v": clu_metrics.Average.from_output("eval_loss_v"),
         "eval_plot_data": clu_metrics.CollectingMetric.from_outputs(
             tuple(
                 f"{num_steps}" for num_steps in self.model.number_of_eval_steps
