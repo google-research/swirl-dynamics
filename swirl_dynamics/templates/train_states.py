@@ -21,7 +21,7 @@ saves/restores the training progress.
 """
 
 import functools
-from typing import Self
+from typing import Self, TypeAlias
 
 import flax
 from flax.core import scope as flax_scope
@@ -31,7 +31,7 @@ import optax
 import orbax.checkpoint as ocp
 
 EMPTY_DICT = flax.core.freeze({})
-FrozenVariableDict = flax_scope.FrozenVariableDict
+FrozenVariableDict: TypeAlias = flax_scope.FrozenVariableDict
 
 
 class TrainState(flax.struct.PyTreeNode):

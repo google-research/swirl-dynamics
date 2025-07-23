@@ -16,6 +16,7 @@
 
 from collections.abc import Mapping, Sequence
 import dataclasses
+import functools
 import os
 import time
 from typing import Any
@@ -38,6 +39,16 @@ import tqdm.auto as tqdm
 Array = jax.Array
 ComputedMetrics = Mapping[str, Array | Mapping[str, Array]]
 Trainer = trainers.BaseTrainer
+
+
+def to_shard_shape_dtype(
+    x: Array, replicated: bool = False
+) -> jax.ShapeDtypeStruct:
+  aval = jax.api_util.shaped_abstractify(x)
+  if replicated:
+    return jax.ShapeDtypeStruct(aval.shape[1:], dtype=aval.dtype)
+  else:
+    return jax.ShapeDtypeStruct(aval.shape, dtype=aval.dtype)
 
 
 class Callback:
@@ -128,20 +139,15 @@ class TrainStateCheckpoint(Callback):
     self.last_eval_metric = {}
     # retrieve from existing checkpoints if possible
     if self.ckpt_manager.latest_step() is not None:
-
-      def to_shard_shape_dtype(x):
-        aval = jax.api_util.shaped_abstractify(x)
-        if trainer.is_distributed:
-          return jax.ShapeDtypeStruct(aval.shape[1:], dtype=aval.dtype)
-        else:
-          return jax.ShapeDtypeStruct(aval.shape, dtype=aval.dtype)
-
       # Load a single shard and then replicate explicitly.
+      map_fn = functools.partial(
+          to_shard_shape_dtype, replicated=trainer.is_distributed
+      )
       restored = self.ckpt_manager.restore(
           self.ckpt_manager.latest_step(),
           args=ocp.args.Composite(**{
               self.train_state_field: ocp.args.StandardRestore(
-                  item=jax.tree.map(to_shard_shape_dtype, trainer.train_state)
+                  item=jax.tree.map(map_fn, trainer.train_state)
               )
           }),
       )
@@ -469,11 +475,19 @@ class InitializeFromCheckpoint(Callback):
   fields_to_override: Sequence[str] = ("params",)
 
   def on_train_begin(self, trainer: Trainer) -> None:
-    restored_state = trainer.train_state.restore_from_orbax_ckpt(
-        self.checkpoint_dir, step=self.step, ref_state=trainer.train_state
+    # Unreplicate the train state to use as a template for restoring.
+    ref_state = jax.tree.map(
+        functools.partial(
+            to_shard_shape_dtype, replicated=trainer.is_distributed
+        ),
+        trainer.train_state,
     )
-    overrides = {
+    restored_state = trainer.train_state.restore_from_orbax_ckpt(
+        self.checkpoint_dir, step=self.step, ref_state=ref_state
+    )
+    # Replicate the restored state to match the current train state if needed.
+    overrides = trainer._maybe_replicate({  # pylint: disable=protected-access
         field: getattr(restored_state, field)
         for field in self.fields_to_override
-    }
+    })
     trainer.train_state = trainer.train_state.replace(**overrides)

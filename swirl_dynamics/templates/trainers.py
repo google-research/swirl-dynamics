@@ -16,7 +16,7 @@
 
 import abc
 from collections.abc import Callable, Iterator, Mapping
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar
 
 from clu import metrics as clu_metrics
 import flax
@@ -26,11 +26,11 @@ import optax
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import train_states
 
-Array = jax.Array
-BatchType = Mapping[str, jax.typing.ArrayLike]
-Metrics = clu_metrics.Collection
-PyTree = Any
-VariableDict = train_states.FrozenVariableDict
+Array: TypeAlias = jax.Array
+BatchType: TypeAlias = Mapping[str, jax.typing.ArrayLike]
+Metrics: TypeAlias = clu_metrics.Collection
+PyTree: TypeAlias = Any
+VariableDict: TypeAlias = train_states.FrozenVariableDict
 
 M = TypeVar("M")  # Model
 S = TypeVar("S", bound=train_states.TrainState)  # Train state

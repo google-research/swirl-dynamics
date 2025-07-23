@@ -23,6 +23,7 @@ from clu import metric_writers
 import flax
 import jax
 import jax.numpy as jnp
+import numpy as np
 import orbax.checkpoint as ocp
 from swirl_dynamics.templates import callbacks
 from swirl_dynamics.templates import train_states
@@ -111,6 +112,7 @@ class TrainStateCheckpointCallbackTest(parameterized.TestCase):
     # restore
     new_callback = callbacks.TrainStateCheckpoint(base_dir=work_dir)
     new_trainer = TestTrainer(model=mock.Mock(), rng=jax.random.PRNGKey(0))
+    new_trainer.is_distributed = replicated_state
     new_callback.on_train_begin(new_trainer)
     self.assertIsInstance(new_trainer.train_state, train_states.TrainState)
     self.assertEqual(new_trainer.train_state.int_step, 20)
@@ -184,6 +186,148 @@ class TqdmProgressBarTest(absltest.TestCase):
             stderr.getvalue(), f"{total_train_steps}/{total_train_steps}"
         )
 
+
+
+
+# Dummy model and trainer for testing InitializeFromCheckpoint
+class DummyModel(trainers.models.BaseModel):
+
+  def initialize(self, rng: jax.Array) -> train_states.FrozenVariableDict:
+    return flax.core.freeze({
+        "params": {"w": jax.random.normal(rng, shape=(2, 2))},
+        "m": jnp.ones(2),  # Mutable variables
+    })
+
+  def loss_fn(self, params, batch, rng, flax_mutables):
+    del batch, rng
+    new_mutables = {"m": flax_mutables["m"] + 1.0}
+    return jnp.sum(params["w"] ** 2), ({"loss": 0.1}, new_mutables)
+
+  def eval_fn(self, variables, batch, rng):
+    return {}
+
+
+@flax.struct.dataclass
+class DummyMetrics(trainers.clu_metrics.Collection):
+  loss: trainers.clu_metrics.Average.from_output("loss")
+
+
+class DummyTrainer(trainers.BasicTrainer):
+  TrainMetrics = DummyMetrics  # pylint: disable=invalid-name
+  EvalMetrics = DummyMetrics  # pylint: disable=invalid-name
+
+
+class DummyDistributedTrainer(trainers.BasicDistributedTrainer):
+  TrainMetrics = DummyMetrics  # pylint: disable=invalid-name
+  EvalMetrics = DummyMetrics  # pylint: disable=invalid-name
+
+
+class InitializeFromCheckpointTest(parameterized.TestCase):
+
+  def _create_trainer(self, is_distributed, rng_key):
+    model = DummyModel()
+    optimizer = trainers.optax.adam(1e-3)
+    if is_distributed:
+      trainer = DummyDistributedTrainer(
+          optimizer, model, jax.random.PRNGKey(rng_key)
+      )
+    else:
+      trainer = DummyTrainer(optimizer, model, jax.random.PRNGKey(rng_key))
+    return trainer
+
+  def _save_checkpoint(self, trainer, work_dir, step):
+    new_step = jnp.array(step)
+    if trainer.is_distributed:
+      new_step = flax.jax_utils.replicate(new_step)
+    trainer.train_state = trainer.train_state.replace(step=new_step)
+    # Simulate some training to change model state
+    params = trainer.train_state.params
+    flax_mutables = trainer.train_state.flax_mutables
+
+    params = jax.tree.map(lambda x: x + float(step), params)
+    flax_mutables = jax.tree.map(lambda x: x + float(step), flax_mutables)
+
+    trainer.train_state = trainer.train_state.replace(
+        params=params, flax_mutables=flax_mutables
+    )
+
+    save_callback = callbacks.TrainStateCheckpoint(base_dir=work_dir)
+    save_callback.last_eval_metric = {}
+    save_callback.on_train_batches_end(trainer, train_metrics={})
+    save_callback.ckpt_manager.wait_until_finished()
+    return os.path.join(work_dir, "checkpoints")
+
+  def _assert_state_correct(self, trainer, original_state, ckpt_state):
+    # Step and opt_state should NOT be restored
+    self.assertEqual(trainer.train_state.int_step, 0)
+    jax.tree.map(
+        np.testing.assert_array_equal,
+        trainer.unreplicated_train_state.opt_state,
+        original_state.opt_state,
+    )
+
+    # Params and mutables SHOULD be restored from ckpt_state
+    jax.tree.map(
+        np.testing.assert_array_equal,
+        trainer.unreplicated_train_state.params,
+        ckpt_state.params,
+    )
+    jax.tree.map(
+        np.testing.assert_array_equal,
+        trainer.unreplicated_train_state.flax_mutables,
+        ckpt_state.flax_mutables,
+    )
+
+  def _run_train_steps(self, trainer, num_steps):
+    batch = {"data": np.ones((jax.local_device_count(), 2, 2))}
+    for i in range(num_steps):
+      step_rng = trainer.get_train_rng(trainer.train_state.int_step, num=1)[0]
+      preproc_rng = trainer.get_train_rng(
+          trainer.train_state.int_step + i, num=1
+      )[0]
+      current_step = trainer.train_state.int_step
+      processed_batch = trainer.preprocess_train_batch(
+          batch, current_step, preproc_rng
+      )
+
+      if trainer.is_distributed:
+        step_rng = jax.random.split(step_rng, jax.local_device_count())
+
+      trainer.train_state, _ = trainer._compiled_train_step(
+          trainer.train_state, processed_batch, step_rng
+      )
+    return trainer
+
+  @parameterized.product(
+      src_distributed=[False, True],
+      tgt_distributed=[False, True],
+  )
+  def test_initialize_and_train(self, src_distributed, tgt_distributed):
+    work_dir = self.create_tempdir().full_path
+    ckpt_step = 5
+
+    # Create and save source checkpoint
+    src_trainer = self._create_trainer(src_distributed, rng_key=0)
+    ckpt_dir = self._save_checkpoint(src_trainer, work_dir, ckpt_step)
+    ckpt_state = src_trainer.unreplicated_train_state
+
+    # Create target trainer
+    tgt_trainer = self._create_trainer(tgt_distributed, rng_key=1)
+    original_tgt_state = tgt_trainer.unreplicated_train_state
+
+    # Initialize from checkpoint
+    restore_callback = callbacks.InitializeFromCheckpoint(
+        checkpoint_dir=ckpt_dir,
+        fields_to_override=["params", "flax_mutables"],
+    )
+    restore_callback.on_train_begin(tgt_trainer)
+
+    # Verify state
+    self._assert_state_correct(tgt_trainer, original_tgt_state, ckpt_state)
+
+    # Verify training can run
+    tgt_trainer = self._run_train_steps(tgt_trainer, 3)
+    self.assertEqual(tgt_trainer.train_state.int_step, 3)
 
 
 if __name__ == "__main__":
