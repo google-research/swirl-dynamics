@@ -183,7 +183,7 @@ class NoiseLevelSamplingTest(parameterized.TestCase):
     p_mean, p_std = -1.2, 1.2
     scheme = absltest.mock.Mock(spec=diffusion.Diffusion)
     scheme.sigma_max = 100.0
-    noise_sampling = diffusion.normal_sampling(
+    noise_sampling = diffusion.log_normal_sampling(
         scheme=scheme, p_mean=p_mean, p_std=p_std
     )
     samples = noise_sampling(jax.random.PRNGKey(1), sample_shape)

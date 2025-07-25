@@ -185,7 +185,7 @@ def tangent_noise_schedule(
   This is really the "cosine" schedule proposed in Dhariwal and Nicol
   (https://arxiv.org/abs/2105.05233). The original schedule is
   a cosine function in γ, i.e. γ = cos(pi/2 * t) for t in [0, 1]. With
-  γ = 1 / (σ^2 + 1), the corresponding σ schedule is a tangent function.
+  γ^2 = 1 / (σ^2 + 1), the corresponding σ schedule is a tangent function.
 
   The "shifted" cosine schedule proposed in Hoogeboom et al.
   (https://arxiv.org/abs/2301.11093) simply corresponds to adjusting
@@ -355,13 +355,13 @@ def time_uniform_sampling(
   return _noise_sampling
 
 
-def normal_sampling(
+def log_normal_sampling(
     scheme: Diffusion,
     clip_min: float = 1e-4,
     p_mean: float = -1.2,
     p_std: float = 1.2,
 ) -> NoiseLevelSampling:
-  """Samples noise from a normal distribution.
+  """Samples noise whose natural log follows a normal distribution.
 
   This noise sampling is first used in Karras et al.
   (https://arxiv.org/abs/2206.00364). The default mean and standard deviation
