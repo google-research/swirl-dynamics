@@ -242,7 +242,7 @@ def add_derived_variables(ds: xr.Dataset) -> xr.Dataset:
       output_var="RH",
   )
   ds = eval_utils.apply_ufunc(
-      ds, eval_utils.heat_index, input_vars=["2mTF", "RH"], output_var="HI"
+      ds, eval_utils.noaa_heat_index, input_vars=["2mTF", "RH"], output_var="HI"
   )
   return ds
 
