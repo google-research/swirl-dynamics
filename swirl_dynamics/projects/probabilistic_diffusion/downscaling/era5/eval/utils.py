@@ -31,6 +31,23 @@ import xarray as xr
 filesys = epath.backend.tf_backend
 
 
+# Duarte et al (2014), https://doi.org/10.1175/MWR-D-13-00368.1, page 4275.
+_R_D = 287.058  # J / kg / K
+_R_V = 461.85  # J / kg / K
+_EPS = _R_D / _R_V  # Ratio of dry air to water vapor gas constants.
+_C_VV = 1424.0  # J / kg / K
+_C_VL = 4186.0  # J / kg / K
+_L_V0 = 2.5e6  # J / kg
+_T_REF = 273.15  # Zero degree Celsius in Kelvin, also Triple point temp.
+_P_TRIPLE = 611.0  # Triple-point pressure of water, in Pa
+_RAINWATER_DENSITY = 1000.0  # Rainwater density in [kg/m3]
+
+_ISA_LAPSE_RATE = 0.0065  # [K/m]
+_G = 9.81  # Gravity in [m/s^2]
+_M_AIR = 0.0289644  # Air molar mass in [kg/mol]
+_R = 8.31447  # Gas constant in [J / kg / K]
+_ISA_REF_T = 288.15  # [K]
+
 CITY_COORDS = {
     # CONUS
     "San Francisco": (237.58, 37.77),
@@ -114,21 +131,85 @@ def apply_ufunc(
 
 def T_fahrenheit(T):  # pylint: disable=invalid-name
   """Converts temperature from Kelvin to Fahrenheit."""
-  T = (T - 273.15) * 1.8 + 32
-  return T
+  return (T - _T_REF) * 1.8 + 32
 
 
-def relative_humidity(T, q, msl, zs):  # pylint: disable=invalid-name
-  """Computes relative humidity from temperature, specific humidity, and pressure."""
-  # Barometric formula: https://en.wikipedia.org/wiki/Barometric_formula
-  p = msl * np.power(
-      1 - 0.0065 * zs / 288.15, (9.81 * 0.0289644) / (8.31447 * 0.0065)
-  )  # unit: Pa
-  # From ideal gas law and Dalton's law
-  e = q * p / (q * 0.378 + 0.622)
-  # Magnus formula, unit: Pa
-  es = 611.2 * np.exp(17.67 * (T - 273.15) / (T - 29.65))
-  return (e / es) * 100
+def sat_vapor_pressure(t):
+  """Computes the saturation vapor pressure with respect to liquid water.
+
+  The expression used here follows Duarte et al (2014),
+  https://doi.org/10.1175/MWR-D-13-00368.1. All constants are defined in the
+  same paper, page 4275.
+
+  Args:
+    t: Temperature in [K].
+
+  Returns:
+    The saturation vapor pressure in [Pa].
+  """
+  cpv = _C_VV + _R_V
+  e0v = _L_V0 - _R_V * _T_REF
+  alpha = (cpv - _C_VL) / _R_V
+  beta = (e0v - (_C_VV - _C_VL) * _T_REF) / _R_V
+  return _P_TRIPLE * (t / _T_REF) ** alpha * np.exp(beta * (1 / _T_REF - 1 / t))
+
+
+def pressure_from_msl_and_height(msl, h):
+  """Computes pressure from mean sea level pressure and height.
+
+  This diagnosis assumes that pressure changes with height according to the
+  barometric formula and the International Standard Atmosphere,
+  https://en.wikipedia.org/wiki/Barometric_formula.
+
+  Args:
+    msl: Mean sea level pressure, in [Pa].
+    h: Height at which pressure is evaluated with respect to sea level, in [m].
+
+  Returns:
+    The pressure at height h, in [Pa].
+  """
+  return msl * np.power(
+      1 - _ISA_LAPSE_RATE * h / _ISA_REF_T,
+      (_G * _M_AIR) / (_R * _ISA_LAPSE_RATE),
+  )
+
+
+def specific_humidity_from_dewpoint(td, msl, zs):
+  """Computes specific humidity from dewpoint, sea level pressure and height.
+
+  This diagnosis leverages the (exact) fact that the vapor pressure of a gas is
+  equal to the saturation vapor pressure of its dewpoint temperature.
+
+  Args:
+    td: Dewpoint temperature at height zs, in [K].
+    msl: Mean sea level pressure, in [Pa].
+    zs: The surface height with respect to sea level.
+
+  Returns:
+    The specific humidity at height zs.
+  """
+  e = sat_vapor_pressure(td)
+  p = pressure_from_msl_and_height(msl, zs)
+  q = _EPS * e / (p - (1 - _EPS) * e)
+  return q
+
+
+def relative_humidity(t, q, msl, zs):
+  """Computes the relative humidity with respect to liquid water.
+
+  Args:
+    t: Temperature in [K].
+    q: Specific humidity in [kg/kg].
+    msl: Mean sea level pressure in [Pa].
+    zs: The height of the (t,q) measurements with respect to sea level, in [m].
+
+  Returns:
+    The relative humidity, as a percentage, at the same height `zs` as `q` and
+    `t`.
+  """
+  p = pressure_from_msl_and_height(msl, zs)
+  e = p * q / (_EPS + (1 - _EPS) * q)
+  return 100 * e / sat_vapor_pressure(t)
 
 
 def heat_index(TF, RH):  # pylint: disable=invalid-name
@@ -164,7 +245,7 @@ def heat_index(TF, RH):  # pylint: disable=invalid-name
   adj_b = ((RH - 85.0) / 10.0) * ((87.0 - TF) / 5.0)
   hi2 += np.greater(RH, 85.0) * np.greater(TF, 80.0) * np.less(TF, 87.0) * adj_b
   hi = (hi2 > 80.0) * hi2 + (hi2 <= 80.0) * hi1
-  hi = (hi - 32.0) * 5.0 / 9.0 + 273.15  # Convert to Kelvin
+  hi = (hi - 32.0) * 5.0 / 9.0 + _T_REF  # Convert to Kelvin
   return hi
 
 
