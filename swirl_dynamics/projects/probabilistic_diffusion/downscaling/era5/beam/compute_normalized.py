@@ -74,11 +74,12 @@ def normalize(
     stats_type: str,
 ) -> tuple[xbeam.Key, xarray.Dataset]:
   """Normalizes a chunk with the corresponding mean and std."""
-  stats_chunk = stats_ds.sel(
-      longitude=raw_chunk["longitude"],
-      latitude=raw_chunk["latitude"],
-      level=raw_chunk["level"],
-  )
+  indexers = {
+      dim: raw_chunk[dim]
+      for dim in ["longitude", "latitude", "level"]
+      if dim in raw_chunk.coords
+  }
+  stats_chunk = stats_ds.sel(indexers=indexers)
   match stats_type:
     case "all":
       pass

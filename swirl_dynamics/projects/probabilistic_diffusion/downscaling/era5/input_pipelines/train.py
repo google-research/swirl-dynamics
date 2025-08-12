@@ -28,7 +28,6 @@ import xarray_tensorstore as xrts
 DatasetVariables = utils.DatasetVariables
 
 DELTA_1D = np.timedelta64(1, "D")
-DIMS_ORDER = ("time", "longitude", "latitude", "level")
 
 
 class HourlyDailyPair:
@@ -82,7 +81,12 @@ class HourlyDailyPair:
         latitude=np.sort(hourly_ds.latitude),
         longitude=np.sort(hourly_ds.longitude),
     )
-    hourly_ds = hourly_ds.transpose(*DIMS_ORDER)
+    hourly_dims_order = (
+        ("time", "longitude", "latitude", "level")
+        if "level" in hourly_ds.dims
+        else ("time", "longitude", "latitude")
+    )
+    hourly_ds = hourly_ds.transpose(*hourly_dims_order)
 
     self._hourly_arrays = {}
     self._daily_arrays = {}
@@ -95,7 +99,12 @@ class HourlyDailyPair:
         latitude=np.sort(daily_ds.latitude),
         longitude=np.sort(daily_ds.longitude),
     )
-    daily_ds = daily_ds.transpose(*DIMS_ORDER)
+    daily_dims_order = (
+        ("time", "longitude", "latitude", "level")
+        if "level" in daily_ds.dims
+        else ("time", "longitude", "latitude")
+    )
+    daily_ds = daily_ds.transpose(*daily_dims_order)
 
     daily_variables = daily_variables or {}
     for v in daily_variables:

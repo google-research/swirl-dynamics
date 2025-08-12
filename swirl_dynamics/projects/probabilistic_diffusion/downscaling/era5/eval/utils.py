@@ -302,7 +302,7 @@ def _find_eqvar(Ta: float, RH: float, **solve_kwargs) -> list[Any]:
       lambda Ts: (Ts - Ta) / Ra(Ts, Ta)
       + (Pc - Pa) / (Zs(Rs) + Za)
       - (Tc - Ts) / Rs,
-      max(0.0, min(Tc, Ta) - Rs * abs(m)),
+      max(1e-2, min(Tc, Ta) - Rs * abs(m)),
       max(Tc, Ta) + Rs * abs(m),
       **solve_kwargs,
   )
@@ -321,7 +321,7 @@ def _find_eqvar(Ta: float, RH: float, **solve_kwargs) -> list[Any]:
         lambda Tf: (Tf - Ta) / Ra_bar(Tf, Ta)
         + (Pc - Pa) / (Zs(Rs) + Za_bar)
         - (Tc - Tf) / Rs,
-        max(0.0, min(Tc, Ta) - Rs * abs(m_bar)),
+        max(1e-2, min(Tc, Ta) - Rs * abs(m_bar)),
         max(Tc, Ta) + Rs * abs(m_bar),
         **solve_kwargs,
     )
@@ -354,7 +354,7 @@ def _find_eqvar(Ta: float, RH: float, **solve_kwargs) -> list[Any]:
             lambda Ts: (Ts - Ta) / Ra_un(Ts, Ta)
             + (Pc - Pa) / (Zs((Tc - Ts) / (Q - Qv(Ta, Pa))) + Za_un)
             - (Q - Qv(Ta, Pa)),
-            0.0,
+            1e-2,
             Tc,
             **solve_kwargs,
         )
@@ -366,7 +366,7 @@ def _find_eqvar(Ta: float, RH: float, **solve_kwargs) -> list[Any]:
               lambda Ts: (Ts - Ta) / Ra_un(Ts, Ta)
               + (phi_salt * sat_vapor_pressure(Ts) - Pa) / Za_un
               - (Q - Qv(Ta, Pa)),
-              0.0,
+              1e-2,
               Tc,
               **solve_kwargs,
           )
@@ -465,14 +465,18 @@ def heat_index(
     The heat index, in [K].
   """
   dic = {"phi": 1, "Rf": 2, "Rs": 3, "Rs*": 3, "dTcdt": 4}
-  eqvars = _find_eqvar(Ta, RH, xtol=eqvar_tol)
-  T = _heat_index_from_eqvar(
-      eqvars[0],
-      eqvars[dic[eqvars[0]]],
-      xtol=t_tol,
-      hi_min=hi_min,
-      hi_max=hi_max,
-  )
+  try:
+    eqvars = _find_eqvar(Ta, RH, xtol=eqvar_tol)
+    T = _heat_index_from_eqvar(
+        eqvars[0],
+        eqvars[dic[eqvars[0]]],
+        xtol=t_tol,
+        hi_min=hi_min,
+        hi_max=hi_max,
+    )
+  except ValueError as e:
+    logging.warning("Failed to compute heat index: %s", e)
+    return np.nan
   return T
 
 

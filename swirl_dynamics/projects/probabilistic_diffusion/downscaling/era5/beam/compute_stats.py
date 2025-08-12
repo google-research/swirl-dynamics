@@ -226,8 +226,12 @@ def main(argv):
   else:
     raise ValueError(f"Unknown granularity: {GRANULARITY.value}")
 
+  dims = ["longitude", "latitude", "level"]
+  if "level" not in template_ds.dims:
+    dims = dims[:-1]
+    del WORKING_CHUNKS["level"]
   template_ds = template_ds.transpose(
-      "stats", *working_time_chunks.keys(), "longitude", "latitude", "level"
+      "stats", *working_time_chunks.keys(), *dims
   )
   template = xbeam.make_template(template_ds)
 
