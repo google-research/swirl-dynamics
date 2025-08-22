@@ -360,7 +360,7 @@ def main(_):
           )
       )
 
-    if batch_id % _WRITE_FREQ.value == 0:
+    if batch_id % _WRITE_FREQ.value == 0 or batch_id == num_batches - 1:
       logging.info('Inference for batch %s finished.', batch_id)
       if lead_host:
         inference_lib.concat_to_zarr(
