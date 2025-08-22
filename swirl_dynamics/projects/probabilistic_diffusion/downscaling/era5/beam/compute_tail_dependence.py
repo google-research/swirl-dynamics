@@ -130,7 +130,7 @@ Variable = pipeline_utils.DatasetVariable
 SAMPLE_VARIABLES = [  # Different from `train_configs` in renames
     Variable('2m_temperature', None, '2mT'),
     Variable('10m_magnitude_of_wind', None, '10mW'),
-    Variable('specific_humidity', {'level': [1000]}, 'Q1000'),
+    Variable('2m_specific_humidity', None, '2mQ'),
     Variable('mean_sea_level_pressure', None, 'MSL'),
 ]
 
@@ -211,6 +211,12 @@ def main(argv: list[str]) -> None:
   spatial_dims = ['longitude', 'latitude']
 
   inference_ds, input_chunks = xbeam.open_zarr(INFERENCE_PATH.value)
+
+  for var in SAMPLE_VARIABLES:
+    if var.rename not in inference_ds:
+      raise ValueError(
+          f'Variable {var.rename} expected but not found in inference dataset.'
+      )
 
   # If a reference path is provided, the script will compute tail dependence on
   # the reference dataset instead of the inference dataset.

@@ -28,7 +28,6 @@ python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam:com
 """
 
 import functools
-from typing import TypeVar
 
 from absl import app
 from absl import flags
@@ -39,7 +38,6 @@ from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipe
 import xarray as xr
 import xarray_beam as xbeam
 
-Dataset = TypeVar("Dataset", xr.Dataset, xr.DataArray)
 Variable = pipeline_utils.DatasetVariable
 
 # Flags.
@@ -73,12 +71,14 @@ MONTHS = flags.DEFINE_list(
 
 DTYPE = np.int16
 
-ZS_REFERENCE = "/weatherbench/datasets/era5/1959-2023_01_10-full_37-1h-0p25deg-chunk-1.zarr"
 SAMPLE_VARIABLES = [
     Variable("2m_temperature", None, "2mT"),
     Variable("10m_magnitude_of_wind", None, "10mW"),
-    Variable("specific_humidity", {"level": [1000]}, "Q1000"),
+    Variable("2m_specific_humidity", None, "2mQ"),
     Variable("mean_sea_level_pressure", None, "MSL"),
+    # Derived variables. These are computed beforehand.
+    Variable("relative_humidity", None, "RH"),
+    Variable("heat_index", None, "HI"),
 ]
 
 
@@ -118,7 +118,7 @@ def count_heatwaves(
   for year in years:
     ds_ = ds["HI"].sel(time=ds.time.dt.year.isin([year]), drop=True)
     # Extract daily max series.
-    ds_max = ds_.resample(time="D").max()
+    ds_max = ds_.resample(time="D").max(skipna=True)
     ds_max = ds_max.where(ds_max.time.isin(ds.time.values), drop=True)
     ts_max = ds_max.to_numpy()
     assert ts_max.ndim == 4  # (member, time, lon, lat)
@@ -145,26 +145,6 @@ def count_heatwaves(
   return new_key, count_ds
 
 
-def add_derived_variables(ds: xr.Dataset) -> xr.Dataset:
-  """Adds temperature (F), relative humidity and heat index to dataset."""
-  zs_reference = "/weatherbench/datasets/era5/1959-2023_01_10-full_37-1h-0p25deg-chunk-1.zarr"
-  ds = eval_utils.add_zs(zs_reference)(ds)
-
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.T_fahrenheit, input_vars=["2mT"], output_var="2mTF"
-  )
-  ds = eval_utils.apply_ufunc(
-      ds,
-      eval_utils.relative_humidity,
-      input_vars=["2mT", "Q1000", "MSL", "ZS"],
-      output_var="RH",
-  )
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.noaa_heat_index, input_vars=["2mTF", "RH"], output_var="HI"
-  )
-  return ds
-
-
 def main(argv):
 
   years = list(range(YEAR_START.value, YEAR_END.value + 1))
@@ -173,8 +153,13 @@ def main(argv):
   lengths = [int(l) for l in LENGTHS.value]
 
   sample_ds = xr.open_zarr(SAMPLES.value, consolidated=True)
-  sample_ds = add_derived_variables(sample_ds)
   sample_ds = eval_utils.select_time(sample_ds, years, months)
+
+  for var in SAMPLE_VARIABLES:
+    if var.rename not in sample_ds:
+      raise ValueError(
+          f"Variable {var.rename} expected but not found in sample dataset."
+      )
 
   # If a reference path is provided, the script will compute statistics on
   # the reference dataset instead of the inference dataset.
@@ -182,7 +167,6 @@ def main(argv):
     sample_ds = eval_utils.get_reference_ds(
         REFERENCE.value, SAMPLE_VARIABLES, sample_ds
     )
-    sample_ds = add_derived_variables(sample_ds)
     sample_ds = eval_utils.select_time(sample_ds, years, months)
 
   in_chunks = {"time": -1, "member": -1, "longitude": 1, "latitude": 1}

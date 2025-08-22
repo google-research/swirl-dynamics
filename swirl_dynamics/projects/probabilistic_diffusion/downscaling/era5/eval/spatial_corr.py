@@ -70,10 +70,10 @@ def spatial_corr(city: xr.DataArray, neighbors: xr.DataArray) -> xr.DataArray:
   y = neighbors.to_numpy()  # ~ (time, member, lon, lat)
   x = x.flatten()
   y = y.reshape(-1, *y.shape[-2:])
-  x_centered = x - np.mean(x)
-  y_centered = y - np.mean(y, axis=0)
-  cov = np.mean(x_centered[:, None, None] * y_centered, axis=0)
-  corr = cov / (np.std(x) * np.std(y, axis=0))
+  x_centered = x - np.nanmean(x)
+  y_centered = y - np.nanmean(y, axis=0)
+  cov = np.nanmean(x_centered[:, None, None] * y_centered, axis=0)
+  corr = cov / (np.nanstd(x) * np.nanstd(y, axis=0))
   return xr.DataArray(
       corr,
       dims=["longitude", "latitude"],
@@ -223,27 +223,9 @@ def make_spatial_corr_plots(
       make_spatial_corr_plot(comp_corr, city, fig, axes[j + 2, i], comp_err)
       axes[j + 2, i].set_title(f"{city}: {comp}")
 
-  save_dir = epath.Path(save_dir) / "spatial_corr"
   eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)
 
   res_save_name = f"{save_dir}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)
-
-
-def add_derived_variables(ds: xr.Dataset) -> xr.Dataset:
-  """Adds temperature (F), relative humidity and heat index to dataset."""
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.T_fahrenheit, input_vars=["2mT"], output_var="2mTF"
-  )
-  ds = eval_utils.apply_ufunc(
-      ds,
-      eval_utils.relative_humidity,
-      input_vars=["2mT", "Q1000", "MSL", "ZS"],
-      output_var="RH",
-  )
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.noaa_heat_index, input_vars=["2mTF", "RH"], output_var="HI"
-  )
-  return ds
 
 

@@ -181,11 +181,3 @@ def make_temporal_psd_plot(
   h5u.save_array_dict(save_path=res_save_name, data=res)
 
 
-def add_derived_variables(ds: xr.Dataset) -> xr.Dataset:
-  """Adds temperature (F), relative humidity and heat index to dataset."""
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.T_fahrenheit, input_vars=["2mT"], output_var="2mTF"
-  )
-  return ds
-
-

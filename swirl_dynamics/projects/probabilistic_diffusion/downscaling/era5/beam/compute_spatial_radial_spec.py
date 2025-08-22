@@ -19,12 +19,10 @@ Example usage:
 ```
 INFERENCE_PATH=<inference_zarr_path>
 OUTPUT_PATH=<output_zarr_path>
-ZS_PATH=<geopotential_at_surface_zarr_path>
 
 python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam/compute_spatial_radial_spec.py \
   --inference_path=${INFERENCE_PATH} \
   --output_path=${OUTPUT_PATH} \
-  --zs_path=${ZS_PATH} \
   --year_start=2001 \
   --year_end=2010 \
   --months=6,7,8 \
@@ -54,9 +52,6 @@ REFERENCE_PATH = flags.DEFINE_string(
     'reference_path', None, help='Reference Zarr path.'
 )
 OUTPUT_PATH = flags.DEFINE_string('output_path', None, help='Output Zarr path.')
-ZS_PATH = flags.DEFINE_string(
-    'zs_path', None, help='Geopotential at surface Zarr path.'
-)
 RUNNER = flags.DEFINE_string('runner', None, 'beam.runners.Runner')
 RECHUNK_ITEMSIZE = flags.DEFINE_integer(
     'rechunk_itemsize', 4, help='Itemsize for rechunking.'
@@ -79,11 +74,15 @@ NUM_BINS = flags.DEFINE_integer(
 
 
 Variable = pipeline_utils.DatasetVariable
-SAMPLE_VARIABLES = [  # Different from `train_configs` in renames
+
+SAMPLE_VARIABLES = [
     Variable('2m_temperature', None, '2mT'),
     Variable('10m_magnitude_of_wind', None, '10mW'),
-    Variable('specific_humidity', {'level': [1000]}, 'Q1000'),
+    Variable('2m_specific_humidity', None, '2mQ'),
     Variable('mean_sea_level_pressure', None, 'MSL'),
+    # Derived variables. These are computed beforehand.
+    Variable('relative_humidity', None, 'RH'),
+    Variable('heat_index', None, 'HI'),
 ]
 
 
@@ -95,8 +94,6 @@ def eval_spatial_radial_psd_chunk(
       'Chunks are supposed to have one time slice but got'
       f' {len(chunk.time.values)}'
   )
-
-  chunk = add_derived_variables(chunk)
 
   new_key = key.with_offsets(
       longitude=None, latitude=None, member=None, rad_freq=0
@@ -135,7 +132,7 @@ def average_psd_chunk(
 ) -> tuple[xbeam.Key, xr.Dataset]:
   """Average psd over all chunks."""
   key = key.with_offsets(time=None)
-  return key, chunk.mean(dim='time')
+  return key, chunk.mean(dim='time', skipna=True)
 
 
 def get_constants(
@@ -157,28 +154,15 @@ def get_constants(
   return freqs, bins, k, nx * ny * dx * dy, window
 
 
-def add_derived_variables(ds: xr.Dataset) -> xr.Dataset:
-  """Adds temperature (F), relative humidity and heat index to dataset."""
-  ds = eval_utils.add_zs(ZS_PATH.value)(ds)
-
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.T_fahrenheit, input_vars=['2mT'], output_var='2mTF'
-  )
-  ds = eval_utils.apply_ufunc(
-      ds,
-      eval_utils.relative_humidity,
-      input_vars=['2mT', 'Q1000', 'MSL', 'ZS'],
-      output_var='RH',
-  )
-  ds = eval_utils.apply_ufunc(
-      ds, eval_utils.noaa_heat_index, input_vars=['2mTF', 'RH'], output_var='HI'
-  )
-  return ds
-
-
 def main(argv: list[str]) -> None:
 
   inference_ds, input_chunks = xbeam.open_zarr(INFERENCE_PATH.value)
+
+  for var in SAMPLE_VARIABLES:
+    if var.rename not in inference_ds:
+      raise ValueError(
+          f'Variable {var.rename} expected but not found in inference dataset.'
+      )
 
   # If a reference path is provided, the script will compute psd on
   # the reference dataset instead of the inference dataset.
