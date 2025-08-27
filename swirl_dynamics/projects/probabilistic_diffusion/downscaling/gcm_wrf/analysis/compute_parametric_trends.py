@@ -84,6 +84,9 @@ def compute_chunk_trend(
 def main(argv: list[str]) -> None:
   degree = DEGREE.value
   obs, input_chunks = xbeam.open_zarr(INPUT_PATH.value)
+  # Drop variables without time dimension.
+  vars_to_drop = [v for v in obs.data_vars if 'time' not in obs[v].dims]
+  obs = obs.drop_vars(vars_to_drop)
   # Assign missing coords.
   coords = {
       k: list(range(obs.sizes[k]))

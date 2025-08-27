@@ -220,6 +220,8 @@ def compute_stat_chunk(
 
 def main(argv: list[str]) -> None:
   obs, input_chunks = xbeam.open_zarr(INPUT_PATH.value)
+  vars_to_drop = [v for v in obs.data_vars if 'time' not in obs[v].dims]
+  obs = obs.drop_vars(vars_to_drop)
   ## Assign missing coords
   coords = {
       k: list(range(obs.sizes[k]))

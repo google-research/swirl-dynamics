@@ -101,14 +101,14 @@ import xarray_beam as xbeam
 _LENS_TO_ERA = {
     'TREFHT': '2m_temperature',
     'WSPDSRFAV': '10m_magnitude_of_wind',
-    'QREFHT': 'specific_humidity',
+    'QREFHT': '2m_specific_humidity',
     'PSL': 'mean_sea_level_pressure',
 }
 
 _OUTPUT_RENAME = {
     '2m_temperature': '2mT',
     '10m_magnitude_of_wind': '10mW',
-    'specific_humidity': 'Q1000',
+    'specific_humidity': '2mQ',
     'mean_sea_level_pressure': 'MSL',
 }
 
@@ -473,13 +473,12 @@ def main(argv: list[str]) -> None:
 
   target_clim = xr.Dataset(
       xr.open_zarr(TARGET_DETRENDED_CLIM.value).get(era_vars)
-  ).sel(level=1000, drop=True)
+  )
   target_temporal_mean = xr.Dataset(
       xr.open_zarr(TARGET_TEMPORAL_MEAN.value).get(era_vars)
-  ).sel(level=1000, drop=True)
+  )
 
   hist_ref = xr.open_zarr(HIST_REF.value).get(list(_LENS_TO_ERA.values()))
-  hist_ref = hist_ref.sel(level=1000, drop=True)
   hist_ref = hist_ref.sel(
       time=slice(REF_START_YEAR.value, REF_STOP_YEAR.value), drop=True
   )
