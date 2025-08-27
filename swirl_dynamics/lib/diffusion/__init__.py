@@ -27,9 +27,10 @@ from swirl_dynamics.lib.diffusion.diffusion import (
     edm_weighting,
     exponential_noise_schedule,
     inverse_squared_weighting,
-    log_uniform_sampling,
     log_normal_sampling,
+    log_uniform_sampling,
     power_noise_schedule,
+    t_edm_weighting,
     tangent_noise_schedule,
     time_uniform_sampling,
 )
@@ -41,10 +42,13 @@ from swirl_dynamics.lib.diffusion.guidance import (
 )
 from swirl_dynamics.lib.diffusion.samplers import (
     DenoiseFn,
+    NoiseDist,
     OdeSampler,
     Sampler,
     ScoreFn,
     SdeSampler,
+    TStudentOdeSampler,
+    TStudentSdeSampler,
     TimeStepScheduler,
     edm_noise_decay,
     exponential_noise_decay,
@@ -52,6 +56,7 @@ from swirl_dynamics.lib.diffusion.samplers import (
 )
 from swirl_dynamics.lib.diffusion.unets import (
     AxialMLPInterpConvMerge,
+    HeavyTailedDenoiser as HeavyTailedDenoiserUNet,
     InterpConvMerge,
     PreconditionedDenoiser as PreconditionedDenoiserUNet,
     UNet,
