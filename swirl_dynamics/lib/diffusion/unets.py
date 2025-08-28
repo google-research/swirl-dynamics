@@ -1073,3 +1073,58 @@ class PreconditionedDenoiser(UNet):
         jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
     )
     return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+
+
+class HeavyTailedDenoiser(UNet):
+  """Preconditioned denoising model based on t-Student input noise (t-EDM).
+
+  See Appendix A.6 in Pandey et al. (https://arxiv.org/abs/2410.14171).
+
+  Attributes:
+    df: degrees of freedom of the t distribution.
+    sigma_data: the standard deviation of the data.
+  """
+
+  df: int = 3
+  sigma_data: float = 1.0
+
+  @nn.compact
+  def __call__(
+      self,
+      x: Array,
+      sigma: Array,
+      cond: dict[str, Array] | None = None,
+      *,
+      is_training: bool,
+  ) -> Array:
+    """Runs preconditioned denoising."""
+    if sigma.ndim < 1:
+      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
+
+    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
+      raise ValueError(
+          "sigma must be 1D and have the same leading (batch) dimension as x"
+          f" ({x.shape[0]})!"
+      )
+
+    total_var = (self.df / (self.df - 2)) * jnp.square(sigma) + jnp.square(
+        self.sigma_data
+    )
+    c_skip = jnp.square(self.sigma_data) / total_var
+    c_out = (
+        jnp.sqrt(self.df / (self.df - 2))
+        * sigma
+        * self.sigma_data
+        / jnp.sqrt(total_var)
+    )
+    c_in = 1 / jnp.sqrt(total_var)
+    c_noise = 0.25 * jnp.log(sigma)
+
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+
+    f_x = super().__call__(
+        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
+    )
+    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
