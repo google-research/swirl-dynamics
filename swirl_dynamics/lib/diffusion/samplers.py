@@ -213,6 +213,8 @@ class Sampler:
     return_full_paths: If `True`, the output of `.generate()` and `.denoise()`
       will contain the complete sampling paths. Otherwise only the terminal
       states are returned.
+    noise_dist: The distribution to sample noise levels from. Defaults to a
+      standard normal distribution.
   """
 
   input_shape: tuple[int, ...]
@@ -222,6 +224,7 @@ class Sampler:
   guidance_transforms: Sequence[guidance.Transform] = ()
   apply_denoise_at_end: bool = True
   return_full_paths: bool = False
+  noise_dist: Callable[..., Array] = jax.random.normal
 
   def generate(
       self,
@@ -249,7 +252,7 @@ class Sampler:
 
     init_rng, denoise_rng = jax.random.split(rng)
     x_shape = (num_samples,) + self.input_shape
-    x1 = jax.random.normal(init_rng, x_shape)
+    x1 = self.noise_dist(init_rng, shape=x_shape)
     x1 *= self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
 
     if cond is not None:
@@ -828,3 +831,35 @@ class ExponentialSdeSampler(Sampler):
         * jax.random.normal(rng, x1.shape, x1.dtype)
     )
     return x0
+
+
+@flax.struct.dataclass
+class TStudentOdeSampler(OdeSampler):
+  """Draw samples by solving an ODE from a t-student initial draw.
+
+  Solves (see `OdeSampler.dynamics`).
+
+  Attributes:
+    df: The degrees of freedom of the t-Student distribution.
+  """
+
+  df: int = 3
+
+  def __post_init__(self):
+    noise_dist = functools.partial(jax.random.t, df=self.df)
+    object.__setattr__(self, "noise_dist", noise_dist)
+
+
+@flax.struct.dataclass
+class TStudentSdeSampler(SdeSampler):
+  """Draws samples by solving an SDE from a t-student initial draw.
+
+  Attributes:
+    df: The degrees of freedom of the t-student distribution.
+  """
+
+  df: int = 3
+
+  def __post_init__(self):
+    noise_dist = functools.partial(jax.random.t, df=self.df)
+    object.__setattr__(self, "noise_dist", noise_dist)
