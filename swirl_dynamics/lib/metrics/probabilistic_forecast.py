@@ -152,3 +152,45 @@ def threshold_brier_score(
   if thresholds.ndim == 0:
     score = jnp.squeeze(score, axis=-1)
   return score
+
+
+def unreliability_score(
+    forecasts: Array,
+    observations: Array,
+    *,
+    ensemble_axis: int = 1,
+) -> Array:
+  """Calculates the unreliability score of the ensemble forecast.
+
+  The unreliability score is estimated as the squared averaged deviation of the
+  rank histogram bins with respect to that of a perfectly reliable forecast.
+  It is computed following equations (3) and (4) of Candille and Talagrand
+  (2005): https://doi.org/10.1256/qj.04.71.
+
+  Args:
+    forecasts: Ensemble forecast members.
+    observations: Observations based on which to score the ensemble forecasts,
+      with the same shape of the forecasts except for missing the ensemble axis.
+    ensemble_axis: The axis of forecasts corresponding to the ensemble members.
+
+  Returns:
+    The unreliability score with same shape as the observations.
+  """
+  forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
+
+  num_observations = jnp.size(observations)
+  num_ensemble_members = forecasts.shape[-1]
+  obs_expanded = observations[..., jnp.newaxis]
+
+  # We use 0-based ranks for 0-based indexing in one_hot encoding.
+  ranks = jnp.sum(forecasts <= obs_expanded, axis=-1)
+  one_hot_ranks = jax.nn.one_hot(ranks, num_classes=num_ensemble_members + 1)
+  # Sum over all axes except the number of classes to get the rank counts.
+  rank_counts = jnp.sum(one_hot_ranks, axis=tuple(range(ranks.ndim)))
+  unreliability = jnp.sum(
+      jnp.square(rank_counts - num_observations / (1 + num_ensemble_members))
+  )
+  unreliability = unreliability / (
+      num_observations * num_ensemble_members / (1 + num_ensemble_members)
+  )
+  return unreliability

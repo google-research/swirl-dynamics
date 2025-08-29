@@ -20,6 +20,7 @@
 from swirl_dynamics.lib.metrics.probabilistic_forecast import (
     crps,
     threshold_brier_score,
+    unreliability_score,
 )
 from swirl_dynamics.lib.metrics.regression import (
     mean_absolute_error,
