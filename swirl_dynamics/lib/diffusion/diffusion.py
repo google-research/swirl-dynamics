@@ -420,3 +420,28 @@ def edm_weighting(data_std: float = 1.0) -> NoiseLossWeighting:
     )
 
   return _weight_fn
+
+
+def t_edm_weighting(df: int, data_std: float = 1.0) -> NoiseLossWeighting:
+  """Weighting proposed in Pandey et al. (https://arxiv.org/abs/2410.14171).
+
+  The weighting is defined after eq. 12 in Pandey et al. This weighting ensures
+  the effective weights are uniform across noise levels, and it is derived
+  following the derivation in eqns 139 to 144 in appendix B.6 of Karras et al.
+  (https://arxiv.org/abs/2206.00364), applied to the t-Student
+  noise distribution.
+
+  Args:
+    df: degrees of freedom of the t distribution.
+    data_std: the standard deviation of the data.
+
+  Returns:
+    The weighting function.
+  """
+
+  def _weight_fn(sigma: Array) -> Array:
+    num = (df / (df - 2)) * jnp.square(sigma) + jnp.square(data_std)
+    den = (df / (df - 2)) * jnp.square(sigma * data_std)
+    return num / den
+
+  return _weight_fn

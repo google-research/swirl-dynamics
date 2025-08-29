@@ -184,6 +184,65 @@ class DenoisingModel(dfn_models.DenoisingModel):
     )
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class HeavyTailedDenoisingModel(DenoisingModel):
+  """Trains a heavy-tailed conditional denoising model for GCM-WRF data.
+
+  Evaluation consists of (a) denoising mean squared errors (b) sampling CRPS and
+  (c) log likelihood per dimension of the eval data samples.
+
+  Attributes:
+    df: The degrees of freedom of the t-Student distribution.
+    diffusion_scheme: The diffusion scheme for SDE and ODE samplers.
+    cg_strength: Classifier guidance strength.
+    num_sde_steps: The number of steps for the SDE sampler.
+    num_samples_per_condition: The number of samples to generate per condition
+      during evaluation. These samples will be generated in one batch.
+    num_ode_steps: The number of steps for the ODE probability flow.
+    num_likelihood_probes: The number of probes for approximating the log
+      likelihood of eval samples.
+  """
+
+  df: int = 3
+
+  def __post_init__(self):
+    noise_dist = functools.partial(jax.random.t, df=self.df)
+    object.__setattr__(self, "noise_dist", noise_dist)
+
+  def get_sde_sampler(self, variables: PyTree) -> dfn_lib.SdeSampler:
+    """Constructs a SDE sampler from given denoising model variables."""
+    return dfn_lib.TStudentSdeSampler(
+        df=self.df,
+        input_shape=self.input_shape,
+        denoise_fn=self.inference_fn(variables, self.denoiser),
+        integrator=solver_lib.EulerMaruyama(iter_type="loop"),  # Save memory.
+        scheme=self.diffusion_scheme,
+        guidance_transforms=(
+            dfn_lib.ClassifierFreeHybrid(guidance_strength=self.cg_strength),
+        ),
+        tspan=dfn_lib.edm_noise_decay(
+            self.diffusion_scheme, num_steps=self.num_sde_steps
+        ),
+    )
+
+  def get_ode_sampler(self, variables: PyTree) -> dfn_lib.OdeSampler:
+    """Constructs an ODE sampler from given denoising model variables."""
+    return dfn_lib.TStudentOdeSampler(
+        df=self.df,
+        input_shape=self.input_shape,
+        denoise_fn=self.inference_fn(variables, self.denoiser),
+        integrator=solver_lib.HeunsMethod(),
+        scheme=self.diffusion_scheme,
+        guidance_transforms=(
+            dfn_lib.ClassifierFreeHybrid(guidance_strength=self.cg_strength),
+        ),
+        tspan=dfn_lib.edm_noise_decay(
+            self.diffusion_scheme, num_steps=self.num_ode_steps
+        ),
+        num_probes=self.num_likelihood_probes,
+    )
+
+
 @flax.struct.dataclass
 class SdeSampler(dfn_lib.SdeSampler):
   """SDE sampling class with de-normalizing functionality.
