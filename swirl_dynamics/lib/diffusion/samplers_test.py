@@ -278,6 +278,25 @@ class SamplersTest(parameterized.TestCase):
     )
     self.assertEqual(log_likelihoods.shape, (batch_size,))
 
+  @parameterized.parameters(
+      (samplers.OdeSampler, True),
+      (samplers.TStudentOdeSampler, False),
+      (samplers.SdeSampler, True),
+      (samplers.TStudentSdeSampler, False),
+  )
+  def test_noise_dist(self, sampler_cls, is_normal):
+    input_shape = (8, 8, 3)
+    num_steps = 8
+    sigma_schedule = diffusion.tangent_noise_schedule()
+    scheme = diffusion.Diffusion.create_variance_exploding(sigma_schedule)
+    sampler = sampler_cls(
+        input_shape=input_shape,
+        tspan=samplers.exponential_noise_decay(scheme, num_steps),
+        scheme=scheme,
+        denoise_fn=lambda x, t, cond: x + cond["bias"],
+    )
+    self.assertEqual(is_normal, sampler.noise_dist is jax.random.normal)
+
 
 if __name__ == "__main__":
   absltest.main()
