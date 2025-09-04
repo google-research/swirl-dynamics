@@ -81,6 +81,8 @@ class DenoisingModel(models.BaseModel):
     max_eval_noise_lvl: Maximum noise level used during evaluation.
     num_eval_noise_levels: Number of noise levels for evaluation (log-uniformly
       spaced between the minimum and maximum).
+    noise_dist: The distribution to sample noise levels from. Defaults to a
+      standard normal distribution.
   """
 
   input_shape: tuple[int, ...]
@@ -92,6 +94,7 @@ class DenoisingModel(models.BaseModel):
   num_eval_cases_per_lvl: int = 1
   min_eval_noise_lvl: float = 1e-3
   max_eval_noise_lvl: float = 50.0
+  noise_dist: dfn_lib.NoiseDist = jax.random.normal
 
   def initialize(self, rng: Array):
     x = jnp.ones((1,) + self.input_shape)
@@ -126,7 +129,7 @@ class DenoisingModel(models.BaseModel):
     rng1, rng2, rng3 = jax.random.split(rng, num=3)
     sigma = self.noise_sampling(rng=rng1, shape=(batch_size,))
     weights = self.noise_weighting(sigma)
-    noise = jax.random.normal(rng2, batch["x"].shape)
+    noise = self.noise_dist(rng2, shape=batch["x"].shape)
     vmapped_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     noised = batch["x"] + vmapped_mult(noise, sigma)
     cond = batch["cond"] if self.cond_shape else None
@@ -202,7 +205,7 @@ class DenoisingModel(models.BaseModel):
             self.num_eval_noise_levels,
         )
     )
-    noise = jax.random.normal(noise_rng, x.shape)
+    noise = self.noise_dist(noise_rng, shape=x.shape)
     noised = x + jax.vmap(jnp.multiply, in_axes=(0, 0))(noise, sigma)
     denoise_fn = self.inference_fn(variables, self.denoiser)
     denoised = jax.vmap(denoise_fn, in_axes=(1, None, 1), out_axes=1)(
