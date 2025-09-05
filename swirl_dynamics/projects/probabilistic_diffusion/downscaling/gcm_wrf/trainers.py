@@ -37,6 +37,7 @@ class Trainer(
     sampling_metrics = {
         "eval_mean_crps": clu_metrics.Average.from_output("mean_crps"),
         "eval_rmse_ens_mean": clu_metrics.Average.from_output("rmse_ens_mean"),
+        "eval_unreliability": clu_metrics.Average.from_output("unreliability"),
     }
     likelihood_metrics = {
         "eval_ll_per_dim": clu_metrics.Average.from_output(
