@@ -26,7 +26,7 @@ which is a wrapper around the `BasicTrainState` defined in
 
 from collections.abc import Callable
 import functools
-from typing import TypeAlias, TypeVar
+from typing import TypeAlias
 
 from clu import metrics as clu_metrics
 import flax
@@ -56,11 +56,11 @@ class StochasticInterpolantTrainState(train_states.BasicTrainState):
 
 
 TrainState: TypeAlias = StochasticInterpolantTrainState
-Model = TypeVar("Model", bound=models.StochasticInterpolantModel)
-State = TypeVar("State", bound=TrainState)
 
 
-class StochasticInterpolantTrainer(trainers.BasicTrainer[Model, State]):
+class StochasticInterpolantTrainer(
+    trainers.BasicTrainer[models.StochasticInterpolantModel, TrainState]
+):
   """Single-device trainer for stochastic interpolants models."""
 
   @flax.struct.dataclass
