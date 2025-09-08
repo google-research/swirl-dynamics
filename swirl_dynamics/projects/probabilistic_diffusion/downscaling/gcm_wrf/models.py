@@ -111,6 +111,12 @@ class DenoisingModel(dfn_models.DenoisingModel):
     rmse = metric_lib.mean_squared_error(
         jnp.mean(samples, axis=1), batch["x"], squared=False
     )
+
+    unreliability = jnp.mean(
+        metric_lib.unreliability_score(
+            forecasts=samples, observations=batch["x"]
+        )
+    )
     return {
         # Take first batch element and one sample only. The batch axis is kept
         # to work with `CollectingMetric` in clu.
@@ -119,6 +125,7 @@ class DenoisingModel(dfn_models.DenoisingModel):
         "example_obs": batch["x"][:1],
         "mean_crps": crps,
         "rmse_ens_mean": rmse,
+        "unreliability": unreliability,
     }  # pytype: disable=bad-return-type
 
   def likelihood_eval(
