@@ -344,5 +344,9 @@ def create_dataset(
       batch_size=batch_size,
       drop_remainder=drop_remainder,
       worker_count=worker_count,
+      read_options=pygrain.ReadOptions(
+          num_threads=0,
+          prefetch_buffer_size=0,
+      ),
   )
   return loader
