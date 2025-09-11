@@ -34,6 +34,7 @@ VariableDict: TypeAlias = train_states.FrozenVariableDict
 
 M = TypeVar("M")  # Model
 S = TypeVar("S", bound=train_states.TrainState)  # Train state
+MetricsT = TypeVar("MetricsT", bound=Metrics)  # Metrics
 
 PMAP_AXIS_NAME = "batch"
 
@@ -73,7 +74,20 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
     See `clu.metrics.Collection` for how to define this class.
     """
 
-  def __init__(self, model: M, rng: Array):
+  def __init__(self, model: M, rng: Array, num_steps_to_compile: int = 1):
+    """Initializer.
+
+    Args:
+      model: The model to train and evaluate.
+      rng: A PRNG key for the trainer.
+      num_steps_to_compile: The number of calls to train_step that should be
+        unrolled and compiled into a JAX for loop when running train(...,
+        num_steps). This amortizes the cost of starting function execution on an
+        accelerator over this number of steps.
+
+    Raises:
+      ValueError: if num_steps_to_compile is invalid.
+    """
     self.model = model
 
     train_rng, eval_rng, self._init_rng = jax.random.split(rng, 3)
@@ -81,9 +95,14 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
     self._train_rng = jax.random.fold_in(train_rng, jax.process_index())
     self._eval_rng = jax.random.fold_in(eval_rng, jax.process_index())
 
+    if num_steps_to_compile < 1:
+      raise ValueError(f"{num_steps_to_compile=} must be positive.")
+    self._num_steps_to_compile = num_steps_to_compile
+
     self._train_state = self.initialize_train_state(self._init_rng)
-    self._compiled_train_step = self._maybe_pmap(jax.jit(self.train_step))
-    self._compiled_eval_step = self._maybe_pmap(jax.jit(self.eval_step))
+    self._compiled_train_step = self._maybe_pmap(self.train_step)
+    self._compiled_train_inner_loop = self._maybe_pmap(self._train_inner_loop)
+    self._compiled_eval_step = self._maybe_pmap(self.eval_step)
 
   @property
   def train_state(self) -> S:
@@ -111,7 +130,11 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
     return self._maybe_unreplicate(self.train_state)
 
   def _maybe_pmap(self, fn: Callable[..., Any]) -> Callable[..., Any]:
-    return jax.pmap(fn, axis_name=PMAP_AXIS_NAME) if self.is_distributed else fn
+    return (
+        jax.pmap(fn, axis_name=PMAP_AXIS_NAME)
+        if self.is_distributed
+        else jax.jit(fn)
+    )
 
   def _maybe_unreplicate(self, tree: PyTree) -> PyTree:
     return flax.jax_utils.unreplicate(tree) if self.is_distributed else tree
@@ -119,31 +142,144 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
   def _maybe_replicate(self, tree: PyTree) -> PyTree:
     return flax.jax_utils.replicate(tree) if self.is_distributed else tree
 
-  def _maybe_split(self, rng: Array) -> Array:
+  def _maybe_split_key_for_devices(self, rng: Array) -> Array:
     if self.is_distributed:
       rng = jax.random.split(rng, num=jax.local_device_count())
     return rng
 
-  # **********************************
-  # Base train and eval loop logic (should not require overriding in subclass)
-  # **********************************
+  def _maybe_reshape_for_pmap(self, batch: BatchType) -> BatchType:
+    """Reshapes values in batch for pmap over multiple devices.
 
-  def train(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
+    The input batch is a pytree of values with shape [B, ...]. The corresponding
+    outputs will have shape [N, B//N, ...] so that B//N sized batches can be
+    processed on N devices using pmap.
+
+    If not running in distributed mode, the batch is returned as is.
+
+    Args:
+      batch: One batch of data containing examples for all devices on that
+        process as a flat list.
+
+    Returns:
+      The input split into smaller per-device batches.
+    """
+    return reshape_for_pmap(batch) if self.is_distributed else batch
+
+  @property
+  def _train_inner_loop(
+      self,
+  ) -> Callable[[Array, S, MetricsT, BatchType], tuple[S, Metrics, Array]]:
+    """Returns a function that runs a few training steps in a compiled loop."""
+
+    def fn(
+        train_rng: Array,
+        train_state: S,
+        train_metrics: MetricsT,
+        batches: BatchType,
+    ) -> tuple[S, Metrics, Array]:
+      train_rng, out_rng = jax.random.split(train_rng, 2)
+      # Run all but the last step in a compiled for-loop.
+      init_val = (train_state, train_rng)
+      batch = lambda i: jax.tree.map(lambda leaf: leaf[i], batches)
+
+      def body_fn(i, val):
+        state, rng = val
+        rng, new_rng = jax.random.split(rng, 2)
+        new_state, _ = self.train_step(state, batch(i), rng)
+        return new_state, new_rng
+
+      state, rng = jax.lax.fori_loop(
+          0, self._num_steps_to_compile - 1, body_fn, init_val
+      )
+      # Use metrics from the last step.
+      out_state, metrics_update = self.train_step(state, batch(-1), rng)
+      return out_state, train_metrics.merge(metrics_update), out_rng
+
+    return fn
+
+  def _prepare_iterator_for_inner_loop(
+      self,
+      batch_iter: Iterator[BatchType],
+      step0: int,
+      rng: Array,
+  ) -> Iterator[BatchType]:
+    """Collects num_steps_to_compile batches into a single stacked element."""
+    # Make sure the RNG key is on CPU so that the split ops don't incur a
+    # CPU<->TPU round-trip.
+    rng = jax.device_put(rng, device=jax.local_devices(backend="cpu")[0])
+    n_steps_inner = self._num_steps_to_compile
+
+    def prepare(batch: BatchType, step: int, rng: Array) -> BatchType:
+      batch = self.preprocess_train_batch(batch, step, rng)
+      return self._maybe_reshape_for_pmap(batch)
+
+    # Transform the iterator.
+    def result_generator():
+      next_rng = rng
+      step = step0
+      while True:
+        next_rng, *rngs = jax.random.split(next_rng, n_steps_inner + 1)
+        # Collect multiple preprocessed batches from input iterator.
+        batches = [
+            prepare(next(batch_iter), step + i, rngs[i])
+            for i in range(n_steps_inner)
+        ]
+        step += n_steps_inner
+        # If distributed, axis-0 should correspond to devices for pmap.
+        forloop_axis = 1 if self.is_distributed else 0
+        batches = jax.tree.map(
+            lambda *leaves: np.stack(leaves, axis=forloop_axis), *batches
+        )
+        # Generate stacked batches as a new element.
+        yield batches
+
+    return result_generator()
+
+  def _train_unrolled(
+      self,
+      batch_iter: Iterator[BatchType],
+      step0: int,
+      num_steps: int,
+  ) -> Metrics:
+    """Runs training for a specified number of steps with compiled unrolling."""
+    assert self._num_steps_to_compile > 1
+    train_rng, preproc_rng = self.get_train_rng(step=step0, num=2)
+    train_rng = self._maybe_split_key_for_devices(train_rng)
+    stacked_batches_iter = self._prepare_iterator_for_inner_loop(
+        batch_iter, step0, preproc_rng
+    )
+    train_metrics = self._maybe_replicate(self.TrainMetrics.empty())
+
+    for cur_step in range(step0, step0 + num_steps, self._num_steps_to_compile):
+      with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
+        stacked_batches = next(stacked_batches_iter)
+        self.train_state, train_metrics, train_rng = (
+            self._compiled_train_inner_loop(
+                train_rng,
+                self.train_state,
+                train_metrics,
+                stacked_batches,
+            )
+        )
+    return train_metrics.reduce() if self.is_distributed else train_metrics
+
+  def _train_without_unrolling(
+      self, batch_iter: Iterator[BatchType], step0: int, num_steps: int
+  ) -> Metrics:
     """Runs training for a specified number of steps."""
-    # `.int_step` may involve unreplicate (expensive), so we do it only once.
-    step0 = self.train_state.int_step
     train_metrics = self.TrainMetrics.empty()
     for step in range(num_steps):
       cur_step = step0 + step
       with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
         train_rng, preproc_rng = self.get_train_rng(step=cur_step, num=2)
         batch = self.preprocess_train_batch(
-            batch_data=next(batch_iter),
-            step=cur_step,
-            rng=preproc_rng,
+            batch_data=next(batch_iter), step=cur_step, rng=preproc_rng
         )
+        batch = self._maybe_reshape_for_pmap(batch)
         self.train_state, metrics_update = self._compiled_train_step(
-            self.train_state, batch, self._maybe_split(train_rng)
+            self.train_state,
+            batch,
+            self._maybe_split_key_for_devices(train_rng),
         )
         # NOTE: In a distributed setting, the metrics are expected to be
         # gathered and reduced inside the `train_step` function. See
@@ -153,6 +289,43 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
         train_metrics = train_metrics.merge(metrics_update)
     return train_metrics
 
+  # **********************************
+  # Base train and eval loop logic (should not require overriding in subclass)
+  # **********************************
+
+  def train(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
+    """Runs training for a specified number of steps.
+
+    Runs num_steps steps of train_step using data from batch_iter. If
+    num_steps_to_compile is larger than 1, then that many steps are unrolled and
+    precompiled for more efficient execution.
+
+    Args:
+      batch_iter: An iterator over batches of training data. Each element should
+        correspond to all the examples used by the process where this is called.
+        When running distributed training, this method will reshape the batches
+        into a shape suitable for pmap over the devices controlled by the
+        process.
+      num_steps: Number of training steps before collecting metrics. Must be a
+        multiple of num_steps_to_compile.
+
+    Returns:
+      The metrics at the end of running num_steps training steps.
+    """
+    # `.int_step` may involve unreplicate (expensive), so we do it only once.
+    step0 = self.train_state.int_step
+    if num_steps % self._num_steps_to_compile != 0:
+      raise ValueError(
+          f"{num_steps=} must be an exact multiple of"
+          f" {self._num_steps_to_compile=}."
+      )
+    if self._num_steps_to_compile == 1:
+      return self._train_without_unrolling(batch_iter, step0, num_steps)
+    elif self._num_steps_to_compile > 1:
+      return self._train_unrolled(batch_iter, step0, num_steps)
+    else:
+      raise ValueError(f"{self._num_steps_to_compile=} must be positive.")
+
   def eval(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
     """Runs evaluation for a specified number of steps."""
     eval_metrics = self.EvalMetrics.empty()
@@ -161,8 +334,9 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
       batch = self.preprocess_eval_batch(
           batch_data=next(batch_iter), rng=preproc_rng
       )
+      batch = self._maybe_reshape_for_pmap(batch)
       metrics_update = self._compiled_eval_step(
-          self.train_state, batch, self._maybe_split(eval_rng)
+          self.train_state, batch, self._maybe_split_key_for_devices(eval_rng)
       )
       metrics_update = self._maybe_unreplicate(metrics_update)
       eval_metrics = eval_metrics.merge(metrics_update)
@@ -188,7 +362,7 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
 
   @property
   @abc.abstractmethod
-  def train_step(self) -> Callable[[S, BatchType], tuple[S, Metrics]]:
+  def train_step(self) -> Callable[[S, BatchType, Array], tuple[S, Metrics]]:
     """Returns the train step function.
 
     One should define the train step function locally inside this property and
@@ -419,9 +593,9 @@ def reshape_for_pmap(batch: BatchType) -> BatchType:
         f" {jax.local_device_count()}!"
     )
 
-  leading_dims = [jax.local_device_count(), -1]
+  leading_dims = (jax.local_device_count(), -1)
   return jax.tree_util.tree_map(
-      lambda x: np.reshape(x, leading_dims + list(x.shape[1:])), batch
+      lambda x: np.reshape(x, (leading_dims + x.shape[1:])), batch
   )
 
 
@@ -479,10 +653,3 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
       )
 
     return _eval_step
-
-  def preprocess_train_batch(
-      self, batch_data: BatchType, step: int, rng: Array
-  ) -> BatchType:
-    del step, rng
-    # Preprocessed batch should always be reshaped for distributed training
-    return reshape_for_pmap(batch_data)

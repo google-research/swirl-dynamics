@@ -115,7 +115,7 @@ class BaseTrainerTest(absltest.TestCase):
     )
 
 
-def get_test_trainer(trainer_cls):
+def get_test_trainer(trainer_cls, **kwargs):
   params_shape = (5, 5)
   mock_model = mock.Mock(spec=models.BaseModel)
   mock_model.initialize.return_value = flax.core.freeze(
@@ -125,6 +125,7 @@ def get_test_trainer(trainer_cls):
       model=mock_model,
       rng=jax.random.PRNGKey(0),
       optimizer=optax.sgd(learning_rate=1),
+      **kwargs,
   )
 
 
@@ -256,6 +257,163 @@ class BasicTrainerTest(parameterized.TestCase):
         batch_iter=dummy_iter(batch_sz=5), num_steps=num_steps
     ).compute()
     self.assertTrue(jnp.allclose(eval_metrics["eval_accuracy"], acc))
+
+
+class CompiledInnerLoopTest(BasicTrainerTest):
+
+  def assert_tree_close(self, a, b):
+    def same_shape(x, y):
+      return x.shape == y.shape
+
+    self.assertTrue(jax.tree.all(jax.tree.map(same_shape, a, b)))
+    self.assertTrue(jax.tree.all(jax.tree.map(jnp.allclose, a, b)))
+
+  @property
+  def data_iter(self):
+
+    def fn():
+      # Batches with 3 examples each.
+      n = 1
+      while True:
+        yield {
+            "x": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]) + n * 10,
+            "y": np.array([0.1, 0.2, 0.3]) + n,
+        }
+        n += 1
+
+    # Verify elements of the iterator are as expected.
+    data_iter = fn()
+    self.assert_tree_close(
+        next(data_iter),
+        {
+            "x": np.array([[11.0, 12.0], [13.0, 14.0], [15.0, 16.0]]),
+            "y": np.array([1.1, 1.2, 1.3]),
+        },
+    )
+    self.assert_tree_close(
+        next(data_iter),
+        {
+            "x": np.array([[21.0, 22.0], [23.0, 24.0], [25.0, 26.0]]),
+            "y": np.array([2.1, 2.2, 2.3]),
+        },
+    )
+    self.assert_tree_close(
+        next(data_iter),
+        {
+            "x": np.array([[31.0, 32.0], [33.0, 34.0], [35.0, 36.0]]),
+            "y": np.array([3.1, 3.2, 3.3]),
+        },
+    )
+    self.assert_tree_close(
+        next(data_iter),
+        {
+            "x": np.array([[41.0, 42.0], [43.0, 44.0], [45.0, 46.0]]),
+            "y": np.array([4.1, 4.2, 4.3]),
+        },
+    )
+
+    return fn
+
+  def dummy_preprocess_fn(self, batch, step, rng):
+    # Adds a value derived from step number to each example.
+    del rng
+    return {
+        "x": batch["x"] + step / 100,
+        "y": batch["y"] + step / 1000,
+    }
+
+  def test_prepare_iterator_for_inner_loop(self):
+    """Tests reshaping and preprocessing of input."""
+    trainer = get_test_trainer(trainers.BasicTrainer, num_steps_to_compile=4)
+    trainer.preprocess_train_batch = self.dummy_preprocess_fn
+    # Prepare an iterator.
+    prepared_iter = trainer._prepare_iterator_for_inner_loop(
+        self.data_iter(), step0=10, rng=jax.random.PRNGKey(1)
+    )
+    # Prepared iterator should have preprocessed batches, and 4 batches should
+    # be stacked in each element.
+    self.assert_tree_close(
+        next(prepared_iter),
+        {
+            "x": np.array([
+                [[11.10, 12.10], [13.10, 14.10], [15.10, 16.10]],
+                [[21.11, 22.11], [23.11, 24.11], [25.11, 26.11]],
+                [[31.12, 32.12], [33.12, 34.12], [35.12, 36.12]],
+                [[41.13, 42.13], [43.13, 44.13], [45.13, 46.13]],
+            ]),
+            "y": np.array([
+                [1.110, 1.210, 1.310],
+                [2.111, 2.211, 2.311],
+                [3.112, 3.212, 3.312],
+                [4.113, 4.213, 4.313],
+            ]),
+        },
+    )
+    self.assert_tree_close(
+        next(prepared_iter),
+        {
+            "x": np.array([
+                [[51.14, 52.14], [53.14, 54.14], [55.14, 56.14]],
+                [[61.15, 62.15], [63.15, 64.15], [65.15, 66.15]],
+                [[71.16, 72.16], [73.16, 74.16], [75.16, 76.16]],
+                [[81.17, 82.17], [83.17, 84.17], [85.17, 86.17]],
+            ]),
+            "y": np.array([
+                [5.114, 5.214, 5.314],
+                [6.115, 6.215, 6.315],
+                [7.116, 7.216, 7.316],
+                [8.117, 8.217, 8.317],
+            ]),
+        },
+    )
+
+  def test_prepare_iterator_for_inner_loop_distributed(self):
+    """Tests reshaping and preprocessing of input."""
+    trainer = get_test_trainer(
+        trainers.BasicDistributedTrainer, num_steps_to_compile=4
+    )
+    trainer.preprocess_train_batch = self.dummy_preprocess_fn
+    # Prepare an iterator.
+    prepared_iter = trainer._prepare_iterator_for_inner_loop(
+        self.data_iter(), step0=10, rng=jax.random.PRNGKey(1)
+    )
+    # Prepared iterator should have preprocessed batches, and 4 batches should
+    # be stacked in each element. Additionally, an outer dimension is added for
+    # per-device sub-batches.
+    self.assert_tree_close(
+        next(prepared_iter),
+        {
+            "x": np.array([[
+                [[11.10, 12.10], [13.10, 14.10], [15.10, 16.10]],
+                [[21.11, 22.11], [23.11, 24.11], [25.11, 26.11]],
+                [[31.12, 32.12], [33.12, 34.12], [35.12, 36.12]],
+                [[41.13, 42.13], [43.13, 44.13], [45.13, 46.13]],
+            ]]),
+            "y": np.array([[
+                [1.110, 1.210, 1.310],
+                [2.111, 2.211, 2.311],
+                [3.112, 3.212, 3.312],
+                [4.113, 4.213, 4.313],
+            ]]),
+        },
+    )
+    self.assert_tree_close(
+        next(prepared_iter),
+        {
+            "x": np.array([[
+                [[51.14, 52.14], [53.14, 54.14], [55.14, 56.14]],
+                [[61.15, 62.15], [63.15, 64.15], [65.15, 66.15]],
+                [[71.16, 72.16], [73.16, 74.16], [75.16, 76.16]],
+                [[81.17, 82.17], [83.17, 84.17], [85.17, 86.17]],
+            ]]),
+            "y": np.array([[
+                [5.114, 5.214, 5.314],
+                [6.115, 6.215, 6.315],
+                [7.116, 7.216, 7.316],
+                [8.117, 8.217, 8.317],
+            ]]),
+        },
+    )
 
 
 if __name__ == "__main__":
