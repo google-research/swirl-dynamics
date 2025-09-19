@@ -29,7 +29,7 @@ python swirl_dynamics/projects/probabilistic_diffusion/downscaling/gcm_wrf/infer
 ```
 
 """
-
+import dataclasses
 import functools
 import os
 
@@ -48,12 +48,13 @@ from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import 
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import eval_lib
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import inference_lib
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import models
+from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import trainers
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf.input_pipelines import paired_hourly
 import tensorflow as tf
 
 
 # See definitions in eval_lib.py.
-_DEFAULT_DERIVED_VARS = ['SAWTI', 'WBGT', 'WINDSPEED10', 'RH', 'FFWI']
+_DEFAULT_DERIVED_VARS = None  # ['SAWTI', 'WBGT', 'WINDSPEED10', 'RH', 'FFWI']
 
 _LOGS_DIR = flags.DEFINE_string('logs_dir', None, 'Checkpoint logs directory.')
 _EVAL_DATE_START = flags.DEFINE_string(
@@ -160,8 +161,19 @@ def main(_):
   # Disable GPU memory alloc
   tf.config.set_visible_devices([], device_type='GPU')
 
-  denoising_model_cls = gin.get_configurable(models.DenoisingModel)
-  denoising_model = denoising_model_cls()
+  trainer_cls = gin.get_configurable(trainers.Trainer)
+  denoising_model = trainer_cls().model
+  denoising_kwargs = {}
+  if _CFG_STRENGTH.value is not None:
+    denoising_kwargs['cg_strength'] = _CFG_STRENGTH.value
+  if _NUM_SDE_STEPS.value is not None:
+    denoising_kwargs['num_sde_steps'] = _NUM_SDE_STEPS.value
+  if denoising_kwargs:
+    denoising_model = dataclasses.replace(
+        denoising_model,
+        cg_strength=_CFG_STRENGTH.value,
+        num_sde_steps=_NUM_SDE_STEPS.value,
+    )
 
   # Restore train state from checkpoint. By default, the move recently saved
   # checkpoint is restored. Alternatively, one can directly use
@@ -190,22 +202,22 @@ def main(_):
       dataset_config.output_stats, dataset_config.output_variables, 'std'
   )
 
-  guidance_strength = _CFG_STRENGTH.value or denoising_model.cg_strength
-  num_sde_steps = _NUM_SDE_STEPS.value or denoising_model.num_sde_steps
-
   sampler = models.SdeSampler(
+      noise_dist=denoising_model.noise_dist,
       input_shape=dataset_config.output_shape,
       integrator=solver_lib.EulerMaruyama(),
       tspan=dfn_lib.edm_noise_decay(
           denoising_model.diffusion_scheme,
           # num_steps increases leads to more cost, and more acccuracy.
-          num_steps=num_sde_steps,
+          num_steps=denoising_model.num_sde_steps,
       ),
       scheme=denoising_model.diffusion_scheme,
       denoise_fn=denoise_fn,
       guidance_transforms=(
           # guidance_strength improves some metrics at the cost of diversity.
-          dfn_lib.ClassifierFreeHybrid(guidance_strength=guidance_strength),
+          dfn_lib.ClassifierFreeHybrid(
+              guidance_strength=denoising_model.cg_strength
+          ),
       ),
       apply_denoise_at_end=True,
       return_full_paths=False,
