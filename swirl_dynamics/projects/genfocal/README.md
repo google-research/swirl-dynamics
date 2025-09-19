@@ -11,8 +11,8 @@ sub-folder.
 
 ## Installation
 
-To make the installation seamlessly we use pip. Although the installation should
-work in any Linux-based system, we strongly recommend using a high-memory
+To make the installation seamless we use `pip`. Although the installation should
+work on any Linux-based system, we strongly recommend using a high-memory
 GPU, such as a `A100` (80GB), `H100`, `B100`, or a `TPU v5p`. We also recommend
 using `python=3.12`.
 
@@ -27,16 +27,16 @@ source genfocal/bin/activate
 ```
 
 3. Install jax with the accelerator support that matches your system. If you
-have a GPU then, following jax installation [instructions](https://docs.jax.dev/en/latest/installation.html#)
+have a GPU then, following jax installation [instructions](https://docs.jax.dev/en/latest/installation.html#),
 you can type
 
 ```bash
 pip install -U "jax[cuda12]"
 ```
 
-4. Install `swirl-dynamics`. This steps will install all the
-[basic required dependencies](https://github.com/google-research/swirl-dynamics/blob/main/pyproject.toml)
-and it will install genfocal. Here we assume that you have `git`
+4. Install `swirl-dynamics`. This will install all the
+[basic required dependencies](https://github.com/google-research/swirl-dynamics/blob/main/pyproject.toml),
+as well as genfocal. Here we assume that you have `git`
 already installed in your system.
 
 ```bash
@@ -51,8 +51,8 @@ git clone https://github.com/google-research/swirl-dynamics.git
 
 The training and inference routines are written to work in a single accelerator,
 multiple accelerator, or multiple replica (several nodes) regimes.
-This capabilities are access via a flag in the configuration files. We recommend
-to use multiple accelerators for training and inference.
+These capabilities are accessed via a flag in the configuration files. We
+recommend to use multiple accelerators for training and inference.
 
 ## Repository Structure
 
@@ -86,14 +86,14 @@ intensive analyses.
 
 ## Workflow
 
-As GenFocal has two distinct steps the workshop is also split in two.
+As GenFocal has two distinct steps the workflow is also split in two.
 Each step is specified in the README files inside the corresponding folders.
 
 ## Tropical Cyclones
 
 Below we show one of the main results in the paper, which shows the tracks and
 their corresponding ensemble density, for the biased climate dataset (LENS2),
-their downscaled version given by GenFocal, and the reference given by ERA5.
+its downscaled version given by GenFocal, and the reference given by ERA5.
 ![GenFocal TC results](https://github.com/google-research/swirl-dynamics/blob/main/swirl_dynamics/projects/genfocal/figures/tc_densities.png)
 
 ## License
