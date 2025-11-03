@@ -51,7 +51,7 @@ default, we assume this dataset has been pre-processed offline:
 aggregated over all days within the reference period.
 
 All datasets are assumed to be stored in `zarr` format. We provide some example
-datasets in a [Google Cloud bucket](https://console.cloud.google.com/storage/browser/genfocal/super_resolution/training/example_datasets).
+datasets in a [Google Cloud bucket](https://console.cloud.google.com/storage/browser/genfocal/super_resolution/training/example_dataset).
 
 To download the example datasets, use
 [gsutil](https://cloud.google.com/storage/docs/gsutil_install):
@@ -60,13 +60,13 @@ To download the example datasets, use
 mkdir -p data/super_resolution/training
 
 # Low-res
-gsutil -m -q cp -R gs://genfocal/super_resolution/training/example_datasets/era5_1p5deg_1980-2009_global_t2m_w10m_q1000_msl_z200_z500.zarr data/super_resolution/training
+gsutil -m -q cp -R gs://genfocal/super_resolution/training/example_dataset/era5_1p5deg_1980-2009_global_t2m_w10m_q1000_msl_z200_z500.zarr data/super_resolution/training
 
 # Low-res stats
-gsutil -m -q cp -R gs://genfocal/super_resolution/training/example_datasets/era5_1p5deg_stats_global_t2m_w10m_q1000_msl_z200_z500.zarr data/super_resolution/training
+gsutil -m -q cp -R gs://genfocal/super_resolution/training/example_dataset/era5_1p5deg_stats_global_t2m_w10m_q1000_msl_z200_z500.zarr data/super_resolution/training
 
 # High-res normalized residuals (CONUS)
-gsutil -m -q cp -R gs://genfocal/super_resolution/training/example_datasets/era5_0p25deg_residual_1980-2009_conus_t2m_w10m_q1000_msl.zarr data/super_resolution/training
+gsutil -m -q cp -R gs://genfocal/super_resolution/training/example_dataset/era5_0p25deg_residual_1980-2009_conus_t2m_w10m_q1000_msl.zarr data/super_resolution/training
 ```
 
 #### Run training
@@ -115,6 +115,7 @@ where the input low-resolution data are the ground truth low-resolution ERA5 in
 2015.
 
 The last necessary piece is a checkpoint for a trained SR model:
+
 ```bash
 mkdir -p data/super_resolution/checkpoints
 gsutil -m -q cp -R gs://genfocal/super_resolution/checkpoints/conus_7d_t2m_w10m_q1000_msl data/super_resolution/checkpoints
