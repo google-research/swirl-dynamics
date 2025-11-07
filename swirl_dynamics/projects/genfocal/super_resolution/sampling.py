@@ -208,7 +208,11 @@ class TrajectorySamplerParallel:
 
     @functools.partial(
         shard_map.shard_map,
-        mesh=jax.make_mesh((jax.device_count(),), ("segment",)),
+        mesh=jax.make_mesh(
+            (jax.device_count(),),
+            ("segment",),
+            axis_types=(jax.sharding.AxisType.Auto,) * len(("segment",)),
+        ),
         in_specs=(P("segment"), P("segment"), P("segment")),
         out_specs=P(None, "segment", None, None, None),
     )
@@ -248,7 +252,11 @@ class TrajectorySamplerParallel:
 
     @functools.partial(
         shard_map.shard_map,
-        mesh=jax.make_mesh((jax.device_count(),), ("segment",)),
+        mesh=jax.make_mesh(
+            (jax.device_count(),),
+            ("segment",),
+            axis_types=(jax.sharding.AxisType.Auto,) * len(("segment",)),
+        ),
         in_specs=in_specs,
         out_specs=out_specs,
     )
