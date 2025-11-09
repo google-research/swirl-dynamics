@@ -80,7 +80,7 @@ class DenoisingModel(dfn_models.DenoisingModel):
     sampling_fn = functools.partial(
         sde_sampler.generate, self.num_samples_per_condition
     )
-    samples = jax.vmap(sampling_fn, in_axes=(0, 0, 0))(
+    samples = jax.vmap(sampling_fn, in_axes=(0, 0, 0))(  # pytype: disable=wrong-arg-types
         jax.random.split(rng, batch["x"].shape[0]),
         batch["cond"],
         batch.get("guidance_inputs", {}),
