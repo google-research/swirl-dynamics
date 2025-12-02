@@ -295,11 +295,23 @@ class ConvBlock(nn.Module):
 
 
 class FourierEmbedding(nn.Module):
-  """Fourier embedding."""
+  """Fourier embedding.
+
+  Attributes:
+    dims: The number of dimensions in the embedding.
+    max_freq: The maximum frequency of the embedding.
+    projection: Whether to project the embedding to the desired output
+      dimension.
+    act_fun: The activation function.
+    precision: The precision of the computation.
+    dtype: The data type of the input/output.
+    param_dtype: The data type of the parameters.
+  """
 
   dims: int = 64
   max_freq: float = 2e4
   projection: bool = True
+  use_magnitude_preserving: bool = False
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
   dtype: jnp.dtype = jnp.float32
@@ -311,6 +323,10 @@ class FourierEmbedding(nn.Module):
     logfreqs = jnp.linspace(0, jnp.log(self.max_freq), self.dims // 2)
     x = jnp.pi * jnp.exp(logfreqs)[None, :] * x[:, None]
     x = jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
+    if self.use_magnitude_preserving:
+      # We multiply by sqrt(2) to ensure that the norm of the embedding is
+      # preserved.
+      x *= jnp.sqrt(2.0)
 
     if self.projection:
       x = nn.Dense(
