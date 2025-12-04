@@ -27,6 +27,7 @@ class, which encapsulates the common functionality that is then inherited by the
 following classes.
 
                       - DataSourceEnsembleWithClimatology
+                      - ContiguousDataSourceEnsembleWithClimatologyOffset
 CommonSourceEnsemble  - DataSourceEnsembleWithClimatologyInference
                       - ContiguousDataSourceEnsembleWithClimatology
 
@@ -34,6 +35,12 @@ CommonSourceEnsemble  - DataSourceEnsembleWithClimatologyInference
 for training the climatology-based models. It is designed to produce overlapping
 chunks and loads the data by chunks in memory, minimizing the number of reads
 from the network. This is crucial for obtaining relatively fast training.
+
+- ContiguousDataSourceEnsembleWithClimatologyOffset: This DataSource is similar
+to ContiguousDataSourceEnsembleWithClimatology, but it adds an offset to the
+pairing of dates between the input and output datasets. Basically, it matches
+the same day of the year for both datasets (hence the same climatology), but at
+different years.
 
 For the evaluation and inference, we use slightly different data loaders. As the
 repetitive application of the neural network becomes the bottleneck, we do not
@@ -48,7 +55,7 @@ non-overlapping chunks, with the corresponding climatologies.
 
 - DataSourceEnsembleWithClimatologyInference: This DataSource is the workhorse
 for inference during the evaluation period where only LENS2 data is available.
-It is also used to produces non-overlapping chunks.
+It is also used to produce non-overlapping chunks.
 
 The DataSources then are used to build the dataloaders, which are responsible
 for producing the batches of data for training and evaluation. The DataSources
@@ -59,10 +66,12 @@ output datasets.
 import abc
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
+import datetime
 import types
 from typing import Any, Literal, SupportsIndex
 
 from absl import logging
+from dateutil import relativedelta
 from etils import epath
 import grain.python as pygrain
 import jax
@@ -139,7 +148,7 @@ def read_stats(
   """Reads variables from a zarr dataset and returns as a dict of ndarrays.
 
   This function is used to read the statistics of the climatologies, and it
-  relies in the naming convention of the fields to distinguish between the
+  relies on the naming convention of the fields to distinguish between the
   mean and the std. The name of the variable contains the mean, and the std
   is named by adding the suffix "_std".
 
@@ -175,7 +184,7 @@ def read_stats_simple(
   """Reads variables from a zarr dataset and returns as a dict of ndarrays.
 
   This function is used to read the statistics of the climatologies, and it
-  relies in the naming convention of the fields to distinguish between the
+  relies on the naming convention of the fields to distinguish between the
   mean and the std. The name of the variable contains the mean, and the std
   is named by adding the suffix "_std".
 
@@ -227,21 +236,51 @@ def maybe_expand_dims(
   return array
 
 
+def _add_yearly_offset(date: np.datetime64, offset: int) -> np.datetime64:
+  """Adds an offset of an integer number of years to the date.
+
+  Args:
+    date: The date to add the offset to.
+    offset: The yearly offset to add.
+
+  Returns:
+    The date with the yearly offset added (or subtracted).
+  """
+  py_date = date.astype(datetime.datetime)
+  new_py_date = py_date + relativedelta.relativedelta(years=offset)
+  return np.datetime64(new_py_date)
+
+
+def _add_daily_offset(date: np.datetime64, offset: int) -> np.datetime64:
+  """Adds an offset of an integer number of days to the date.
+
+  Args:
+    date: The date to add the offset to.
+    offset: The number of days to add as an offset.
+
+  Returns:
+    The date with the daily offset added (or subtracted).
+  """
+  py_date = date.astype(datetime.datetime)
+  new_py_date = py_date + datetime.timedelta(days=offset)
+  return np.datetime64(new_py_date)
+
+
 class CommonSourceEnsemble(abc.ABC):
   """A data source that loads daily ERA5- with ensemble LENS2 data.
 
   Here we consider a loose alignment between the ERA5 and LENS2 data using the
-  time stamps. The pairs feed to the model are selected such that the time
+  time stamps. The pairs fed to the model are selected such that the time
   stamps are roughly the same, so the climatological statistics are roughly
   aligned between the two datasets.
 
   This class provides the interface to the zarr files that will be used to
-  to extract the data, and all the extra fields that are needed for processing
+  extract the data, and all the extra fields that are needed for processing
   the data before being fed to the model, such as the climatological statistics
   and the time stamps.
 
   The main interface is the _compute_indices function, which is responsible for
-  transform the index of the data to actually indices for underlying xarray
+  transform the index of the data to actual indices for underlying xarray
   datasets. This function dictates how the data will be read. It is also
   responsible for extracting either one, or sequence of snapshots, depending
   on the downstream task.
@@ -314,14 +353,14 @@ class CommonSourceEnsemble(abc.ABC):
       dims_order_output_stats: Order of the variables for the output statistics.
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
-      time_stamps: Wheter to add the time stamps to the samples.
+      time_stamps: Whether to add the time stamps to the samples.
       load_stats: Whether to load the climatology statistics to memory when
         using the data loader. This allows for a faster loading at the expense
-        of a larger memory footprints.
+        of a larger memory footprint.
       max_retries: The maximum number of retries for NaN or KeyError. This is
         used to avoid the failure of the whole job if there is a small number of
-        NaNs or KeyErrors in the data. It increases robustness at the expense
-        of the speed.
+        NaNs or KeyErrors in the data. It increases robustness at the expense of
+        the speed.
     """
 
     # Using LENS2 as input, they need to be modified.
@@ -404,7 +443,7 @@ class CommonSourceEnsemble(abc.ABC):
     self._max_retries = max_retries
 
   def __getitem__(self, record_key: SupportsIndex) -> Mapping[str, Any]:
-    """Retrieves record and retry if NaN found."""
+    """Retrieves a record and retries if NaN is found."""
     idx = record_key.__index__()
     if not idx < self.__len__():
       raise ValueError(f"Index out of range: {idx} / {self.__len__() - 1}")
@@ -543,7 +582,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
       dims_order_output_stats: Order of the variables for the output statistics.
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
-      time_stamps: Wheter to add the time stamps to the samples.
+      time_stamps: Whether to add the time stamps to the samples.
       load_stats: Whether to load the statistics to accelerate the loading.
     """
     super().__init__(
@@ -604,6 +643,155 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     return maybe_expand_dims(x, allowed_dims=(2, 3), trigger_expand_dims=2)
 
 
+class DataSourceEnsembleWithClimatologyOffset(CommonSourceEnsemble):
+  """A data source that loads paired daily ERA5- with ensemble LENS2 data.
+
+  Attributes:
+    yearly_offset: The yearly offset of the data, i.e., the number of years that
+      we sample from.
+    offset: A numpy array of integer offsets (in years) applied to the input
+      date to generate different output dates.
+  """
+
+  yearly_offset: int = 1
+
+  def __init__(
+      self,
+      date_range: tuple[str, str],
+      input_dataset: epath.PathLike,
+      input_variable_names: Sequence[str],
+      input_member_indexer: tuple[Mapping[str, Any], ...],
+      input_climatology: epath.PathLike,
+      output_dataset: epath.PathLike,
+      output_variables: Mapping[str, Any],
+      output_climatology: epath.PathLike,
+      dims_order_input: Sequence[str] | None = None,
+      dims_order_output: Sequence[str] | None = None,
+      dims_order_input_stats: Sequence[str] | None = None,
+      dims_order_output_stats: Sequence[str] | None = None,
+      resample_at_nan: bool = False,
+      resample_seed: int = 9999,
+      time_stamps: bool = False,
+      load_stats: bool = True,
+  ):
+    """Data source constructor.
+
+    Args:
+      date_range: The date range (in days) applied. Data not falling in this
+        range is ignored.
+      input_dataset: The path of a zarr dataset containing the input data.
+      input_variable_names: The variables to yield from the input dataset.
+      input_member_indexer: The name of the ensemble member to sample from, it
+        should be tuple of dictionaries with the key "member" and the value the
+        name of the member, to adhere to xarray formating, For example:
+        [{"member": "cmip6_1001_001"}, {"member": "cmip6_1021_002"}, ...]
+      input_climatology: The path of a zarr dataset containing the input
+        statistics.
+      output_dataset: The path of a zarr dataset containing the output data.
+      output_variables: The variables to yield from the output dataset.
+      output_climatology: The path of a zarr dataset containing the output
+        statistics.
+      dims_order_input: Order of the dimensions (time, member, lat, lon, fields)
+        of the input variables. If None, the dimensions are not changed from the
+        order in the xarray dataset.
+      dims_order_output: Order of the dimensions (time, member, lat, lon,
+        fields) of the input variables. If None, the dimensions are not changed
+        from the order in the xarray dataset.
+      dims_order_input_stats: Order of the variables for the input statistics.
+      dims_order_output_stats: Order of the variables for the output statistics.
+      resample_at_nan: Whether to resample when NaN is detected in the data.
+      resample_seed: The random seed for resampling.
+      time_stamps: Whether to add the time stamps to the samples.
+      load_stats: Whether to load the statistics to accelerate the loading.
+    """
+    super().__init__(
+        date_range,
+        input_dataset,
+        input_variable_names,
+        input_member_indexer,
+        input_climatology,
+        output_dataset,
+        output_variables,
+        output_climatology,
+        dims_order_input,
+        dims_order_output,
+        dims_order_input_stats,
+        dims_order_output_stats,
+        resample_at_nan,
+        resample_seed,
+        time_stamps,
+    )
+    self._len = self._compute_len()
+    self.offset = np.arange(
+        -(self.yearly_offset - 1) // 2, (self.yearly_offset + 1) // 2
+    )
+
+  def __len__(self):
+    return self._len
+
+  def _compute_len(self) -> int:
+    """Computes the length of the data source.
+
+    Here we assume that the total number of pairs is given by the number of
+    members times the number of time stamps times the yearly offset.
+
+    Returns:
+      The length of the data source.
+    """
+    return len(self._indexes) * self._len_time * self.yearly_offset
+
+  def _compute_indices(
+      self, idx: int
+  ) -> tuple[str, np.datetime64, np.datetime64, int]:
+    """Computes the time indices for the data.
+
+    Here we assume that the total number of pairs is given by the number of
+    members, times the number of time stamps, times the number of year offsets,
+    and that the index is given by the sum of these components.
+    idx = idx_member * (self._len_time * self.yearly_offset)
+        + idx_year * self._len_time + idx_time
+
+    Args:
+      idx: The index of the sample.
+
+    Returns:
+      A tuple with the member, and three arrays containing the date of the
+      input, the date of the output, and the day of the year correspondingly.
+
+    TODO: Add a check for the validity of the date and dayofyear.
+    """
+    # Checking the index for the member, the offset, and the time.
+    idx_member = idx // (self._len_time * self.yearly_offset)
+    idx_year = (idx // self._len_time) % self.yearly_offset
+    idx_time = idx % self._len_time
+
+    member = self._indexes[idx_member]
+    date_output = self._common_time_array[idx_time]
+    date_input = _add_yearly_offset(date_output, self.offset[idx_year])
+
+    # If the date is not in the range of the lens2 data, we use the era5 date
+    if (
+        date_input < self._common_time_array[0]
+        or date_input > self._common_time_array[-1]
+    ):
+      date_input = date_output
+
+    dayofyear = int(
+        (date_output - np.datatime64(str(date_output.astype("datetime64[Y]"))))
+        / np.timedelta64(1, "D")
+        + 1
+    )
+
+    # Checks the validity of dayofyear.
+    if dayofyear <= 0 or dayofyear > 366:
+      raise ValueError(f"Invalid day of the year: {dayofyear}")
+
+    return (member, date_input, date_output, dayofyear)
+
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    return maybe_expand_dims(x, allowed_dims=(2, 3), trigger_expand_dims=2)
+
+
 class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
   """A data source that loads ensemble LENS2 data with climatology."""
 
@@ -657,7 +845,7 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
       dims_order_output_stats: Order of the variables for the output statistics.
       resample_at_nan: Whether to resample when NaN is detected in the data.
       resample_seed: The random seed for resampling.
-      time_stamps: Wheter to add the time stamps to the samples.
+      time_stamps: Whether to add the time stamps to the samples.
       load_stats: Whether to load the statistics to accelerate the loading.
     """
     super().__init__(
@@ -851,6 +1039,178 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     return maybe_expand_dims(x, allowed_dims=(3, 4), trigger_expand_dims=3)
 
 
+class ContiguousDataSourceEnsembleWithClimatologyOffset(CommonSourceEnsemble):
+  """A data source loads contiguous chunks of data loosely paired by date.
+
+  Attributes:
+    yearly_offset: The yearly offset of the data, i.e., the number of years that
+      we sample from.
+    offset: A numpy array of integer offsets (in years) applied to the input
+      date to generate different output dates.
+  """
+
+  yearly_offset: int = 1
+
+  def __init__(
+      self,
+      date_range: tuple[str, str],
+      chunk_size: int,
+      input_dataset: epath.PathLike,
+      input_variable_names: Sequence[str],
+      input_member_indexer: tuple[Mapping[str, Any], ...],
+      input_climatology: epath.PathLike,
+      output_dataset: epath.PathLike,
+      output_variables: Mapping[str, Any],
+      output_climatology: epath.PathLike,
+      dims_order_input: Sequence[str] | None = None,
+      dims_order_output: Sequence[str] | None = None,
+      dims_order_input_stats: Sequence[str] | None = None,
+      dims_order_output_stats: Sequence[str] | None = None,
+      resample_at_nan: bool = False,
+      resample_seed: int = 9999,
+      time_stamps: bool = False,
+      load_stats: bool = True,
+      yearly_offset: int = 0,
+  ):
+    """Data source constructor.
+
+    Args:
+      date_range: The date range (in days) applied. Data not falling in this
+        range is ignored.
+      chunk_size: The size of the chunks to be used.
+      input_dataset: The path of a zarr dataset containing the input data.
+      input_variable_names: The variables to yield from the input dataset.
+      input_member_indexer: The name of the ensemble member to sample from, it
+        should be tuple of dictionaries with the key "member" and the value the
+        name of the member, to adhere to xarray formating, For example:
+        [{"member": "cmip6_1001_001"}, {"member": "cmip6_1021_002"}, ...]
+      input_climatology: The path of a zarr dataset containing the input
+        statistics.
+      output_dataset: The path of a zarr dataset containing the output data.
+      output_variables: The variables to yield from the output dataset.
+      output_climatology: The path of a zarr dataset containing the output
+        statistics.
+      dims_order_input: Order of the dimensions (time, member, lat, lon, fields)
+        of the input variables. If None (the default), the dimensions are not
+        changed from the order in the xarray dataset
+      dims_order_output: Order of the dimensions (time, member, lat, lon, field)
+        of the output variables. If None, the dimensions are not changed from
+        the order in the xarray dataset
+      dims_order_input_stats: Order of the dimensions of the variables for the
+        input statistics. If None, the dimensions are not changed from the order
+        in the xarray dataset
+      dims_order_output_stats: Order of the dimensions of the variables for the
+        output statistics. If None, the dimensions are not changed from the
+        order in the xarray dataset
+      resample_at_nan: Whether to resample when NaN is detected in the data.
+      resample_seed: The random seed for resampling.
+      time_stamps: Whether to add the time stamps to the samples.
+      load_stats: Whether to load the statistics to accelerate the loading.
+      yearly_offset: The yearly offset of the data, i.e., the number of years
+        applied to the lens2 (input data).
+    """
+    super().__init__(
+        date_range,
+        input_dataset,
+        input_variable_names,
+        input_member_indexer,
+        input_climatology,
+        output_dataset,
+        output_variables,
+        output_climatology,
+        dims_order_input,
+        dims_order_output,
+        dims_order_input_stats,
+        dims_order_output_stats,
+        resample_at_nan,
+        resample_seed,
+        time_stamps,
+    )
+    # Reduce the length of each member in time to accommodate for the chunks.
+    self.yearly_offset = yearly_offset
+    self._len_time = self._len_time - chunk_size
+    self._chunk_size = chunk_size
+    self.offset = np.arange(
+        -(self.yearly_offset - 1) // 2, (self.yearly_offset + 1) // 2
+    )
+    self._len = self._compute_len()
+
+  def __len__(self):
+    return self._len
+
+  def _compute_len(self) -> int:
+    """Computes the length of the data source.
+
+    Here we assume that the total number of pairs is given by the number of
+    members, times the number of time stamps, times the number of year offsets.
+
+    Returns:
+      The length of the data source.
+    """
+    return len(self._indexes) * self._len_time * self.yearly_offset
+
+  def _compute_indices(
+      self, idx: int
+  ) -> tuple[
+      str, Sequence[np.datetime64], Sequence[np.datetime64], Sequence[int]
+  ]:
+    """Computes the array indices for the data.
+
+    Here we assume that the total number of pairs is given by the number of
+    members, times the number of time stamps, times the number of year offsets,
+    and that the index is given by the sum of these components.
+    idx = idx_member * (self._len_time * self.yearly_offset)
+        + idx_year * self._len_time + idx_time
+
+    Args:
+      idx: The index of the sample.
+
+    Returns:
+      A tuple with the member, and three arrays containing the date of the
+      input, the date of the output, and the day of the year correspondingly.
+    """
+    # Checking the index for the member, the offset, and the time.
+    idx_member = idx // (self._len_time * self.yearly_offset)
+    idx_year = (idx // self._len_time) % self.yearly_offset
+    idx_time = idx % self._len_time
+
+    member = self._indexes[idx_member]
+    dates_output = self._common_time_array[
+        idx_time : idx_time + self._chunk_size
+    ]
+
+    idx_time_input = self.offset[idx_year] * 365 + idx_time
+    if idx_time_input < 0 or idx_time_input >= self._len_time:
+      idx_time_input = idx_time
+
+    dates_input = self._common_time_array[
+        idx_time_input : idx_time_input + self._chunk_size
+    ]
+
+    # Computes the days of the year.
+    daysofyear = [
+        int(
+            (date - np.datetime64(str(date.astype("datetime64[Y]"))))
+            / np.timedelta64(1, "D")
+            + 1
+        )
+        for date in dates_input
+    ]
+
+    # Checks for uniqueness of dates and daysofyear.
+    if len(dates_input) != len(set(dates_input)):
+      raise ValueError(f"Input dates are not unique: {dates_input}")
+    if len(dates_output) != len(set(dates_output)):
+      raise ValueError(f"Output dates are not unique: {dates_output}")
+    if len(daysofyear) != len(set(daysofyear)):
+      raise ValueError(f"Dates are not unique: {daysofyear}")
+
+    return (member, dates_input, dates_output, daysofyear)
+
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
+    return maybe_expand_dims(x, allowed_dims=(3, 4), trigger_expand_dims=3)
+
+
 # TODO: Merge this loader with the one below and add a flag.
 def create_ensemble_lens2_era5_loader_with_climatology(
     date_range: tuple[str, str],
@@ -885,13 +1245,13 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       model as a conditioning field.
     - channel:std:  The normalized standard deviation of the LENS2 input, which
       is fed to the model as a conditioning field.
-    - input_mean: The (unnormalized) climatoligical mean of the input
+    - input_mean: The (unnormalized) climatological mean of the input
       distribution.
-    - input_std: The (unnormalized) climatoligical standard deviation of the
+    - input_std: The (unnormalized) climatological standard deviation of the
       input distribution.
-    - output_mean: The (unnormalized) climatoligical mean of the output
+    - output_mean: The (unnormalized) climatological mean of the output
       distribution.
-    - output_std: The (unnormalized) climatoligical standard deviation of the
+    - output_std: The (unnormalized) climatological standard deviation of the
       output distribution.
 
     Additionally, if time_stamps is True:
@@ -1350,6 +1710,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     time_stamps: bool = False,
     num_epochs: int | None = None,
     time_to_channel: bool = True,
+    yearly_offset: int = 0,
 ):
   """Creates a loader for ERA5 and LENS2 aligned by date.
 
@@ -1381,6 +1742,8 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     time_to_channel: Whether to reshape the batch to [new_chunk_size, lon, lat,
       channel * time_batch_size], where new_chunk_size = chunk_size //
       time_batch_size.
+    yearly_offset: Offset in years for the climatology. This is used to simulate
+      the effect of a yearly shift.
 
   Returns:
   """
@@ -1391,22 +1754,41 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   # The effective batch size is batch_size // time_batch_size.
   num_chunks = batch_size // chunk_size
 
-  source = ContiguousDataSourceEnsembleWithClimatology(
-      date_range=date_range,
-      chunk_size=chunk_size,
-      input_dataset=input_dataset_path,
-      input_variable_names=input_variable_names,
-      input_member_indexer=input_member_indexer,
-      input_climatology=input_climatology,
-      output_dataset=output_dataset_path,
-      output_variables=output_variables,
-      output_climatology=output_climatology,
-      resample_at_nan=False,
-      dims_order_input=["member", "time", "longitude", "latitude"],
-      dims_order_output=["time", "longitude", "latitude", "level"],
-      resample_seed=9999,
-      time_stamps=time_stamps,
-  )
+  if yearly_offset == 0:
+    source = ContiguousDataSourceEnsembleWithClimatology(
+        date_range=date_range,
+        chunk_size=chunk_size,
+        input_dataset=input_dataset_path,
+        input_variable_names=input_variable_names,
+        input_member_indexer=input_member_indexer,
+        input_climatology=input_climatology,
+        output_dataset=output_dataset_path,
+        output_variables=output_variables,
+        output_climatology=output_climatology,
+        resample_at_nan=False,
+        dims_order_input=["member", "time", "longitude", "latitude"],
+        dims_order_output=["time", "longitude", "latitude", "level"],
+        resample_seed=9999,
+        time_stamps=time_stamps,
+    )
+  else:
+    source = ContiguousDataSourceEnsembleWithClimatologyOffset(
+        date_range=date_range,
+        chunk_size=chunk_size,
+        input_dataset=input_dataset_path,
+        input_variable_names=input_variable_names,
+        input_member_indexer=input_member_indexer,
+        input_climatology=input_climatology,
+        output_dataset=output_dataset_path,
+        output_variables=output_variables,
+        output_climatology=output_climatology,
+        resample_at_nan=False,
+        dims_order_input=["member", "time", "longitude", "latitude"],
+        dims_order_output=["time", "longitude", "latitude", "level"],
+        resample_seed=9999,
+        time_stamps=time_stamps,
+        yearly_offset=yearly_offset,
+    )
 
   member_indexer = input_member_indexer[0]
   # Just the first one to extract the statistics.
@@ -1565,14 +1947,14 @@ class DataLoadersConfig:
 
   For the batch_size, chunk_size and time_batch_size, the following convention
   is used:
-    - time_batch_size: Number of snapshots in each samplet for time-coherent
+    - time_batch_size: Number of snapshots in each sample for the time-coherent
       dataloader.
     - chunk_size: Size of the chunk for the contiguous data for each process in
       number of snapshots. This is a multiple of the time_batch_size, and
       accounts for the local batch size. Here each sample has time_batch_size
       contiguous snapshots.
     - batch_size: Total batch size in number of snapshots from aggregating all
-      chunks accross all processes.
+      chunks across all processes.
 
   Attributes:
     date_range: Date range for the data used in the dataloader.
@@ -1602,6 +1984,7 @@ class DataLoadersConfig:
       data.
     time_coherent: Whether to use the time-coherent, i.e., sequence-to-sequence
       data loader or snapshot-to-snapshot data loader.
+    yearly_offset: The yearly offset to be added to the time stamps.
   """
 
   date_range: tuple[str, str]
@@ -1623,6 +2006,7 @@ class DataLoadersConfig:
   normalize_stats: bool
   overlapping_chunks: bool
   time_coherent: bool
+  yearly_offset: int
 
 
 def get_train_eval_dataloaders_config(
@@ -1658,11 +2042,13 @@ def get_train_eval_dataloaders_config(
   train_dict_config = dict(
       date_range=config.get("date_range_train"),
       batch_size=config.get("batch_size_train"),
+      yearly_offset=config.get("yearly_offset", default=0),
       **common_dict_config,
   )
   eval_dict_config = dict(
       date_range=config.get("date_range_eval"),
       batch_size=config.get("batch_size_eval"),
+      yearly_offset=0,  # No yearly offset for the evaluation.
       **common_dict_config,
   )
   return (
@@ -1721,6 +2107,7 @@ def build_dataloader_from_config(
             output_dataset_path=config.output_dataset_path,
             output_climatology=config.output_climatology,
             time_to_channel=config.time_to_channel,
+            yearly_offset=config.yearly_offset,
         )
     )
 
@@ -1745,7 +2132,7 @@ def build_inference_dataloader(
     batch_size: The batch size.
     lens2_member_indexer: The member indexer for the LENS2 dataset, here each
       member indexer is a dictionary with the key "member" and the value is the
-      name of the member. In general we will usee only one member indexer at a
+      name of the member. In general we will use only one member indexer at a
       time.
     lens2_variable_names: The names of the variables in the LENS2 dataset.
     era5_variables: The names of the variables in the ERA5 dataset.
