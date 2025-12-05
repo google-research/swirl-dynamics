@@ -993,6 +993,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
         resample_at_nan,
         resample_seed,
         time_stamps,
+        load_stats,
     )
     # Reduce the length of each member in time to accommodate for the chunks.
     self._len_time = self._len_time - chunk_size
@@ -1070,6 +1071,8 @@ class ContiguousDataSourceEnsembleWithClimatologyOffset(CommonSourceEnsemble):
       resample_seed: int = 9999,
       time_stamps: bool = False,
       load_stats: bool = True,
+      max_retries: int = 5,
+      *,
       yearly_offset: int = 0,
   ):
     """Data source constructor.
@@ -1106,6 +1109,8 @@ class ContiguousDataSourceEnsembleWithClimatologyOffset(CommonSourceEnsemble):
       resample_seed: The random seed for resampling.
       time_stamps: Whether to add the time stamps to the samples.
       load_stats: Whether to load the statistics to accelerate the loading.
+      max_retries: The maximum number of retries for the data loading. This is
+        useful to avoid crashing when the data is not fully loaded.
       yearly_offset: The yearly offset of the data, i.e., the number of years
         applied to the lens2 (input data).
     """
@@ -1125,6 +1130,8 @@ class ContiguousDataSourceEnsembleWithClimatologyOffset(CommonSourceEnsemble):
         resample_at_nan,
         resample_seed,
         time_stamps,
+        load_stats,
+        max_retries,
     )
     # Reduce the length of each member in time to accommodate for the chunks.
     self.yearly_offset = yearly_offset
@@ -1787,6 +1794,8 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
         dims_order_output=["time", "longitude", "latitude", "level"],
         resample_seed=9999,
         time_stamps=time_stamps,
+        load_stats=True,
+        max_retries=5,
         yearly_offset=yearly_offset,
     )
 

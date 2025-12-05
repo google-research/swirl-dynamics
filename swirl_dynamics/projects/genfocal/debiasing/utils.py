@@ -63,6 +63,7 @@ class DataLoaderConfig:
       inference_utils.py file. False for model with three-dimensional topology,
       i.e., the input is a 4-tensor, and True for model with two-dimensional
       topology, i.e., the input is a 3-tensor.
+    yearly_offset: The yearly offset for the data loader.
   """
 
   date_range: tuple[str, str]
@@ -81,6 +82,7 @@ class DataLoaderConfig:
   output_dataset_path: str
   output_climatology: str
   time_to_channel: bool
+  yearly_offset: int
 
 
 def get_dataloader_config(
@@ -104,9 +106,11 @@ def get_dataloader_config(
   if regime == "train":
     date_range = config.get("date_range_train")
     batch_size = config.get("batch_size")
+    yearly_offset = config.get("yearly_offset", default=0)
   elif regime == "eval":
     date_range = config.get("date_range_eval")
     batch_size = config.get("batch_size_eval")
+    yearly_offset = 0
   else:
     raise ValueError(f"Unknown regime: {regime}")
 
@@ -129,6 +133,7 @@ def get_dataloader_config(
     print(config.get("lens2_variable_names"), flush=True)
     print("LENS2 member indexer", flush=True)
     print(lens2_member_indexer, flush=True)
+    print(f"Number of years offset {yearly_offset}", flush=True)
 
   return DataLoaderConfig(
       date_range=date_range,
@@ -147,6 +152,7 @@ def get_dataloader_config(
       output_dataset_path=config.get("era5_dataset_path"),
       output_climatology=config.get("era5_stats_path"),
       time_to_channel=config.get("time_to_channel", default=False),
+      yearly_offset=yearly_offset,
   )
 
 
@@ -178,6 +184,7 @@ def build_dataloader_from_config(
       output_dataset_path=config.output_dataset_path,
       output_climatology=config.output_climatology,
       time_to_channel=config.time_to_channel,
+      yearly_offset=config.yearly_offset,
   )
   return train_dataloader
 
