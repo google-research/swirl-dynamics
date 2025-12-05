@@ -66,6 +66,11 @@ class AxialSelfAttentionBlock(nn.Module):
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
+
+    # Casting to the specified dtype.
+    orig_dtype = x.dtype
+    x = x.astype(self.dtype)
+
     # Consolidate configs for all attention layers.
     attn_axes = self.attention_axes
     attn_axes = (attn_axes,) if isinstance(attn_axes, int) else attn_axes
@@ -87,7 +92,10 @@ class AxialSelfAttentionBlock(nn.Module):
             position_axis=axis, name=f"pos_emb_axis{axis}"
         )(h)
       h = nn.GroupNorm(
-          min(h.shape[-1] // 4, 32), name=f"attn_prenorm_axis{axis}"
+          min(h.shape[-1] // 4, 32),
+          name=f"attn_prenorm_axis{axis}",
+          dtype=jnp.float32,
+          param_dtype=jnp.float32,
       )(h)
       h = layers.AxialSelfAttention(
           attention_axis=axis,
@@ -101,14 +109,20 @@ class AxialSelfAttentionBlock(nn.Module):
           name=f"axial_attn_axis{axis}",
       )(h)
       h = nn.GroupNorm(
-          min(h.shape[-1] // 4, 32), name=f"dense_prenorm_axis{axis}"
+          min(h.shape[-1] // 4, 32),
+          name=f"dense_prenorm_axis{axis}",
+          dtype=jnp.float32,  # Normalization is done in float32.
+          param_dtype=jnp.float32,
       )(h)
 
       # The different types of Feeding Forward Networks (FFNs).
       if self.ffn_type == "dense":
-        h = nn.Dense(features=h.shape[-1], kernel_init=unets.default_init(1.0))(
-            h
-        )
+        h = nn.Dense(
+            features=h.shape[-1],
+            kernel_init=unets.default_init(1.0),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )(h)
       else:
         match self.ffn_type:
           case "swiglu":
@@ -129,7 +143,8 @@ class AxialSelfAttentionBlock(nn.Module):
             precision=self.precision,
         )(h)
 
-    return layers.CombineResidualWithSkip()(residual=h, skip=x)
+    y = layers.CombineResidualWithSkip()(residual=h, skip=x)
+    return y.astype(orig_dtype)
 
 
 class DStack(nn.Module):
@@ -158,7 +173,7 @@ class DStack(nn.Module):
   param_dtype: jnp.dtype = jnp.float32
 
   @nn.compact
-  def __call__(self, x: Array, emb: Array, *, is_training: bool) -> list[Array]:
+  def __call__(self, x: Array, emb: Array, is_training: bool) -> list[Array]:
     # The following should already have been checked at the caller level. Run
     # assserts to verify that it is indeed the case.
     if x.ndim != 5:
@@ -183,6 +198,11 @@ class DStack(nn.Module):
           "Length of downsample_ratio and num_res_blocks must match!"
       )
 
+    # Casting to the specified dtype.
+    orig_dtype = x.dtype
+    x = x.astype(self.dtype)
+    emb = emb.astype(self.dtype)
+
     # Logic.
     spatial_dims = np.asarray(x.shape[2:-1])
     nt = x.shape[1]
@@ -194,6 +214,8 @@ class DStack(nn.Module):
         kernel_size=(3, 3),
         padding=self.padding,
         kernel_init=unets.default_init(1.0),
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv2d_in",
     )(x)
     skips.append(h)
@@ -204,6 +226,8 @@ class DStack(nn.Module):
           features=channel,
           ratios=(self.downsample_ratio[level], self.downsample_ratio[level]),
           kernel_init=unets.default_init(1.0),
+          dtype=self.dtype,
+          param_dtype=self.param_dtype,
           name=f"{nt}xres{'x'.join(spatial_dims.astype(str))}.downsample",
       )(h)
       spatial_dims = spatial_dims // self.downsample_ratio[level]
@@ -242,8 +266,9 @@ class DStack(nn.Module):
               normalize_qk=self.normalize_qk,
               ffn_type=self.ffn_type,
               name=f"{nt}xres{'x'.join(dims_str)}.dblock{block_id}.attn",
-          )(h, is_training=is_training)
+          )(h, is_training)
 
+        h = h.astype(orig_dtype)
         skips.append(h)
 
     return skips
@@ -275,7 +300,7 @@ class UStack(nn.Module):
 
   @nn.compact
   def __call__(
-      self, x: Array, emb: Array, skips: list[Array], *, is_training: bool
+      self, x: Array, emb: Array, skips: list[Array], is_training: bool
   ) -> Array:
     # The following should already have been checked at the caller level.
     # We add an extra layer of checks here.
@@ -301,6 +326,11 @@ class UStack(nn.Module):
           "Length of upsample_ratio and num_res_blocks must match!"
       )
 
+    # Casting to the specified dtype.
+    orig_dtype = x.dtype
+    x = x.astype(self.dtype)
+    emb = emb.astype(self.dtype)
+
     # Logic.
     spatial_dims = np.asarray(x.shape[-3:-1])
     dims_str = spatial_dims.astype(str)
@@ -310,9 +340,12 @@ class UStack(nn.Module):
     # Takes the sking and it processes them if needed.
     for level, channel in enumerate(self.num_channels):
       for block_id in range(self.num_res_blocks[level]):
+        skip = skips.pop().astype(self.dtype)
         h = layers.CombineResidualWithSkip(
-            project_skip=h.shape[-1] != skips[-1].shape[-1]
-        )(residual=h, skip=skips.pop())
+            project_skip=h.shape[-1] != skips[-1].shape[-1],
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )(residual=h, skip=skip)
         h = unets.ConvBlock(
             out_channels=channel,
             # This will treat the time dimension as an extra batch dimension.
@@ -344,7 +377,7 @@ class UStack(nn.Module):
               normalize_qk=self.normalize_qk,
               ffn_type=self.ffn_type,
               name=f"{nt}xres{'x'.join(dims_str)}.ublock{block_id}.attn",
-          )(h, is_training=is_training)
+          )(h, is_training)
 
       # Upsampling.
       up_ratio = self.upsample_ratio[level]
@@ -363,16 +396,20 @@ class UStack(nn.Module):
       dims_str = spatial_dims.astype(str)
 
     h = layers.CombineResidualWithSkip(
-        project_skip=h.shape[-1] != skips[-1].shape[-1]
+        project_skip=h.shape[-1] != skips[-1].shape[-1],
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
     )(residual=h, skip=skips.pop())
     h = layers.ConvLayer(
         features=self.num_output_proj_channels,
         kernel_size=(3, 3),
         padding=self.padding,
         kernel_init=unets.default_init(1.0),
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
         name="conv2d_out",
     )(h)
-    return h
+    return h.astype(orig_dtype)
 
 
 class UNet3d(nn.Module):
@@ -491,6 +528,10 @@ class UNet3d(nn.Module):
           f" {self.downsample_ratio} must have the same lengths!"
       )
 
+        # Casting to the specified dtype.
+    orig_dtype = x.dtype
+    x = x.astype(self.dtype)
+
     input_size = x.shape[1:-1]
     # Resizes the input if needed. This steps allows for greater downsampling
     # flexibility. The output is resized to the original input shape at the end.
@@ -518,7 +559,12 @@ class UNet3d(nn.Module):
     )(x, cond)
 
     # Adds the noise embedding.
-    emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)
+    emb = unets.FourierEmbedding(
+        dims=self.noise_embed_dim,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )(sigma)
+    emb = emb.astype(self.dtype)
     # Downsampling stack.
     skips = DStack(
         num_channels=self.num_channels,
@@ -536,7 +582,7 @@ class UNet3d(nn.Module):
         param_dtype=self.param_dtype,
         num_heads=self.num_heads,
         normalize_qk=self.normalize_qk,
-    )(x, emb, is_training=is_training)
+    )(x, emb, is_training)
     # Upsampling stack.
     h = UStack(
         num_channels=self.num_channels[::-1],
@@ -553,10 +599,16 @@ class UNet3d(nn.Module):
         dtype=self.dtype,
         param_dtype=self.param_dtype,
         normalize_qk=self.normalize_qk,
-    )(skips[-1], emb, skips, is_training=is_training)
+    )(skips[-1], emb, skips, is_training)
 
     # Final convolution.
-    h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
+    h = nn.swish(
+        nn.GroupNorm(
+            min(h.shape[-1] // 4, 32),
+            dtype=jnp.float32,
+            param_dtype=jnp.float32,
+        )(h)
+    )
     h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=(3, 3),
@@ -578,7 +630,7 @@ class UNet3d(nn.Module):
           dtype=self.dtype,
           param_dtype=self.param_dtype,
       )(h)
-    return h
+    return h.astype(orig_dtype)
 
 
 class PreconditionedDenoiser3d(UNet3d):
@@ -612,9 +664,14 @@ class PreconditionedDenoiser3d(UNet3d):
           f" ({x.shape[0]})!"
       )
 
+    orig_dtype = x.dtype
+    # Here sigma can have a different type than x, as it may require more
+    # accuracy.
+
     total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
     c_skip = jnp.square(self.sigma_data) / total_var
     c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
+    # TODO Use jax.lax.rsqrt here.
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
@@ -622,7 +679,15 @@ class PreconditionedDenoiser3d(UNet3d):
     c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
     c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
 
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
-    )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    # All these coefficients are computed in the input dtype.
+    c_in = c_in.astype(orig_dtype)
+    c_out = c_out.astype(orig_dtype)
+    c_skip = c_skip.astype(orig_dtype)
+    c_noise = c_noise.astype(orig_dtype)
+
+    x_in = jnp.multiply(c_in, x).astype(self.dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    f_x = f_x.astype(orig_dtype)
+    out = jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+
+    return out

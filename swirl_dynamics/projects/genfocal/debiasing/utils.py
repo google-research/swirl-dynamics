@@ -71,7 +71,7 @@ class DataLoaderConfig:
   time_batch_size: int
   chunk_size: int
   shuffle: bool
-  worker_count: int
+  worker_count: int | None
   input_dataset_path: str
   input_climatology: str
   input_mean_stats_path: str
@@ -333,6 +333,8 @@ def build_model_from_config(
   else:
     cond_embed_fn = None
 
+  dtype = jax.numpy.bfloat16 if config.bfloat16 else jax.numpy.float32
+
   if config.use_3d_model:
     print("Using 3D U-ViT model")
     flow_model = reflow_models.RescaledUnet3d(
@@ -350,6 +352,8 @@ def build_model_from_config(
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
         ffn_type=config.ffn_type,
+        dtype=dtype,
+        param_dtype=dtype,
     )
   else:
     print("Using 2D U-ViT model")
@@ -367,6 +371,8 @@ def build_model_from_config(
         num_heads=config.num_heads,
         cond_embed_fn=cond_embed_fn,
         normalize_qk=config.normalize_qk,
+        dtype=dtype,
+        param_dtype=dtype,
     )
 
   # Setting up the time sampler.
