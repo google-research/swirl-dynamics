@@ -129,6 +129,9 @@ class LatLonConv(nn.Module):
           f"Unrecognized order {self.order} - 'latlon' or 'lonlat' expected."
       )
 
+    orig_dtype = inputs.dtype
+    inputs = inputs.astype(self.dtype)
+
     lon_pads = [(0, 0)] * inputs.ndim
     lon_pads[lon_axes] = (lon_pad, lon_pad)
     padded_inputs = jnp.pad(inputs, lon_pads, mode="wrap")
@@ -149,7 +152,7 @@ class LatLonConv(nn.Module):
         precision=self.precision,
         dtype=self.dtype,
         param_dtype=self.param_dtype,
-    )(padded_inputs)
+    )(padded_inputs).astype(orig_dtype)
 
 
 class DownsampleConv(nn.Module):

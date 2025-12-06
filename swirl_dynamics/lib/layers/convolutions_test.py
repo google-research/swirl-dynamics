@@ -57,6 +57,33 @@ class ConvLayersTest(parameterized.TestCase):
     out, _ = model.init_with_output(jax.random.PRNGKey(42), inputs=inputs)
     self.assertEqual(out.shape, expected_output_shape[:-1] + (num_features,))
 
+  @parameterized.product(
+      order=("latlon", "lonlat"),
+      dtype=(jnp.float32, jnp.bfloat16),
+      param_dtype=(jnp.float32, jnp.bfloat16),
+  )
+  def test_latlon_conv_dtypes(self, order, dtype, param_dtype):
+    input_shape = (2, 8, 8, 4)
+    inputs = jnp.ones(input_shape, dtype=dtype)
+    model = convolutions.LatLonConv(
+        features=4,
+        kernel_size=(3, 3),
+        order=order,
+        dtype=dtype,
+        param_dtype=param_dtype,
+    )
+    variables = model.init(jax.random.PRNGKey(42), inputs)
+
+    # Check parameter dtypes
+    params = variables["params"]
+    for leaf in jax.tree_util.tree_leaves(params):
+      self.assertEqual(leaf.dtype, param_dtype)
+
+    # Check output dtype
+    out = model.apply(variables, inputs)
+    self.assertEqual(out.dtype, dtype)
+    self.assertEqual(out.shape, input_shape)
+
 
 if __name__ == "__main__":
   absltest.main()

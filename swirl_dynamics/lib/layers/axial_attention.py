@@ -83,6 +83,9 @@ class AxialSelfAttention(nn.Module):
           f"Attention axis ({self.attention_axis}) cannot be the last axis,"
           " which is treated as the features!"
       )
+    # Casting to the specified dtype and saving the original dtype.
+    orig_dtype = inputs.dtype
+    inputs = inputs.astype(self.dtype)
 
     inputs = jnp.swapaxes(inputs, self.attention_axis, -2)
     inputs_q = jnp.reshape(inputs, (-1, *inputs.shape[-2:]))
@@ -100,4 +103,4 @@ class AxialSelfAttention(nn.Module):
     out = jnp.reshape(out, inputs.shape)
     out = jnp.swapaxes(out, -2, self.attention_axis)
 
-    return out
+    return out.astype(orig_dtype)

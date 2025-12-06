@@ -38,6 +38,33 @@ class AxialAttentionLayersTest(parameterized.TestCase):
     out, _ = model.init_with_output(jax.random.PRNGKey(42), inputs=inputs)
     self.assertEqual(out.shape, input_shape)
 
+  @parameterized.parameters(
+      (jnp.float32, jnp.float32),
+      (jnp.float32, jnp.bfloat16),
+      (jnp.bfloat16, jnp.float32),
+      (jnp.bfloat16, jnp.bfloat16),
+  )
+  def test_axial_self_attention_dtypes(self, dtype, param_dtype):
+    input_shape = (2, 8, 8, 4)
+    inputs = jnp.ones(input_shape, dtype=dtype)
+    model = axial_attention.AxialSelfAttention(
+        num_heads=2,
+        attention_axis=-2,
+        dtype=dtype,
+        param_dtype=param_dtype,
+    )
+    variables = model.init(jax.random.PRNGKey(42), inputs)
+
+    # Check parameter dtypes
+    params = variables["params"]
+    for leaf in jax.tree_util.tree_leaves(params):
+      self.assertEqual(leaf.dtype, param_dtype)
+
+    # Check output dtype
+    out = model.apply(variables, inputs)
+    self.assertEqual(out.dtype, dtype)
+    self.assertEqual(out.shape, input_shape)
+
 
 if __name__ == "__main__":
   absltest.main()

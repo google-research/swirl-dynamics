@@ -505,7 +505,11 @@ class InterpConvMerge(MergeChannelCond):
           name=f"conv2d_embed_{key}",
       )(value)
 
+      # Cast to the dtype of the input to avoid a type mismatch when
+      # concatenating.
+      value = value.astype(x.dtype)
       x = jnp.concatenate([x, value], axis=-1)
+
     return x
 
 
@@ -973,7 +977,11 @@ class UNet(nn.Module):
         param_dtype=self.param_dtype,
     )(x, cond)
 
-    emb = FourierEmbedding(dims=self.noise_embed_dim)(sigma)
+    emb = FourierEmbedding(
+        dims=self.noise_embed_dim,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )(sigma)
     # Incorporating the embedding from the conditional inputs.
     if self.cond_embed_fn:
       if self.cond_embed_kwargs is None:
