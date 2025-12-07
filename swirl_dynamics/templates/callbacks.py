@@ -152,9 +152,7 @@ class TrainStateCheckpoint(Callback):
           }),
       )
 
-      trainer.train_state = trainer._maybe_replicate(  # pylint: disable=protected-access
-          getattr(restored, self.train_state_field)
-      )
+      trainer.train_state = getattr(restored, self.train_state_field)
 
   def on_train_batches_end(
       self, trainer: Trainer, train_metrics: ComputedMetrics
@@ -171,7 +169,7 @@ class TrainStateCheckpoint(Callback):
           # Converting to np array seems necessary for multi-host environments.
           args=ocp.args.Composite(**{
               self.train_state_field: ocp.args.StandardSave(
-                  jax.tree.map(np.array, trainer.unreplicated_train_state)
+                  jax.tree.map(np.array, trainer.train_state)
               )
           }),
           metrics=dict(**scalar_train_metrics, **self.last_eval_metric),
@@ -192,7 +190,7 @@ class TrainStateCheckpoint(Callback):
           trainer.train_state.int_step,
           args=ocp.args.Composite(**{
               self.train_state_field: ocp.args.StandardSave(
-                  jax.tree.map(np.array, trainer.unreplicated_train_state)
+                  jax.tree.map(np.array, trainer.train_state)
               )
           }),
           force=True,
@@ -335,7 +333,7 @@ class ParameterOverview(Callback):
   log_to_tb: bool = True
 
   def on_train_begin(self, trainer: trainers.BaseTrainer) -> None:
-    train_state = trainer.unreplicated_train_state
+    train_state = trainer.train_state
     if isinstance(train_state, train_states.BasicTrainState):
       params = train_state.params
       if self.log_to_info:
@@ -486,8 +484,8 @@ class InitializeFromCheckpoint(Callback):
         self.checkpoint_dir, step=self.step, ref_state=ref_state
     )
     # Replicate the restored state to match the current train state if needed.
-    overrides = trainer._maybe_replicate({  # pylint: disable=protected-access
+    overrides = {
         field: getattr(restored_state, field)
         for field in self.fields_to_override
-    })
+    }
     trainer.train_state = trainer.train_state.replace(**overrides)
