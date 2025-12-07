@@ -68,13 +68,16 @@ class BaseTrainerTest(absltest.TestCase):
     ) as mock_compiled_train_fn:
       # mocks jit-compiled train_step function to return state with
       # increasing step count and mocked metrics
-      train_output = [
-          (  # pylint: disable=g-complex-comprehension
-              train_states.TrainState(step=jnp.array(i + 1)),
-              TestTrainer.TrainMetrics.single_from_model_output(loss=l),
-          )
-          for i, l in enumerate(test_train_losses)
-      ]
+      train_output = []
+      running_metrics = TestTrainer.TrainMetrics.empty()
+      for i, l in enumerate(test_train_losses):
+        running_metrics = running_metrics.merge(
+            TestTrainer.TrainMetrics.single_from_model_output(loss=l)
+        )
+        train_output.append((
+            train_states.TrainState(step=jnp.array(i + 1)),
+            running_metrics,
+        ))
       mock_compiled_train_fn.return_value = mock.Mock(side_effect=train_output)
       mock_model = mock.Mock(spec=models.BaseModel)
       trainer = TestTrainer(model=mock_model, rng=jax.random.PRNGKey(0))
@@ -142,14 +145,26 @@ class BasicTrainerTest(parameterized.TestCase):
     num_steps = 5
     rng = np.random.default_rng(84)
     mock_losses = rng.uniform(size=(num_steps,))
+
     # use non-jitted train_step function because although mocked function can be
     # jit-compiled, it cannot be used with `side_effect` to specify multiple
     # return values - the compiled function will always return the first
-    trainer._compiled_train_step = trainer.train_step
+    def fake_compiled_step(train_rng, train_state, batches, train_metrics):
+      bs = jax.tree_util.tree_leaves(batches)[0].shape[0]
+      for i in range(bs):
+        b = jax.tree.map(lambda x, i=i: x[i], batches)
+        train_state, step_metrics = trainer.train_step(
+            train_state, b, train_rng
+        )
+        train_metrics = train_metrics.merge(step_metrics)
+      return train_state, train_metrics
+
+    trainer._compiled_train_step = fake_compiled_step
     with mock.patch.object(trainers.jax, "grad", autospec=True) as mock_grad_fn:
       mock_grad_fn.return_value = mock.Mock(
           side_effect=[
-              (jnp.ones(params_shape), ({"loss": l}, {})) for l in mock_losses
+              (jnp.ones(params_shape), ({"loss": l}, flax.core.freeze({})))
+              for l in mock_losses
           ]
       )
       train_metrics = trainer.train(
@@ -180,7 +195,10 @@ class BasicTrainerTest(parameterized.TestCase):
     # patch `jax.value_and_grad` to return a grad_fn with mocked output
     with mock.patch.object(trainers.jax, "grad", autospec=True) as mock_grad_fn:
       mock_grad_fn.return_value = mock.Mock(
-          return_value=(-1 * jnp.ones(params_shape), ({"loss": 0.0}, {}))
+          return_value=(
+              -1 * jnp.ones(trainer.train_state.params.shape),
+              ({"loss": 0.0}, flax.core.freeze({})),
+          )
       )
       trainer.train(
           batch_iter=dummy_iter(batch_sz=5), num_steps=num_steps
@@ -232,7 +250,7 @@ class BasicTrainerTest(parameterized.TestCase):
       mock_grad_fn.return_value = mock.Mock(
           return_value=(
               jnp.ones(trainer.train_state.params.shape),
-              ({"loss": l}, {}),
+              ({"loss": l}, flax.core.freeze({})),
           )
       )
       train_metrics = trainer.train(
@@ -257,6 +275,28 @@ class BasicTrainerTest(parameterized.TestCase):
         batch_iter=dummy_iter(batch_sz=5), num_steps=num_steps
     ).compute()
     self.assertTrue(jnp.allclose(eval_metrics["eval_accuracy"], acc))
+
+  def test_make_global_from_process_local(self):
+    """Tests making global array from process local data."""
+    # Simulate 1 device.
+    local_batch = {"a": np.array([1, 2])}
+    mesh = jax.sharding.Mesh(jax.devices(), axis_names=("batch",))
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec("batch")
+    )
+
+    global_batch = trainers._make_global_from_process_local(
+        local_batch, sharding, batch_axis_index=0
+    )
+    # With 1 device, global should be same as local.
+    self.assertTrue(np.array_equal(global_batch["a"], local_batch["a"]))
+    # Check shape
+    self.assertEqual(global_batch["a"].shape, (2,))
+
+  def test_train_invalid_num_steps(self):
+    trainer = get_test_trainer(trainers.BasicTrainer, num_steps_to_compile=5)
+    with self.assertRaisesRegex(ValueError, "must be an exact multiple"):
+      trainer.train(iter([]), num_steps=6)
 
 
 class CompiledInnerLoopTest(BasicTrainerTest):
@@ -322,12 +362,12 @@ class CompiledInnerLoopTest(BasicTrainerTest):
         "y": batch["y"] + step / 1000,
     }
 
-  def test_prepare_iterator_for_inner_loop(self):
+  def test_get_super_batch_iter(self):
     """Tests reshaping and preprocessing of input."""
     trainer = get_test_trainer(trainers.BasicTrainer, num_steps_to_compile=4)
     trainer.preprocess_train_batch = self.dummy_preprocess_fn
     # Prepare an iterator.
-    prepared_iter = trainer._prepare_iterator_for_inner_loop(
+    prepared_iter = trainer._get_super_batch_iter(
         self.data_iter(), step0=10, rng=jax.random.PRNGKey(1)
     )
     # Prepared iterator should have preprocessed batches, and 4 batches should
@@ -364,54 +404,6 @@ class CompiledInnerLoopTest(BasicTrainerTest):
                 [7.116, 7.216, 7.316],
                 [8.117, 8.217, 8.317],
             ]),
-        },
-    )
-
-  def test_prepare_iterator_for_inner_loop_distributed(self):
-    """Tests reshaping and preprocessing of input."""
-    trainer = get_test_trainer(
-        trainers.BasicDistributedTrainer, num_steps_to_compile=4
-    )
-    trainer.preprocess_train_batch = self.dummy_preprocess_fn
-    # Prepare an iterator.
-    prepared_iter = trainer._prepare_iterator_for_inner_loop(
-        self.data_iter(), step0=10, rng=jax.random.PRNGKey(1)
-    )
-    # Prepared iterator should have preprocessed batches, and 4 batches should
-    # be stacked in each element. Additionally, an outer dimension is added for
-    # per-device sub-batches.
-    self.assert_tree_close(
-        next(prepared_iter),
-        {
-            "x": np.array([[
-                [[11.10, 12.10], [13.10, 14.10], [15.10, 16.10]],
-                [[21.11, 22.11], [23.11, 24.11], [25.11, 26.11]],
-                [[31.12, 32.12], [33.12, 34.12], [35.12, 36.12]],
-                [[41.13, 42.13], [43.13, 44.13], [45.13, 46.13]],
-            ]]),
-            "y": np.array([[
-                [1.110, 1.210, 1.310],
-                [2.111, 2.211, 2.311],
-                [3.112, 3.212, 3.312],
-                [4.113, 4.213, 4.313],
-            ]]),
-        },
-    )
-    self.assert_tree_close(
-        next(prepared_iter),
-        {
-            "x": np.array([[
-                [[51.14, 52.14], [53.14, 54.14], [55.14, 56.14]],
-                [[61.15, 62.15], [63.15, 64.15], [65.15, 66.15]],
-                [[71.16, 72.16], [73.16, 74.16], [75.16, 76.16]],
-                [[81.17, 82.17], [83.17, 84.17], [85.17, 86.17]],
-            ]]),
-            "y": np.array([[
-                [5.114, 5.214, 5.314],
-                [6.115, 6.215, 6.315],
-                [7.116, 7.216, 7.316],
-                [8.117, 8.217, 8.317],
-            ]]),
         },
     )
 

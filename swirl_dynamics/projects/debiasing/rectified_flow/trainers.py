@@ -44,12 +44,11 @@ class ReFlowTrainState(train_states.BasicTrainState):
     else:
       raise ValueError("EMA state is none.")
 
+
 TrainState = ReFlowTrainState
 
 
-class ReFlowTrainer(
-    trainers.BasicTrainer[models.ReFlowModel, TrainState]
-):
+class ReFlowTrainer(trainers.BasicTrainer[models.ReFlowModel, TrainState]):
   """Single-device trainer for rectified flow models."""
 
   @flax.struct.dataclass
@@ -74,7 +73,6 @@ class ReFlowTrainer(
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
     return TrainState.create(
-        replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
         flax_mutables=mutables,

@@ -402,7 +402,6 @@ class DenoisingTrainer(templates.BasicDistributedTrainer[Model, State]):
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
     return DenoisingModelTrainState.create(
-        replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
         flax_mutables=mutables,

@@ -15,28 +15,28 @@
 """Trainer classes for use in gradient descent mini-batch training."""
 
 import abc
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
+import functools
+import itertools
 from typing import Any, Generic, TypeAlias, TypeVar
 
 from clu import metrics as clu_metrics
 import flax
 import jax
+import jax.numpy as jnp
 import numpy as np
 import optax
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import train_states
 
 Array: TypeAlias = jax.Array
-BatchType: TypeAlias = Mapping[str, jax.typing.ArrayLike]
-Metrics: TypeAlias = clu_metrics.Collection
 PyTree: TypeAlias = Any
+BatchType: TypeAlias = Mapping[str, PyTree]
+Metrics: TypeAlias = clu_metrics.Collection
 VariableDict: TypeAlias = train_states.FrozenVariableDict
 
 M = TypeVar("M")  # Model
 S = TypeVar("S", bound=train_states.TrainState)  # Train state
-MetricsT = TypeVar("MetricsT", bound=Metrics)  # Metrics
-
-PMAP_AXIS_NAME = "batch"
 
 
 class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
@@ -89,20 +89,13 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
       ValueError: if num_steps_to_compile is invalid.
     """
     self.model = model
-
-    train_rng, eval_rng, self._init_rng = jax.random.split(rng, 3)
-    # fold in process index so that each host has different root rngs
-    self._train_rng = jax.random.fold_in(train_rng, jax.process_index())
-    self._eval_rng = jax.random.fold_in(eval_rng, jax.process_index())
+    self._train_rng, self._eval_rng, self._init_rng = jax.random.split(rng, 3)
 
     if num_steps_to_compile < 1:
       raise ValueError(f"{num_steps_to_compile=} must be positive.")
-    self._num_steps_to_compile = num_steps_to_compile
 
+    self._num_steps_to_compile = num_steps_to_compile
     self._train_state = self.initialize_train_state(self._init_rng)
-    self._compiled_train_step = self._maybe_pmap(self.train_step)
-    self._compiled_train_inner_loop = self._maybe_pmap(self._train_inner_loop)
-    self._compiled_eval_step = self._maybe_pmap(self.eval_step)
 
   @property
   def train_state(self) -> S:
@@ -124,174 +117,25 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
     rng, self._eval_rng = jax.random.split(self._eval_rng)
     return jax.random.split(rng, num=num)
 
-  @property
-  def unreplicated_train_state(self) -> S:
-    """Returns unreplicated train state (for checkpointing or inference)."""
-    return self._maybe_unreplicate(self.train_state)
+  # ***************************************
+  # JIT-compilation of train and eval steps
+  # ***************************************
 
-  def _maybe_pmap(self, fn: Callable[..., Any]) -> Callable[..., Any]:
-    return (
-        jax.pmap(fn, axis_name=PMAP_AXIS_NAME)
-        if self.is_distributed
-        else jax.jit(fn)
-    )
-
-  def _maybe_unreplicate(self, tree: PyTree) -> PyTree:
-    return flax.jax_utils.unreplicate(tree) if self.is_distributed else tree
-
-  def _maybe_replicate(self, tree: PyTree) -> PyTree:
-    return flax.jax_utils.replicate(tree) if self.is_distributed else tree
-
-  def _maybe_split_key_for_devices(self, rng: Array) -> Array:
-    if self.is_distributed:
-      rng = jax.random.split(rng, num=jax.local_device_count())
-    return rng
-
-  def _maybe_reshape_for_pmap(self, batch: BatchType) -> BatchType:
-    """Reshapes values in batch for pmap over multiple devices.
-
-    The input batch is a pytree of values with shape [B, ...]. The corresponding
-    outputs will have shape [N, B//N, ...] so that B//N sized batches can be
-    processed on N devices using pmap.
-
-    If not running in distributed mode, the batch is returned as is.
-
-    Args:
-      batch: One batch of data containing examples for all devices on that
-        process as a flat list.
-
-    Returns:
-      The input split into smaller per-device batches.
-    """
-    return reshape_for_pmap(batch) if self.is_distributed else batch
-
-  @property
-  def _train_inner_loop(
+  @functools.cached_property
+  def _compiled_train_step(
       self,
-  ) -> Callable[[Array, S, MetricsT, BatchType], tuple[S, Metrics, Array]]:
-    """Returns a function that runs a few training steps in a compiled loop."""
+  ) -> Callable[[Array, S, BatchType, Metrics], tuple[S, Metrics]]:
+    """Compiles training step function."""
+    return jax.jit(self._multi_train_step)
 
-    def fn(
-        train_rng: Array,
-        train_state: S,
-        train_metrics: MetricsT,
-        batches: BatchType,
-    ) -> tuple[S, Metrics, Array]:
-      train_rng, out_rng = jax.random.split(train_rng, 2)
-      # Run all but the last step in a compiled for-loop.
-      init_val = (train_state, train_rng)
-      batch = lambda i: jax.tree.map(lambda leaf: leaf[i], batches)
+  @functools.cached_property
+  def _compiled_eval_step(self) -> Callable[[S, BatchType, Array], Metrics]:
+    """Compiles evaluation step function."""
+    return jax.jit(self.eval_step)
 
-      def body_fn(i, val):
-        state, rng = val
-        rng, new_rng = jax.random.split(rng, 2)
-        new_state, _ = self.train_step(state, batch(i), rng)
-        return new_state, new_rng
-
-      state, rng = jax.lax.fori_loop(
-          0, self._num_steps_to_compile - 1, body_fn, init_val
-      )
-      # Use metrics from the last step.
-      out_state, metrics_update = self.train_step(state, batch(-1), rng)
-      return out_state, train_metrics.merge(metrics_update), out_rng
-
-    return fn
-
-  def _prepare_iterator_for_inner_loop(
-      self,
-      batch_iter: Iterator[BatchType],
-      step0: int,
-      rng: Array,
-  ) -> Iterator[BatchType]:
-    """Collects num_steps_to_compile batches into a single stacked element."""
-    # Make sure the RNG key is on CPU so that the split ops don't incur a
-    # CPU<->TPU round-trip.
-    rng = jax.device_put(rng, device=jax.local_devices(backend="cpu")[0])
-    n_steps_inner = self._num_steps_to_compile
-
-    def prepare(batch: BatchType, step: int, rng: Array) -> BatchType:
-      batch = self.preprocess_train_batch(batch, step, rng)
-      return self._maybe_reshape_for_pmap(batch)
-
-    # Transform the iterator.
-    def result_generator():
-      next_rng = rng
-      step = step0
-      while True:
-        next_rng, *rngs = jax.random.split(next_rng, n_steps_inner + 1)
-        # Collect multiple preprocessed batches from input iterator.
-        batches = [
-            prepare(next(batch_iter), step + i, rngs[i])
-            for i in range(n_steps_inner)
-        ]
-        step += n_steps_inner
-        # If distributed, axis-0 should correspond to devices for pmap.
-        forloop_axis = 1 if self.is_distributed else 0
-        batches = jax.tree.map(
-            lambda *leaves: np.stack(leaves, axis=forloop_axis), *batches
-        )
-        # Generate stacked batches as a new element.
-        yield batches
-
-    return result_generator()
-
-  def _train_unrolled(
-      self,
-      batch_iter: Iterator[BatchType],
-      step0: int,
-      num_steps: int,
-  ) -> Metrics:
-    """Runs training for a specified number of steps with compiled unrolling."""
-    assert self._num_steps_to_compile > 1
-    train_rng, preproc_rng = self.get_train_rng(step=step0, num=2)
-    train_rng = self._maybe_split_key_for_devices(train_rng)
-    stacked_batches_iter = self._prepare_iterator_for_inner_loop(
-        batch_iter, step0, preproc_rng
-    )
-    train_metrics = self._maybe_replicate(self.TrainMetrics.empty())
-
-    for cur_step in range(step0, step0 + num_steps, self._num_steps_to_compile):
-      with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
-        stacked_batches = next(stacked_batches_iter)
-        self.train_state, train_metrics, train_rng = (
-            self._compiled_train_inner_loop(
-                train_rng,
-                self.train_state,
-                train_metrics,
-                stacked_batches,
-            )
-        )
-    return train_metrics.reduce() if self.is_distributed else train_metrics
-
-  def _train_without_unrolling(
-      self, batch_iter: Iterator[BatchType], step0: int, num_steps: int
-  ) -> Metrics:
-    """Runs training for a specified number of steps."""
-    train_metrics = self.TrainMetrics.empty()
-    for step in range(num_steps):
-      cur_step = step0 + step
-      with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
-        train_rng, preproc_rng = self.get_train_rng(step=cur_step, num=2)
-        batch = self.preprocess_train_batch(
-            batch_data=next(batch_iter), step=cur_step, rng=preproc_rng
-        )
-        batch = self._maybe_reshape_for_pmap(batch)
-        self.train_state, metrics_update = self._compiled_train_step(
-            self.train_state,
-            batch,
-            self._maybe_split_key_for_devices(train_rng),
-        )
-        # NOTE: In a distributed setting, the metrics are expected to be
-        # gathered and reduced inside the `train_step` function. See
-        # `clu_metrics.Collection.gather_from_model_output()` for a convenient
-        # way to do this.
-        metrics_update = self._maybe_unreplicate(metrics_update)
-        train_metrics = train_metrics.merge(metrics_update)
-    return train_metrics
-
-  # **********************************
-  # Base train and eval loop logic (should not require overriding in subclass)
-  # **********************************
+  # ******************************
+  # Base train and eval loop logic
+  # ******************************
 
   def train(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
     """Runs training for a specified number of steps.
@@ -319,12 +163,19 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
           f"{num_steps=} must be an exact multiple of"
           f" {self._num_steps_to_compile=}."
       )
-    if self._num_steps_to_compile == 1:
-      return self._train_without_unrolling(batch_iter, step0, num_steps)
-    elif self._num_steps_to_compile > 1:
-      return self._train_unrolled(batch_iter, step0, num_steps)
-    else:
-      raise ValueError(f"{self._num_steps_to_compile=} must be positive.")
+
+    train_rng, data_rng = self.get_train_rng(step=step0, num=2)
+    super_batch_iter = self._get_super_batch_iter(batch_iter, step0, data_rng)
+    train_metrics = self.TrainMetrics.empty()
+
+    for cur_step in range(step0, step0 + num_steps, self._num_steps_to_compile):
+      with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
+        super_batch = next(super_batch_iter)
+        step_train_rng = jax.random.fold_in(train_rng, cur_step)
+        self.train_state, train_metrics = self._compiled_train_step(
+            step_train_rng, self.train_state, super_batch, train_metrics
+        )
+    return train_metrics
 
   def eval(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
     """Runs evaluation for a specified number of steps."""
@@ -334,13 +185,62 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
       batch = self.preprocess_eval_batch(
           batch_data=next(batch_iter), rng=preproc_rng
       )
-      batch = self._maybe_reshape_for_pmap(batch)
       metrics_update = self._compiled_eval_step(
-          self.train_state, batch, self._maybe_split_key_for_devices(eval_rng)
+          self.train_state, batch, eval_rng
       )
-      metrics_update = self._maybe_unreplicate(metrics_update)
+      # This runs on CPU to accommodate potential collecting-type metrics.
       eval_metrics = eval_metrics.merge(metrics_update)
     return eval_metrics
+
+  @property
+  def _multi_train_step(self):
+    """Returns a multi-step training function based on the single-step one."""
+
+    def _train_multistep(
+        train_rng: Array, train_state: S, batches: BatchType, metrics: Metrics
+    ) -> tuple[S, Metrics]:
+      """Runs multiple training steps via `jax.lax.scan`."""
+      rngs = jax.random.split(train_rng, self._num_steps_to_compile)
+
+      def _step(state: tuple[S, Metrics], inputs: tuple[BatchType, Array]):
+        batch, rng = inputs
+        state, metrics = state
+        new_state, step_metrics = self.train_step(state, batch, rng)
+        metrics = metrics.merge(step_metrics)
+        return (new_state, metrics), None
+
+      (train_state, metrics), _ = jax.lax.scan(
+          f=_step, init=(train_state, metrics), xs=(batches, rngs)
+      )
+      return train_state, metrics
+
+    return _train_multistep
+
+  def _get_super_batch_iter(
+      self, batch_iter: Iterator[BatchType], step0: int, rng: Array
+  ) -> Iterator[BatchType]:
+    """Collects `num_steps_to_compile` batches into a single stacked element."""
+    # Moves rng to CPU to avoid CPU<->TPU round-trip.
+    rng = jax.device_put(rng, device=jax.local_devices(backend="cpu")[0])
+
+    def add_preproc(batch_iter: Iterator[BatchType]) -> Iterator[BatchType]:
+      """Adds preprocessing to the batch iterator."""
+      for step, batch in enumerate(batch_iter):
+        step_rng = jax.random.fold_in(rng, step)
+        yield self.preprocess_train_batch(batch, step0 + step, step_rng)
+
+    def stack_batches(
+        super_iter: Iterator[Sequence[BatchType]],
+    ) -> Iterator[BatchType]:
+      """Stacks batches along a new leading dimension."""
+      for super_batch in super_iter:
+        stacked_batch = jax.tree.map(lambda *arrs: np.stack(arrs), *super_batch)
+        yield stacked_batch
+
+    super_iter = stack_batches(
+        itertools.batched(add_preproc(batch_iter), self._num_steps_to_compile)
+    )
+    return super_iter
 
   # **********************************
   # Mandatory Hooks
@@ -511,9 +411,10 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
   def train_step(
       self,
   ) -> Callable[
-      [BasicTrainState, BatchType, Array],
-      tuple[BasicTrainState, Metrics],
+      [BasicTrainState, BatchType, Array], tuple[BasicTrainState, Metrics]
   ]:
+    """Returns the one-step training function."""
+
     def _train_step(
         train_state: BasicTrainState, batch: BatchType, rng: Array
     ) -> tuple[BasicTrainState, Metrics]:
@@ -560,6 +461,8 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
   def eval_step(
       self,
   ) -> Callable[[BasicTrainState, BatchType, Array], Metrics]:
+    """Returns the one-step evaluation function."""
+
     def _eval_step(
         train_state: BasicTrainState, batch: BatchType, rng: Array
     ) -> Metrics:
@@ -567,7 +470,6 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
       eval_metrics = self.model.eval_fn(
           variables=train_state.model_variables, batch=batch, rng=rng
       )
-      # `eval_metrics` must include keys required by `EvalMetrics` definition
       return self.EvalMetrics.single_from_model_output(**eval_metrics)
 
     return _eval_step
@@ -577,79 +479,172 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
     return train_states.BasicTrainState.create(
-        replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
         flax_mutables=mutables,
     )
 
 
-def reshape_for_pmap(batch: BatchType) -> BatchType:
-  """Reshapes a batch according to the number of local devices."""
-  batch_size = jax.tree_util.tree_flatten(batch)[0][0].shape[0]
-  if batch_size % jax.local_device_count() != 0:
-    raise ValueError(
-        f"Batch size {batch_size} is not divisible by device count"
-        f" {jax.local_device_count()}!"
+P = jax.sharding.PartitionSpec
+
+
+def _make_global_from_process_local(
+    pytree: PyTree,
+    data_sharding: jax.sharding.Sharding,
+    batch_axis_index: int,
+) -> PyTree:
+  """Makes a global PyTree from a process-local PyTree."""
+
+  def _build_global_array(array: np.ndarray):
+    if array.ndim <= batch_axis_index:
+      raise ValueError(
+          f"Array ndim {array.ndim} must be greater than {batch_axis_index=}."
+      )
+    local_batch_size = array.shape[batch_axis_index]
+    global_batch_size = local_batch_size * jax.process_count()
+    global_shape = list(array.shape)
+    global_shape[batch_axis_index] = global_batch_size
+    global_shape = tuple(global_shape)
+    return jax.make_array_from_process_local_data(
+        data_sharding, array, global_shape
     )
 
-  leading_dims = (jax.local_device_count(), -1)
-  return jax.tree_util.tree_map(
-      lambda x: np.reshape(x, (leading_dims + x.shape[1:])), batch
-  )
+  return jax.tree.map(_build_global_array, pytree)
 
 
 class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
-  """The distributed extension of `BasicTrainer`."""
+  """The data-parallel extension of `BasicTrainer`."""
 
   is_distributed: bool = True
+  batch_axis: str = "batch"
 
-  @property
+  @functools.cached_property
+  def mesh(self) -> jax.sharding.Mesh:
+    return jax.sharding.Mesh(jax.devices(), axis_names=(self.batch_axis,))
+
+  def train(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
+    """Runs training for a specified number of steps."""
+    step0 = self.train_state.int_step
+    if num_steps % self._num_steps_to_compile != 0:
+      raise ValueError(
+          f"{num_steps=} must be an exact multiple of"
+          f" {self._num_steps_to_compile=}."
+      )
+
+    train_rng, data_rng = self.get_train_rng(step=step0, num=2)
+    super_batch_iter = self._get_super_batch_iter(batch_iter, step0, data_rng)
+
+    # Creates an empty metrics object for all devices.
+    train_metrics = jax.device_put(
+        jax.tree.map(
+            lambda x: jnp.broadcast_to(x, (jax.device_count(),) + x.shape),
+            self.TrainMetrics.empty(),
+        ),
+        jax.sharding.NamedSharding(self.mesh, P(self.batch_axis)),
+    )
+
+    for cur_step in range(step0, step0 + num_steps, self._num_steps_to_compile):
+      with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
+        super_batch = next(super_batch_iter)
+        # Abstractly merges the process-local batch into a single global batch
+        # so that it can be sharded by shard_map.
+        super_global_batch = _make_global_from_process_local(
+            super_batch,
+            # Shards along the 2nd axis (batch; 1st axis is multi-step).
+            jax.sharding.NamedSharding(self.mesh, P(None, self.batch_axis)),
+            batch_axis_index=1,
+        )
+        train_step_rng = jax.random.fold_in(train_rng, cur_step)
+        self.train_state, train_metrics = self._compiled_train_step(
+            train_step_rng, self.train_state, super_global_batch, train_metrics
+        )
+    return train_metrics.reduce()
+
+  @functools.cached_property
   def train_step(
       self,
   ) -> Callable[
-      [BasicTrainState, BatchType, Array],
-      tuple[BasicTrainState, Metrics],
+      [BasicTrainState, BatchType, Array], tuple[BasicTrainState, Metrics]
   ]:
+    """Returns the one-step training function."""
+
+    @jax.shard_map(
+        mesh=self.mesh,
+        in_specs=(P(), P(self.batch_axis), P()),
+        out_specs=(P(), P(self.batch_axis)),
+    )
     def _train_step(
         train_state: BasicTrainState, batch: BatchType, rng: Array
     ) -> tuple[BasicTrainState, Metrics]:
       """Performs gradient step and compute training metrics."""
+      # Note there is no need to fold in process index in the root rng.
+      rng = jax.random.fold_in(rng, jax.lax.axis_index(self.batch_axis))
       grad_fn = jax.grad(self.model.loss_fn, argnums=0, has_aux=True)
       grads, (metrics, mutables) = grad_fn(
           train_state.params, batch, rng, train_state.flax_mutables
       )
       # Collective operations like `pmean` are computed over GLOBAL devices
-      grads = jax.lax.pmean(grads, axis_name=PMAP_AXIS_NAME)
-      # No need to modify `update_state` here because pmapped version should
-      # just work
+      grads = jax.lax.pmean(grads, axis_name=self.batch_axis)
+      mutables = jax.lax.pmean(mutables, axis_name=self.batch_axis)
+
       # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
       new_state = self.update_train_state(  # pytype: disable=wrong-keyword-args  # always-use-property-annotation
           train_state=train_state, grads=grads, mutables=mutables
       )
       # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
-      # This takes care of both `gather` (local) and `reduce` (global) so a
-      # single unreplicate call returns the computed metrics outside
-      metrics_update = self.TrainMetrics.gather_from_model_output(
-          axis_name=PMAP_AXIS_NAME, **metrics
+      # Avoids excessive all-gather operations by computing metrics on shards
+      # and aggregating later outside.
+      metrics_update = self.TrainMetrics.single_from_model_output(**metrics)
+      metrics_update = jax.tree.map(
+          lambda x: jnp.expand_dims(x, axis=0), metrics_update
       )
       return new_state, metrics_update
 
     return _train_step
 
-  @property
+  def eval(self, batch_iter: Iterator[BatchType], num_steps: int) -> Metrics:
+    """Runs evaluation for a specified number of steps."""
+    data_sharding = jax.sharding.NamedSharding(self.mesh, P(self.batch_axis))
+    eval_metrics = jax.tree.map(
+        lambda x: jnp.broadcast_to(x, (jax.device_count(),) + x.shape),
+        self.EvalMetrics.empty(),
+    )
+    eval_metrics = jax.device_put(eval_metrics, data_sharding)
+    for _ in range(num_steps):
+      eval_rng, preproc_rng = self.get_eval_rng(num=2)
+      batch = self.preprocess_eval_batch(
+          batch_data=next(batch_iter), rng=preproc_rng
+      )
+      global_batch = _make_global_from_process_local(
+          batch, data_sharding, batch_axis_index=0
+      )
+      metrics_update = self._compiled_eval_step(
+          self.train_state, global_batch, eval_rng
+      )
+      # This runs on CPU to accommodate potential collecting-type metrics.
+      eval_metrics = eval_metrics.merge(metrics_update)
+    return eval_metrics.reduce()
+
+  @functools.cached_property
   def eval_step(
       self,
   ) -> Callable[[BasicTrainState, BatchType, Array], Metrics]:
+    """Returns the one-step evaluation function."""
+
+    @jax.shard_map(
+        mesh=self.mesh,
+        in_specs=(P(), P(self.batch_axis), P()),
+        out_specs=P(self.batch_axis),
+    )
     def _eval_step(
         train_state: BasicTrainState, batch: BatchType, rng: Array
     ) -> Metrics:
       """Use model to compute the evaluation metrics."""
+      rng = jax.random.fold_in(rng, jax.lax.axis_index(self.batch_axis))
       eval_metrics = self.model.eval_fn(
           variables=train_state.model_variables, batch=batch, rng=rng
       )
-      return self.EvalMetrics.gather_from_model_output(
-          axis_name=PMAP_AXIS_NAME, **eval_metrics
-      )
+      metrics_update = self.EvalMetrics.single_from_model_output(**eval_metrics)
+      return jax.tree.map(lambda x: jnp.expand_dims(x, axis=0), metrics_update)
 
     return _eval_step

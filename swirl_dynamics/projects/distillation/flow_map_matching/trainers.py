@@ -92,7 +92,6 @@ class LagrangianFlowMapTrainer(
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
     return TrainState.create(
-        replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
         flax_mutables=mutables,
@@ -181,7 +180,6 @@ class ConditionalLagrangianSelfDistilledFlowMapTrainer(
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
     return TrainState.create(
-        replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
         flax_mutables=mutables,
