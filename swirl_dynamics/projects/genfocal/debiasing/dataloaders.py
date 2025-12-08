@@ -1714,6 +1714,9 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     time_batch_size: int = 1,
     drop_remainder: bool = True,
     worker_count: int | None = 0,
+    worker_buffer_size: int = 1,
+    num_threads: int = 32,
+    prefetch_buffer_size: int = 8,
     time_stamps: bool = False,
     num_epochs: int | None = None,
     time_to_channel: bool = True,
@@ -1744,6 +1747,11 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     drop_remainder: Whether to drop the reminder between the full length of the
       dataset and the batchsize.
     worker_count: Number of workers for parallelizing the data loading.
+    worker_buffer_size: Size of the buffer for the workers. If None, the default
+      value will be used.
+    num_threads: Number of threads for reading the data within pygrain.
+    prefetch_buffer_size: Size of the prefetch buffer for reading the data
+      within pygrain.
     time_stamps: Whether to include the time stamps in the output.
     num_epochs: Number of epochs, by defaults the loader will run forever.
     time_to_channel: Whether to reshape the batch to [new_chunk_size, lon, lat,
@@ -1942,11 +1950,19 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
   )
 
+  # TODO: Plumb these options through the config.
+  read_options = pygrain.ReadOptions(
+      num_threads=num_threads,
+      prefetch_buffer_size=prefetch_buffer_size,
+  )
+
   return pygrain.DataLoader(
       data_source=source,
       sampler=sampler,
       operations=transformations,
       worker_count=worker_count,
+      worker_buffer_size=worker_buffer_size,
+      read_options=read_options,
   )
 
 
