@@ -82,6 +82,37 @@ class Unets3dTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, x.shape)
 
+  def test_unets3d_bf16(self):
+    # Create a UNet3d model with bfloat16 dtype and float32 param_dtype.
+    x = jnp.ones((2, 4, 33, 16, 4), dtype=jnp.float32)
+    network = unets3d.UNet3d(
+        out_channels=4,
+        resize_to_shape=(32, 16),
+        num_channels=(4, 4, 4),
+        downsample_ratio=(2, 2, 2),
+        num_blocks=2,
+        noise_embed_dim=32,
+        padding="LONLAT",
+        use_spatial_attention=(False, False, True),
+        use_temporal_attention=(False, False, True),
+        use_position_encoding=True,
+        num_heads=2,
+        cond_resize_method="cubic",
+        cond_embed_dim=16,
+        dtype=jnp.bfloat16,
+        param_dtype=jnp.float32,
+    )
+    variables = network.init(
+        jax.random.PRNGKey(0), x, sigma=jnp.ones((2,)), is_training=True
+    )
+
+    # Run apply
+    out = network.apply(
+        variables, x, sigma=jnp.ones((2,)), is_training=True
+    )
+    self.assertEqual(out.shape, x.shape)
+
+    self.assertEqual(out.dtype, jnp.float32)
 
 if __name__ == "__main__":
   absltest.main()

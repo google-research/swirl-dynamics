@@ -319,8 +319,16 @@ class FourierEmbedding(nn.Module):
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
-    assert x.ndim == 1
-    logfreqs = jnp.linspace(0, jnp.log(self.max_freq), self.dims // 2)
+    if x.ndim != 1:
+      raise ValueError(
+          f"Input tensor must be 1D. Instead it has {x.ndim} dimensions."
+      )
+    logfreqs = jnp.linspace(
+        0.0, jnp.log(self.max_freq), self.dims // 2, dtype=jnp.float32
+    )
+    # Cast to float32 to avoid numerical issues for the sin/cos operations.
+    orig_dtype = x.dtype
+    x = x.astype(jnp.float32)
     x = jnp.pi * jnp.exp(logfreqs)[None, :] * x[:, None]
     x = jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
     if self.use_magnitude_preserving:
@@ -328,6 +336,7 @@ class FourierEmbedding(nn.Module):
       # preserved.
       x *= jnp.sqrt(2.0)
 
+    # Project to the desired output dimension.
     if self.projection:
       x = nn.Dense(
           features=2 * self.dims,
@@ -342,6 +351,9 @@ class FourierEmbedding(nn.Module):
           dtype=self.dtype,
           param_dtype=self.param_dtype,
       )(x)
+
+    # Cast back to the original dtype.
+    x = x.astype(orig_dtype)
 
     return x
 
@@ -366,9 +378,13 @@ class Add2dPosEmbedding(nn.Module):
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
-    assert x.ndim == 4
+    if x.ndim != 4:
+      raise ValueError(
+          f"Input tensor must be 4D. Instead it has {x.ndim} dimensions."
+      )
     _, h, w, c = x.shape
-    assert c % 2 == 0, "Number of channels must be even."
+    if c % 2 != 0:
+      raise ValueError(f"Number of channels must be even. Instead it is {c}.")
 
     row_embed = self.param("pos_emb_row", self.emb_init, (w, c // 2))
     col_embed = self.param("pos_emb_col", self.emb_init, (h, c // 2))
@@ -505,7 +521,11 @@ class InterpConvMerge(MergeChannelCond):
           name=f"conv2d_embed_{key}",
       )(value)
 
-      x = jnp.concatenate([x, value], axis=-1)
+      # Cast to the dtype of the input to avoid a type mismatch when
+      # concatenating.
+      value = value.astype(x.dtype)
+      x = jnp.concatenate([x, value], axis=-1, dtype=x.dtype)
+
     return x
 
 
@@ -973,7 +993,14 @@ class UNet(nn.Module):
         param_dtype=self.param_dtype,
     )(x, cond)
 
-    emb = FourierEmbedding(dims=self.noise_embed_dim)(sigma)
+    # Incorporating the noise level.
+    # TODO: We may need to keep the embeddings at full single
+    # precision regardless of the model precision.
+    emb = FourierEmbedding(
+        dims=self.noise_embed_dim,
+        dtype=self.dtype,
+        param_dtype=self.param_dtype,
+    )(sigma)
     # Incorporating the embedding from the conditional inputs.
     if self.cond_embed_fn:
       if self.cond_embed_kwargs is None:

@@ -84,12 +84,17 @@ class FilteredResize(nn.Module):
       )
 
     batch_ndim = inputs.ndim - len(self.output_size) - 1
-    inputs = inputs.astype(self.dtype)
+    orig_dtype = inputs.dtype
+    # We perform the resizing step at input accuracy.
+    # TODO: Perhaps it makes more sense to use the resize at
+    # single precision and then cast to the desired type.
     resized = jax.image.resize(
         inputs,
         shape=(*inputs.shape[:batch_ndim], *self.output_size, inputs.shape[-1]),
         method=self.method,
     )
+
+    resized = resized.astype(self.dtype)
     # We add another convolution layer to undo any aliasing that could have
     # been introduced by the resizing step.
     out = convolutions.ConvLayer(
@@ -102,4 +107,4 @@ class FilteredResize(nn.Module):
         precision=self.precision,
         param_dtype=self.param_dtype,
     )(resized)
-    return out
+    return out.astype(orig_dtype)
