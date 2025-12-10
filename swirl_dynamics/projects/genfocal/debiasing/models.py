@@ -394,6 +394,13 @@ class ConditionalReFlowModel(ReFlowModel):
     # TODO: Avoid repeated code in here.
     choice_rng, _ = jax.random.split(rng)
 
+    # Checking that the of x_0 and x_1 are the same.
+    if batch["x_0"].shape != batch["x_1"].shape:
+      raise ValueError(
+          "x_0 and x_1 shapes must be the same instead we have"
+          f" shape x_0:{batch['x_0'].shape} and shape x_1:{batch['x_1'].shape}"
+      )
+
     # Shuffling the batch (but keeping the pairs together).
     batch_reorg = jax.tree.map(
         lambda x: jax.random.choice(
@@ -413,6 +420,14 @@ class ConditionalReFlowModel(ReFlowModel):
 
     x_0 = batch_reorg["x_0"]
     x_1 = batch_reorg["x_1"]
+
+    # Checking that the shapes are the same.
+    if x_0.shape != x_1.shape:
+      raise ValueError(
+          "x_0 and x_1 shapes must be the same instead we have"
+          f" shape x_0:{x_0.shape} and shape x_1:{x_1.shape}"
+      )
+
     # Extracting the conditioning.
     if self.cond_shape is not None:
       cond = {key: batch_reorg[key] for key in self.cond_shape.keys()}

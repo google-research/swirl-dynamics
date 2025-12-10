@@ -64,6 +64,12 @@ class DataLoaderConfig:
       i.e., the input is a 4-tensor, and True for model with two-dimensional
       topology, i.e., the input is a 3-tensor.
     yearly_offset: The yearly offset for the data loader.
+    daily_offset: The daily offset for the data loader, this is used to sample
+      data in which the coupling have a small offset between the input and
+      output.
+    use_tensor_coupling: Whether to use the tensor coupling in the data loader.
+      This is used to sample data in which the coupling is the tensor product of
+      the target marginals.
   """
 
   date_range: tuple[str, str]
@@ -83,6 +89,8 @@ class DataLoaderConfig:
   output_climatology: str
   time_to_channel: bool
   yearly_offset: int
+  daily_offset: int
+  use_tensor_coupling: bool
 
 
 def get_dataloader_config(
@@ -107,10 +115,14 @@ def get_dataloader_config(
     date_range = config.get("date_range_train")
     batch_size = config.get("batch_size")
     yearly_offset = config.get("yearly_offset", default=0)
+    daily_offset = config.get("daily_offset", default=0)
+    use_tensor_coupling = config.get("use_tensor_coupling", default=False)
   elif regime == "eval":
     date_range = config.get("date_range_eval")
     batch_size = config.get("batch_size_eval")
     yearly_offset = 0
+    daily_offset = 0
+    use_tensor_coupling = False
   else:
     raise ValueError(f"Unknown regime: {regime}")
 
@@ -153,6 +165,8 @@ def get_dataloader_config(
       output_climatology=config.get("era5_stats_path"),
       time_to_channel=config.get("time_to_channel", default=False),
       yearly_offset=yearly_offset,
+      daily_offset=daily_offset,
+      use_tensor_coupling=use_tensor_coupling,
   )
 
 
@@ -185,6 +199,7 @@ def build_dataloader_from_config(
       output_climatology=config.output_climatology,
       time_to_channel=config.time_to_channel,
       yearly_offset=config.yearly_offset,
+      daily_offset=config.daily_offset,
   )
   return train_dataloader
 
