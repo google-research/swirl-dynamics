@@ -533,6 +533,34 @@ def noaa_heat_index(TF, RH):  # pylint: disable=invalid-name
   return hi
 
 
+def wind_chill_temperature(T, WS):  # pylint: disable=invalid-name
+  """Computes wind chill temperature from Osczevski and Bluestein.
+
+  The wind chill temperature definition is taken from Osczevski and Bluestein
+  (2005): https://doi.org/10.1175/BAMS-86-10-1453. This is the definition
+  used by Environment Canada and the US National Weather Service.
+
+  Frostbite can occur for wind chill temperatures below -27 Celsius, or
+  246.15 K.
+
+  Args:
+    T: Temperature in Kelvin.
+    WS: Near-surface wind speed in meters per second.
+
+  Returns:
+    The wind chill temperature, in Kelvin.
+  """
+  T = T - _T_REF  # Convert to Celsius.
+  WS = WS * 3.6  # Convert to km/h.
+  wct = (
+      13.12
+      + 0.6215 * T
+      - 11.37 * np.power(WS, 0.16)
+      + 0.3965 * T * np.power(WS, 0.16)
+      )
+  return wct + _T_REF
+
+
 def add_zs(surf_geopotential_ds: epath.PathLike):
   """Adds surface elevation to data."""
 
