@@ -19,7 +19,7 @@ stacks successively apply 2D downsampling/upsampling in space only. At each
 resolution, an axial attention block (involving space and/or time) is applied.
 """
 
-from collections.abc import Sequence
+from collections.abc import MutableSequence, Sequence
 from typing import Any, Literal
 
 from flax import linen as nn
@@ -178,12 +178,14 @@ class DStack(nn.Module):
     # The following should already have been checked at the caller level. Run
     # assserts to verify that it is indeed the case.
     if x.ndim != 5:
-      raise ValueError("Only accept 5D input (batch, time, x, y, features)! ",
-                       f"Instead we have x.shape: {x.shape}")
+      raise ValueError(
+          "Only accept 5D input (batch, time, x, y, features)! "
+          f"Instead we have x.shape: {x.shape}"
+      )
     if x.shape[0] != emb.shape[0]:
       raise ValueError(
-          "Batch dimension of x and emb must match! x.shape: ",
-          f"{x.shape}, emb.shape: {emb.shape}",
+          "Batch dimension of x and emb must match! "
+          f"x.shape: {x.shape}, emb.shape: {emb.shape}"
       )
     if len(self.use_spatial_attention) != len(self.use_temporal_attention):
       raise ValueError(
@@ -191,9 +193,7 @@ class DStack(nn.Module):
           " match!"
       )
     if len(self.num_channels) != len(self.num_res_blocks):
-      raise ValueError(
-          "Length of num_channels and num_res_blocks must match!"
-      )
+      raise ValueError("Length of num_channels and num_res_blocks must match!")
     if len(self.downsample_ratio) != len(self.num_res_blocks):
       raise ValueError(
           "Length of downsample_ratio and num_res_blocks must match!"
@@ -301,17 +301,23 @@ class UStack(nn.Module):
 
   @nn.compact
   def __call__(
-      self, x: Array, emb: Array, skips: list[Array], is_training: bool
+      self,
+      x: Array,
+      emb: Array,
+      skips: MutableSequence[Array],
+      is_training: bool,
   ) -> Array:
     # The following should already have been checked at the caller level.
     # We add an extra layer of checks here.
     if x.ndim != 5:
-      raise ValueError("Only accept 5D input (batch, time, x, y, features)! ",
-                       f"Instead we have x.shape: {x.shape}")
+      raise ValueError(
+          "Only accept 5D input (batch, time, x, y, features)! "
+          f"Instead we have x.shape: {x.shape}"
+      )
     if x.shape[0] != emb.shape[0]:
       raise ValueError(
-          "Batch dimension of x and emb must match! x.shape: ",
-          f"{x.shape}, emb.shape: {emb.shape}",
+          "Batch dimension of x and emb must match! "
+          f"x.shape: {x.shape}, emb.shape: {emb.shape}"
       )
     if len(self.use_spatial_attention) != len(self.use_temporal_attention):
       raise ValueError(
@@ -319,9 +325,7 @@ class UStack(nn.Module):
           " match!"
       )
     if len(self.num_channels) != len(self.num_res_blocks):
-      raise ValueError(
-          "Length of num_channels and num_res_blocks must match!"
-      )
+      raise ValueError("Length of num_channels and num_res_blocks must match!")
     if len(self.upsample_ratio) != len(self.num_res_blocks):
       raise ValueError(
           "Length of upsample_ratio and num_res_blocks must match!"
@@ -341,12 +345,12 @@ class UStack(nn.Module):
     # Takes the sking and it processes them if needed.
     for level, channel in enumerate(self.num_channels):
       for block_id in range(self.num_res_blocks[level]):
-        skip = skips.pop().astype(self.dtype)
+        last_skip = skips.pop().astype(self.dtype)
         h = layers.CombineResidualWithSkip(
-            project_skip=h.shape[-1] != skips[-1].shape[-1],
+            project_skip=h.shape[-1] != last_skip.shape[-1],
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(residual=h, skip=skip)
+        )(residual=h, skip=last_skip)
         h = unets.ConvBlock(
             out_channels=channel,
             # This will treat the time dimension as an extra batch dimension.
@@ -529,7 +533,7 @@ class UNet3d(nn.Module):
           f" {self.downsample_ratio} must have the same lengths!"
       )
 
-        # Casting to the specified dtype.
+    # Casting to the specified dtype.
     orig_dtype = x.dtype
     x = x.astype(self.dtype)
 
