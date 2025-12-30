@@ -1,0 +1,342 @@
+# Copyright 2025 The swirl_dynamics Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+r"""Compute frostbite counts (Northern Hemisphere winter) for every pixel.
+
+Computes the number of consecutive periods of N days with daily min
+wind-chill temperature below a certain threshold. The default threshold is
+246.15 K, which is the wind-chill temperature at which frostbite can occur.
+
+The start and end years represent the first and last "season years" considered.
+A season year is defined as the year when the Northern Hemisphere winter season
+starts. Therefore, the 2011 winter seasons is December 2011 to February 2012.
+
+Example usage:
+
+```
+python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam:compute_frostbite_counts.par -- \
+    --samples=<SAMPLES_PATH> \
+    --output_path=<OUTPUT_PATH> \
+    --season_year_start=2011 \
+    --season_year_end=2020
+```
+
+"""
+
+import functools
+
+from absl import app
+from absl import flags
+import apache_beam as beam
+import numpy as np
+import pandas as pd
+from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.eval import utils as eval_utils
+from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipelines import utils as pipeline_utils
+import xarray as xr
+import xarray_beam as xbeam
+
+Variable = pipeline_utils.DatasetVariable
+
+# Flags.
+SAMPLES = flags.DEFINE_string("samples", None, help="Sample dataset Zarr path.")
+REFERENCE = flags.DEFINE_string(
+    "reference", None, help="Reference dataset Zarr path."
+)
+OUTPUT_PATH = flags.DEFINE_string("output_path", None, help="Output Zarr path.")
+THRESHOLDS = flags.DEFINE_list(
+    "thresholds",
+    [
+        "246.15",
+    ],
+    help="Thresholds (K) for frostbite counts.",
+)
+LENGTHS = flags.DEFINE_list(
+    "lengths",
+    ["1", "3", "5", "7"],
+    help="Number of days of sustained daily mins that can induce frostbite.",
+)
+RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
+SEASON_YEAR_START = flags.DEFINE_integer(
+    "season_year_start", 2001, help="Starting season year for evaluation."
+)
+SEASON_YEAR_END = flags.DEFINE_integer(
+    "season_year_end", 2010, help="Ending season year for evaluation."
+)
+
+MONTHS = flags.DEFINE_list(
+    "months",
+    ["12", "1", "2"],
+    help=(
+        "Winter season months for evaluation. Winter seasons are considered "
+        "periods starting after September and ending before August."
+    ),
+)
+
+DTYPE = np.int16
+
+
+SAMPLE_VARIABLES = [
+    Variable("2m_temperature", None, "2mT"),
+    Variable("10m_magnitude_of_wind", None, "10mW"),
+]
+
+
+def _count_below_threshold(
+    x: np.ndarray, thresholds: list[float], lengths: list[int]
+):
+  """Counts instances below a threshold on a single continuous time series."""
+  count = np.zeros((len(thresholds), len(lengths)))
+  for i, thres in enumerate(thresholds):
+    below_threshold = x <= thres
+    for j, length in enumerate(lengths):
+      assert length < len(x)
+      streaks = 0
+      k = 0
+      while k <= len(below_threshold) - length:
+        if all(below_threshold[k : k + length]):
+          streaks += 1
+          k += length
+        else:
+          k += 1
+      count[i, j] = streaks
+  return count
+
+
+def count_frostbite_advisories(
+    key: xbeam.Key,
+    ds: xr.Dataset,
+    *,
+    thresholds: list[float],
+    lengths: list[int],
+):
+  """Counts frostbite advisories on a single pixel chunk."""
+  assert len(ds.member) == len(ds.longitude) == len(ds.latitude) == 1
+
+  # Create a template for the season_year_time daily coordinate.
+  time_template = _to_winter_season_years(ds.time.resample(time="D").min())
+
+  ds = _to_winter_season_years(ds)
+
+  count = np.zeros((len(thresholds), len(lengths)))
+  for year in np.unique(ds.season_year_time.dt.year):
+
+    t2m = ds["2mT"].sel(
+        season_year_time=ds.season_year_time.dt.year.isin([year]), drop=True
+    )
+    w10m = ds["10mW"].sel(
+        season_year_time=ds.season_year_time.dt.year.isin([year]), drop=True
+    )
+    wind_chill_temp = eval_utils.wind_chill_temperature(t2m, w10m)
+    # Resample to daily min, requires monotonic coordinate.
+    wind_chill_temp = wind_chill_temp.sortby("season_year_time")
+    ds_min = wind_chill_temp.resample(season_year_time="D").min(skipna=True)
+
+    # Recover seasonal ordering.
+    season_year_template = time_template.sel(
+        season_year_time=time_template.season_year_time.dt.year.isin([year]),
+        drop=True,
+    )
+    ds_min = ds_min.reindex_like(season_year_template)
+
+    ds_min = ds_min.where(
+        ds_min.season_year_time.isin(ds.season_year_time.values), drop=True
+    )
+    ts_min = ds_min.to_numpy()
+    assert ts_min.ndim == 4  # (member, season_year_time, lon, lat)
+    ts_min = np.squeeze(ts_min)
+    assert ts_min.ndim == 1
+    count += _count_below_threshold(ts_min, thresholds, lengths)
+
+  count = count[np.newaxis, np.newaxis, np.newaxis, :]
+  count_da = xr.DataArray(
+      data=count.astype(DTYPE),
+      dims=("member", "longitude", "latitude", "thresholds", "lengths"),
+      coords={
+          "member": ds.coords["member"].values,
+          "longitude": ds.coords["longitude"].values,
+          "latitude": ds.coords["latitude"].values,
+          "thresholds": np.asarray(thresholds),
+          "lengths": np.asarray(lengths),
+      },
+  )
+  count_ds = xr.Dataset({"frostbite_counts": count_da})
+
+  new_key = key.with_offsets(time=None, thresholds=0, lengths=0)
+  return new_key, count_ds
+
+
+def _to_winter_season_years(ds: xr.Dataset):
+  """Shifts the time coordinate to yield consecutive winter seasons.
+
+  We define winter season loosely as any period that starts after
+  August and ends before August, accomodating for extended winter
+  season definitions.
+
+  We only retain up to the last full winter season in the input dataset. For
+  example, if the input dataset contains data up to December 2024, we will only
+  retain the 2023 winter season, dropping months on or after August 2024.
+
+  Args:
+    ds: The input dataset.
+
+  Returns:
+    The input dataset with the new season_year_time coordinate.
+  """
+  current_times = ds["time"].values
+
+  # Create the "season_year_time" coordinate corresponding to season.
+  # If month is Jan (1), Feb (2), etc, subtract 1 from the year.
+  # If month is Dec (11), Dec (12), etc, keep the year.
+  season_year_times = [
+      t - pd.DateOffset(years=1) if t.month < 8 else t
+      for t in pd.to_datetime(current_times)
+  ]
+
+  # Keep data up to the last full winter season.
+  season_years = np.unique(ds.time.dt.year)[:-1]
+
+  ds = ds.assign_coords(season_year_time=("time", season_year_times))
+  ds = ds.swap_dims({"time": "season_year_time"})
+
+  season_mask = ds.season_year_time.dt.year.isin(season_years)
+  return ds.sel(season_year_time=season_mask, drop=True)
+
+
+def main(argv):
+
+  # Include next year to get January, February, ... of last season.
+  years = list(range(SEASON_YEAR_START.value, SEASON_YEAR_END.value + 2))
+  months = [int(m) for m in MONTHS.value]
+  thresholds = [float(t) for t in THRESHOLDS.value]
+  lengths = [int(l) for l in LENGTHS.value]
+
+  sample_ds = xr.open_zarr(SAMPLES.value, consolidated=True)
+  sample_ds = eval_utils.select_time(sample_ds, years, months)
+
+  for var in SAMPLE_VARIABLES:
+    if var.rename not in sample_ds:
+      raise ValueError(
+          f"Variable {var.rename} expected but not found in sample dataset."
+      )
+
+  # If a reference path is provided, the script will compute statistics on
+  # the reference dataset instead of the inference dataset.
+  if REFERENCE.value is not None:
+    sample_ds = eval_utils.get_reference_ds(
+        REFERENCE.value, SAMPLE_VARIABLES, sample_ds
+    )
+    sample_ds = eval_utils.select_time(sample_ds, years, months)
+
+  in_chunks = {
+      "time": -1,
+      "member": -1,
+      "longitude": 1,
+      "latitude": 1,
+  }
+  working_chunks_in = {
+      "time": -1,
+      "member": 1,
+      "longitude": 1,
+      "latitude": 1,
+  }
+  working_chunks_out = {
+      "member": 1,
+      "longitude": 1,
+      "latitude": 1,
+      "thresholds": -1,
+      "lengths": -1,
+  }
+  target_chunks = {
+      "member": -1,
+      "longitude": -1,
+      "latitude": -1,
+      "thresholds": 1,
+      "lengths": 1,
+  }
+
+  out_sizes = dict(sample_ds.sizes)
+  out_sizes.update({
+      "thresholds": len(thresholds),
+      "lengths": len(lengths),
+  })
+  del out_sizes["time"]
+
+  # Create template.
+  template_ds = xr.Dataset(
+      data_vars={
+          "frostbite_counts": (
+              ["member", "longitude", "latitude", "thresholds", "lengths"],
+              np.empty(
+                  (
+                      sample_ds.sizes["member"],
+                      sample_ds.sizes["longitude"],
+                      sample_ds.sizes["latitude"],
+                      len(thresholds),
+                      len(lengths),
+                  ),
+                  dtype=DTYPE,
+              ),
+              {
+                  "units": (
+                      "count"
+                      f" ({SEASON_YEAR_START.value}-{SEASON_YEAR_END.value})"
+                  ),
+                  "long_name": (
+                      "Frostbite counts from daily min wind-chill temperature"
+                      f" in the months {months[0]}-{months[-1]},"
+                      f" ({SEASON_YEAR_START.value}-{SEASON_YEAR_END.value})"
+                  ),
+              },
+          )
+      },
+      coords={
+          "member": sample_ds["member"].values,
+          "longitude": sample_ds["longitude"].values,
+          "latitude": sample_ds["latitude"].values,
+          "thresholds": np.asarray(thresholds),
+          "lengths": np.asarray(lengths),
+      },
+  )
+  template = xbeam.make_template(template_ds)
+
+  with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
+    _ = (
+        root
+        | xbeam.DatasetToChunks(sample_ds, in_chunks, num_threads=16)
+        | xbeam.SplitChunks(working_chunks_in)
+        | beam.MapTuple(
+            functools.partial(
+                count_frostbite_advisories,
+                thresholds=thresholds,
+                lengths=lengths,
+            )
+        )
+        | xbeam.Rechunk(
+            dim_sizes=out_sizes,
+            source_chunks=working_chunks_out,
+            target_chunks=target_chunks,
+            itemsize=np.dtype(DTYPE).itemsize,
+            max_mem=2**29,  # 512MB
+        )
+        | xbeam.ChunksToZarr(
+            OUTPUT_PATH.value,
+            template=template,
+            zarr_chunks=target_chunks,
+            num_threads=16,
+        )
+    )
+
+
+if __name__ == "__main__":
+  app.run(main)
