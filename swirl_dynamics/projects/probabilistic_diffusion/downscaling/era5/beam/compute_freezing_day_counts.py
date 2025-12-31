@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Compute frostbite counts (Northern Hemisphere winter) for every pixel.
+r"""Compute freezing day counts (Northern Hemisphere winter) for every pixel.
 
 Computes the number of consecutive periods of N days with daily min
-wind-chill temperature below a certain threshold. The default threshold is
-246.15 K, which is the wind-chill temperature at which frostbite can occur.
+2 m temperature below a certain threshold. The default thresholds are
+0 Celsius (32 Farenheit) and -2.22 Celsius (28 Farenheit), which are the freeze
+and hard freeze thresholds respectively.
 
 The start and end years represent the first and last "season years" considered.
 A season year is defined as the year when the Northern Hemisphere winter season
@@ -25,7 +26,7 @@ starts. Therefore, the 2011 winter seasons is December 2011 to February 2012.
 Example usage:
 
 ```
-python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam:compute_frostbite_counts.par -- \
+python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam:compute_freezing_day_counts.par -- \
     --samples=<SAMPLES_PATH> \
     --output_path=<OUTPUT_PATH> \
     --season_year_start=2011 \
@@ -56,14 +57,15 @@ OUTPUT_PATH = flags.DEFINE_string("output_path", None, help="Output Zarr path.")
 THRESHOLDS = flags.DEFINE_list(
     "thresholds",
     [
-        "246.15",
+        "270.298",
+        "273.15",
     ],
-    help="Thresholds (K) for frostbite counts.",
+    help="Thresholds (K) for freezing day counts.",
 )
 LENGTHS = flags.DEFINE_list(
     "lengths",
     ["1", "3", "5", "7"],
-    help="Number of days of sustained daily mins that can induce frostbite.",
+    help="Number of days of sustained daily mins that can induce freezing.",
 )
 RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
 SEASON_YEAR_START = flags.DEFINE_integer(
@@ -87,18 +89,17 @@ DTYPE = np.int16
 
 SAMPLE_VARIABLES = [
     Variable("2m_temperature", None, "2mT"),
-    Variable("10m_magnitude_of_wind", None, "10mW"),
 ]
 
 
-def count_frostbite_advisories(
+def count_freeze_advisories(
     key: xbeam.Key,
     ds: xr.Dataset,
     *,
     thresholds: list[float],
     lengths: list[int],
 ):
-  """Counts frostbite advisories on a single pixel chunk."""
+  """Counts freeze advisories on a single pixel chunk."""
   assert len(ds.member) == len(ds.longitude) == len(ds.latitude) == 1
 
   # Create a template for the season_year_time daily coordinate.
@@ -114,13 +115,9 @@ def count_frostbite_advisories(
     t2m = ds["2mT"].sel(
         season_year_time=ds.season_year_time.dt.year.isin([year]), drop=True
     )
-    w10m = ds["10mW"].sel(
-        season_year_time=ds.season_year_time.dt.year.isin([year]), drop=True
-    )
-    wind_chill_temp = eval_utils.wind_chill_temperature(t2m, w10m)
     # Resample to daily min, requires monotonic coordinate.
-    wind_chill_temp = wind_chill_temp.sortby("season_year_time")
-    ds_min = wind_chill_temp.resample(season_year_time="D").min(skipna=True)
+    t2m = t2m.sortby("season_year_time")
+    ds_min = t2m.resample(season_year_time="D").min(skipna=True)
 
     # Recover seasonal ordering.
     season_year_template = time_template.sel(
@@ -150,7 +147,7 @@ def count_frostbite_advisories(
           "lengths": np.asarray(lengths),
       },
   )
-  count_ds = xr.Dataset({"frostbite_counts": count_da})
+  count_ds = xr.Dataset({"freeze_day_counts": count_da})
 
   new_key = key.with_offsets(time=None, thresholds=0, lengths=0)
   return new_key, count_ds
@@ -218,7 +215,7 @@ def main(argv):
   # Create template.
   template_ds = xr.Dataset(
       data_vars={
-          "frostbite_counts": (
+          "freeze_day_counts": (
               ["member", "longitude", "latitude", "thresholds", "lengths"],
               np.empty(
                   (
@@ -236,7 +233,7 @@ def main(argv):
                       f" ({SEASON_YEAR_START.value}-{SEASON_YEAR_END.value})"
                   ),
                   "long_name": (
-                      "Frostbite counts from daily min wind-chill temperature"
+                      "Freeze day counts from daily min 2 m temperature"
                       f" in the months {months[0]}-{months[-1]},"
                       f" ({SEASON_YEAR_START.value}-{SEASON_YEAR_END.value})"
                   ),
@@ -260,7 +257,7 @@ def main(argv):
         | xbeam.SplitChunks(working_chunks_in)
         | beam.MapTuple(
             functools.partial(
-                count_frostbite_advisories,
+                count_freeze_advisories,
                 thresholds=thresholds,
                 lengths=lengths,
             )

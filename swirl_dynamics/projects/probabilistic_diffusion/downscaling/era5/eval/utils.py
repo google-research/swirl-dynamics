@@ -24,6 +24,7 @@ from etils import epath
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 from scipy import optimize
 import seaborn as sns
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipelines import utils as pipeline_utils
@@ -111,6 +112,77 @@ def select_time(
 ) -> xr.Dataset:
   mask = ds.time.dt.year.isin(years) & ds.time.dt.month.isin(months)
   return ds.sel(time=mask, drop=True)
+
+
+def count_below_threshold(
+    x: np.ndarray, thresholds: list[float], lengths: list[int]
+) -> np.ndarray:
+  """Counts sequences below a threshold on a single continuous time series.
+
+  Args:
+    x: The input time series.
+    thresholds: The thresholds below which sequences are considered.
+    lengths: The length of sequences below thresholds considered.
+
+  Returns:
+    The count of sequences of given lengths observed to have values
+      below the given thresholds.
+  """
+  count = np.zeros((len(thresholds), len(lengths)))
+  for i, thres in enumerate(thresholds):
+    below_threshold = x <= thres
+    for j, length in enumerate(lengths):
+      assert length < len(x)
+      streaks = 0
+      k = 0
+      while k <= len(below_threshold) - length:
+        if all(below_threshold[k : k + length]):
+          streaks += 1
+          k += length
+        else:
+          k += 1
+      count[i, j] = streaks
+  return count
+
+
+def to_winter_season_years(ds: xr.Dataset, earliest_winter_month: int = 8):
+  """Shifts the time coordinate to yield consecutive winter seasons.
+
+  We define winter season loosely as any period that starts after
+  `earliest_winter_month` and ends before it, accomodating for extended winter
+  season definitions.
+
+  We only retain up to the last full winter season in the input dataset. For
+  example, if the input dataset contains data up to December 2024 and the
+  earliest winter month is 8, we will only  retain the 2023 winter season,
+  dropping months on or after August 2024.
+
+  Args:
+    ds: The input dataset.
+    earliest_winter_month: The earliest month of the winter season. The actual
+      winter season can start later.
+
+  Returns:
+    The input dataset with the new season_year_time coordinate.
+  """
+  current_times = ds["time"].values
+
+  # Create the "season_year_time" coordinate corresponding to season.
+  # If month is Jan (1), Feb (2), etc, subtract 1 from the year.
+  # If month is Dec (11), Dec (12), etc, keep the year.
+  season_year_times = [
+      t - pd.DateOffset(years=1) if t.month < earliest_winter_month else t
+      for t in pd.to_datetime(current_times)
+  ]
+
+  # Keep data up to the last full winter season.
+  season_years = np.unique(ds.time.dt.year)[:-1]
+
+  ds = ds.assign_coords(season_year_time=("time", season_year_times))
+  ds = ds.swap_dims({"time": "season_year_time"})
+
+  season_mask = ds.season_year_time.dt.year.isin(season_years)
+  return ds.sel(season_year_time=season_mask, drop=True)
 
 
 # **********************
