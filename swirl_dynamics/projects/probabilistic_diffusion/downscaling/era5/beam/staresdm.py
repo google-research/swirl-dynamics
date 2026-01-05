@@ -527,16 +527,11 @@ def main(argv: list[str]) -> None:
       method='nearest',  # Just a template; method does not matter.
   )
   # Increase time resolution.
-  template_start = template.time.values[0]
-  template_end = template.time.values[-1] + np.timedelta64(1, 'D')
-  new_time = np.arange(
-      template_start, template_end, np.timedelta64(HOUR_RESOLUTION.value, 'h')
-  )
+  offsets = np.arange(24, step=HOUR_RESOLUTION.value, dtype='timedelta64[h]')
+  new_time = template.time.values[:, np.newaxis] + offsets
+  new_time = new_time.flatten()
   template = template.reindex(time=new_time, method='ffill')
-  template = template.sel(
-      time=template.time.dt.month.isin([int(m) for m in SELECT_MONTHS.value]),
-      drop=True,
-  )
+
   template = template.rename(_OUTPUT_RENAME)
   # Update member coordinates.
   source_members = source_dataset.member.values
