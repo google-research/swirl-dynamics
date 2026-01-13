@@ -72,7 +72,6 @@ SEASON_YEAR_START = flags.DEFINE_integer(
 SEASON_YEAR_END = flags.DEFINE_integer(
     "season_year_end", 2010, help="Ending season year for evaluation."
 )
-
 MONTHS = flags.DEFINE_list(
     "months",
     ["12", "1", "2"],
@@ -80,6 +79,9 @@ MONTHS = flags.DEFINE_list(
         "Winter season months for evaluation. Winter seasons are considered "
         "periods starting after September and ending before August."
     ),
+)
+NUM_THREADS = flags.DEFINE_integer(
+    "num_threads", None, help="Number of threads per worker for Flume."
 )
 
 DTYPE = np.int16
@@ -167,11 +169,13 @@ def main(argv):
   sample_ds = xr.open_zarr(SAMPLES.value, consolidated=True)
   sample_ds = eval_utils.select_time(sample_ds, years, months)
 
-  for var in SAMPLE_VARIABLES:
-    if var.rename not in sample_ds:
+  sample_vars = [var.rename for var in SAMPLE_VARIABLES]
+  for var in sample_vars:
+    if var not in sample_ds:
       raise ValueError(
-          f"Variable {var.rename} expected but not found in sample dataset."
+          f"Variable {var} expected but not found in sample dataset."
       )
+  sample_ds = sample_ds[sample_vars]
 
   # If a reference path is provided, the script will compute statistics on
   # the reference dataset instead of the inference dataset.
@@ -256,7 +260,9 @@ def main(argv):
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     _ = (
         root
-        | xbeam.DatasetToChunks(sample_ds, in_chunks, num_threads=16)
+        | xbeam.DatasetToChunks(
+            sample_ds, in_chunks, num_threads=NUM_THREADS.value
+        )
         | xbeam.SplitChunks(working_chunks_in)
         | beam.MapTuple(
             functools.partial(
@@ -276,7 +282,7 @@ def main(argv):
             OUTPUT_PATH.value,
             template=template,
             zarr_chunks=target_chunks,
-            num_threads=16,
+            num_threads=NUM_THREADS.value,
         )
     )
 
