@@ -169,9 +169,10 @@ def main(argv):
 
   sample_vars = [var.rename for var in SAMPLE_VARIABLES]
   for var in sample_vars:
-    raise ValueError(
-        f"Variable {var} expected but not found in sample dataset."
-    )
+    if var not in sample_ds:
+      raise ValueError(
+          f"Variable {var} expected but not found in sample dataset."
+      )
   sample_ds = sample_ds[sample_vars]
 
   # If a reference path is provided, the script will compute statistics on
