@@ -321,7 +321,7 @@ class TrajectorySamplerParallel:
 
   def post_process_batch(self, state: jax.Array) -> dict[str, np.ndarray]:
     """Post-processes the final diffusion state."""
-    state = multihost_utils.process_allgather(state)
+    state = multihost_utils.process_allgather(state, tiled=True)
 
     # Remove overlaps and concatenate.
     state = jnp.reshape(
