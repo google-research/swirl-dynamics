@@ -222,6 +222,12 @@ NUM_DAYS_PER_CHUNK = flags.DEFINE_integer(
     30,
     help='Number of days to include in each chunk.',
 )
+OUT_LON_CONVENTION = flags.DEFINE_enum(
+    'out_lon_convention',
+    'positive',
+    ['positive', 'west_east'],
+    help='The convention for the longitude in the output.',
+)
 RUNNER = flags.DEFINE_string('runner', None, 'beam.runners.Runner')
 
 
@@ -452,15 +458,37 @@ def main(argv: list[str]) -> None:
   source_dataset, source_chunks = xbeam.open_zarr(INPUT_DATA.value)
   source_dataset = _impose_data_selection(source_dataset)
 
+  # Enforce longitude convention for the output.
+  if OUT_LON_CONVENTION.value == 'west_east':
+    convert_lon_fn = beam_utils.positive_lon_to_westeast
+  elif OUT_LON_CONVENTION.value == 'positive':
+    convert_lon_fn = beam_utils.westeast_to_positive_lon
+  else:
+    raise ValueError(
+        f'Unknown longitude convention: {OUT_LON_CONVENTION.value}'
+    )
+  source_dataset = source_dataset.assign_coords(
+      longitude=convert_lon_fn(source_dataset.longitude)
+  ).sortby('longitude')
+
   input_clim = _select_rename(
       xr.open_zarr(INPUT_DETRENDED_CLIM.value), lens_vars, clim_dict
   )
+  input_clim = input_clim.assign_coords(
+      longitude=convert_lon_fn(input_clim.longitude)
+  ).sortby('longitude')
   input_dynamic_clim = _select_rename(
       xr.open_zarr(INPUT_DETRENDED_DYNAMIC_CLIM.value), lens_vars, clim_dict
   )
+  input_dynamic_clim = input_dynamic_clim.assign_coords(
+      longitude=convert_lon_fn(input_dynamic_clim.longitude)
+  ).sortby('longitude')
   input_temporal_mean = _select_rename(
       xr.open_zarr(INPUT_TEMPORAL_MEAN.value), lens_vars, clim_dict
   )
+  input_temporal_mean = input_temporal_mean.assign_coords(
+      longitude=convert_lon_fn(input_temporal_mean.longitude)
+  ).sortby('longitude')
 
   lens_trends = [v + '_polyfit_coefficients' for v in _LENS_TO_ERA.keys()]
   trend_dict = {
@@ -470,13 +498,22 @@ def main(argv: list[str]) -> None:
   input_trend = _select_rename(
       xr.open_zarr(INPUT_TREND.value), lens_trends, trend_dict
   )
+  input_trend = input_trend.assign_coords(
+      longitude=convert_lon_fn(input_trend.longitude)
+  ).sortby('longitude')
 
   target_clim = xr.Dataset(
       xr.open_zarr(TARGET_DETRENDED_CLIM.value).get(era_vars)
   )
+  target_clim = target_clim.assign_coords(
+      longitude=convert_lon_fn(target_clim.longitude)
+  ).sortby('longitude')
   target_temporal_mean = xr.Dataset(
       xr.open_zarr(TARGET_TEMPORAL_MEAN.value).get(era_vars)
   )
+  target_temporal_mean = target_temporal_mean.assign_coords(
+      longitude=convert_lon_fn(target_temporal_mean.longitude)
+  ).sortby('longitude')
 
   hist_ref = xr.open_zarr(HIST_REF.value).get(list(_LENS_TO_ERA.values()))
   hist_ref = hist_ref.sel(
@@ -485,6 +522,9 @@ def main(argv: list[str]) -> None:
   hist_ref = hist_ref.isel(
       time=slice(None, None, HOUR_RESOLUTION.value), drop=True
   )
+  hist_ref = hist_ref.assign_coords(
+      longitude=convert_lon_fn(hist_ref.longitude)
+  ).sortby('longitude')
 
   source_chunks = {k: source_chunks[k] for k in source_chunks if k != 'level'}
   logging.info('source_chunks: %s', source_chunks)

@@ -16,6 +16,7 @@
 
 import typing
 
+import numpy as np
 import xarray as xr
 
 
@@ -65,3 +66,17 @@ def get_climatology_std(
       clim_std_dict
   )
   return typing.cast(xr.Dataset, climatology_std.sel(**sel_kwargs).compute())
+
+
+def positive_lon_to_westeast(
+    lon: np.ndarray | xr.DataArray,
+) -> np.ndarray | xr.DataArray:
+  """Converts longitudes from [0, 360] to [-180, 180]."""
+  return xr.where(lon > 180, lon - 360, lon)
+
+
+def westeast_to_positive_lon(
+    lon: np.ndarray | xr.DataArray,
+) -> np.ndarray | xr.DataArray:
+  """Converts longitudes from [-180, 180] to [0, 360]."""
+  return xr.where(lon < 0, lon + 360, lon)

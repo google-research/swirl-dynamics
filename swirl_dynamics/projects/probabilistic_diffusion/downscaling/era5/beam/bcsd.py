@@ -62,13 +62,13 @@ sample.
 """
 
 import functools
-import typing
 
 from absl import app
 from absl import flags
 from absl import logging
 import apache_beam as beam
 import numpy as np
+from swirl_dynamics.projects.probabilistic_diffusion.downscaling.gcm_wrf import beam_utils
 import xarray as xr
 import xarray_beam as xbeam
 
@@ -175,56 +175,13 @@ TIME_STOP = flags.DEFINE_string(
     None,
     help='ISO 8601 timestamp (inclusive) at which to stop evaluation',
 )
+OUT_LON_CONVENTION = flags.DEFINE_enum(
+    'out_lon_convention',
+    'positive',
+    ['positive', 'west_east'],
+    help='The convention for the longitude in the output.',
+)
 RUNNER = flags.DEFINE_string('runner', None, 'beam.runners.Runner')
-
-
-def _get_climatology_mean(
-    climatology: xr.Dataset, variables: list[str], **sel_kwargs
-) -> xr.Dataset:
-  """Returns the climatological mean of the given variables.
-
-  The climatology dataset is assumed to have been produced through
-  the weatherbench2 compute_climatology.py script, and statistics
-  `mean`, and `std`. The convention is that the climatological means do not
-  have a suffix, and standard deviations have a `_std` suffix.
-
-  Args:
-    climatology: The climatology dataset.
-    variables: The variables to extract from the climatology.
-    **sel_kwargs: Additional selection criteria for the variables.
-
-  Returns:
-    The climatological mean of the given variables.
-  """
-  # try:
-  climatology_mean = climatology[variables]
-  return typing.cast(xr.Dataset, climatology_mean.sel(**sel_kwargs).compute())
-
-
-def _get_climatology_std(
-    climatology: xr.Dataset, variables: list[str], **sel_kwargs
-) -> xr.Dataset:
-  """Returns the climatological standard deviation of the given variables.
-
-  The climatology dataset is assumed to have been produced through
-  the weatherbench2 compute_climatology.py script, and statistics
-  `mean`, and `std`. The convention is that the climatological means do not
-  have a suffix, and standard deviations have a `_std` suffix.
-
-  Args:
-    climatology: The climatology dataset.
-    variables: The variables to extract from the climatology.
-    **sel_kwargs: Additional selection criteria for the variables.
-
-  Returns:
-    The climatological standard deviation of the given variables.
-  """
-  clim_std_dict = {key + '_std': key for key in variables}  # pytype: disable=unsupported-operands
-  # try:
-  climatology_std = climatology[list(clim_std_dict.keys())].rename(
-      clim_std_dict
-  )
-  return typing.cast(xr.Dataset, climatology_std.sel(**sel_kwargs).compute())
 
 
 def _bcsd_on_chunks(
@@ -258,14 +215,16 @@ def _bcsd_on_chunks(
   )
   variables = [str(key) for key in source.keys()]
   if method == 'gaussian':
-    clim_mean = _get_climatology_mean(original_clim, variables, **sel)
-    clim_std = _get_climatology_std(original_clim, variables, **sel)
+    clim_mean = beam_utils.get_climatology_mean(original_clim, variables, **sel)
+    clim_std = beam_utils.get_climatology_std(original_clim, variables, **sel)
 
     # Standardize with respect to the original climatology.
     source_standard = (source - clim_mean) / clim_std
 
     # Get value of the same quantile in the filtered climatology, keep anom.
-    filtered_clim_std = _get_climatology_std(filtered_clim, variables, **sel)
+    filtered_clim_std = beam_utils.get_climatology_std(
+        filtered_clim, variables, **sel
+    )
     source_bc_anom = source_standard * filtered_clim_std
 
     # Interpolate anomaly to target grid.
@@ -276,12 +235,14 @@ def _bcsd_on_chunks(
     )
 
     # Add anom to the mean of the unfiltered climatology.
-    target_clim_mean = _get_climatology_mean(target_clim, variables, **sel)
+    target_clim_mean = beam_utils.get_climatology_mean(
+        target_clim, variables, **sel
+    )
     source_bcsd = target_clim_mean + source_bc_anom_interp
 
     # Use multiplicative correction for precipitation variables
     if MULTIPLICATIVE_VARS.value:
-      filtered_clim_mean = _get_climatology_mean(
+      filtered_clim_mean = beam_utils.get_climatology_mean(
           filtered_clim, MULTIPLICATIVE_VARS.value, **sel
       )
       for var in MULTIPLICATIVE_VARS.value:
@@ -401,21 +362,47 @@ def main(argv: list[str]) -> None:
   source_dataset, source_chunks = xbeam.open_zarr(INPUT_DATA.value)
   source_dataset = _impose_data_selection(source_dataset)
 
+  # Enforce longitude convention for the output.
+  if OUT_LON_CONVENTION.value == 'west_east':
+    convert_lon_fn = beam_utils.positive_lon_to_westeast
+  elif OUT_LON_CONVENTION.value == 'positive':
+    convert_lon_fn = beam_utils.westeast_to_positive_lon
+  else:
+    raise ValueError(
+        f'Unknown longitude convention: {OUT_LON_CONVENTION.value}'
+    )
+  source_dataset = source_dataset.assign_coords(
+      longitude=convert_lon_fn(source_dataset.longitude)
+  ).sortby('longitude')
+
   original_clim = xr.Dataset(
       xr.open_zarr(INPUT_DATA_CLIM.value).get(lens_vars)
   ).rename(clim_dict)
+  original_clim = original_clim.assign_coords(
+      longitude=convert_lon_fn(original_clim.longitude)
+  ).sortby('longitude')
 
   filtered_clim = xr.Dataset(
       xr.open_zarr(FILTERED_TARGET_CLIM.value).get(era_vars)
   )
+  filtered_clim = filtered_clim.assign_coords(
+      longitude=convert_lon_fn(filtered_clim.longitude)
+  ).sortby('longitude')
+
   if 'level' in filtered_clim.dims:
     filtered_clim = filtered_clim.sel(level=1000, drop=True)
 
   target_clim = xr.Dataset(xr.open_zarr(TARGET_CLIM.value).get(era_vars))
+  target_clim = target_clim.assign_coords(
+      longitude=convert_lon_fn(target_clim.longitude)
+  ).sortby('longitude')
   if 'level' in target_clim.dims:
     target_clim = target_clim.sel(level=1000, drop=True)
 
   hist_ref = xr.open_zarr(HIST_REF.value).get(list(_LENS_TO_ERA.values()))
+  hist_ref = hist_ref.assign_coords(
+      longitude=convert_lon_fn(hist_ref.longitude)
+  ).sortby('longitude')
   if 'level' in hist_ref.dims:
     hist_ref = hist_ref.sel(level=1000, drop=True)
   hist_ref = hist_ref.sel(
