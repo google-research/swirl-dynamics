@@ -201,7 +201,10 @@ class DummyModel(trainers.models.BaseModel):
   def loss_fn(self, params, batch, rng, flax_mutables):
     del batch, rng
     new_mutables = {"m": flax_mutables["m"] + 1.0}
-    return jnp.sum(params["w"] ** 2), ({"loss": 0.1}, new_mutables)
+    return jnp.sum(params["w"] ** 2), (
+        {"loss": 0.1},
+        flax.core.freeze(new_mutables),
+    )
 
   def eval_fn(self, variables, batch, rng):
     return {}
@@ -262,19 +265,19 @@ class InitializeFromCheckpointTest(parameterized.TestCase):
     self.assertEqual(trainer.train_state.int_step, 0)
     jax.tree.map(
         np.testing.assert_array_equal,
-        trainer.unreplicated_train_state.opt_state,
+        trainer.train_state.opt_state,
         original_state.opt_state,
     )
 
     # Params and mutables SHOULD be restored from ckpt_state
     jax.tree.map(
         np.testing.assert_array_equal,
-        trainer.unreplicated_train_state.params,
+        trainer.train_state.params,
         ckpt_state.params,
     )
     jax.tree.map(
         np.testing.assert_array_equal,
-        trainer.unreplicated_train_state.flax_mutables,
+        trainer.train_state.flax_mutables,
         ckpt_state.flax_mutables,
     )
 
@@ -290,11 +293,24 @@ class InitializeFromCheckpointTest(parameterized.TestCase):
           batch, current_step, preproc_rng
       )
 
-      if trainer.is_distributed:
-        step_rng = jax.random.split(step_rng, jax.local_device_count())
+      if isinstance(trainer, trainers.BasicDistributedTrainer):
+        train_metrics = jax.device_put(
+            jax.tree.map(
+                lambda x: jnp.broadcast_to(x, (jax.device_count(),) + x.shape),
+                trainer.TrainMetrics.empty(),
+            ),
+            jax.sharding.NamedSharding(
+                trainer.mesh, jax.sharding.PartitionSpec(trainer.batch_axis)
+            ),
+        )
+      else:
+        train_metrics = trainer.TrainMetrics.empty()
 
       trainer.train_state, _ = trainer._compiled_train_step(
-          trainer.train_state, processed_batch, step_rng
+          step_rng,
+          trainer.train_state,
+          processed_batch,
+          train_metrics,
       )
     return trainer
 
@@ -309,11 +325,11 @@ class InitializeFromCheckpointTest(parameterized.TestCase):
     # Create and save source checkpoint
     src_trainer = self._create_trainer(src_distributed, rng_key=0)
     ckpt_dir = self._save_checkpoint(src_trainer, work_dir, ckpt_step)
-    ckpt_state = src_trainer.unreplicated_train_state
+    ckpt_state = src_trainer.train_state
 
     # Create target trainer
     tgt_trainer = self._create_trainer(tgt_distributed, rng_key=1)
-    original_tgt_state = tgt_trainer.unreplicated_train_state
+    original_tgt_state = tgt_trainer.train_state
 
     # Initialize from checkpoint
     restore_callback = callbacks.InitializeFromCheckpoint(
