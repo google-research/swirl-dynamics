@@ -150,7 +150,7 @@ class ArrayDataSource(pygrain.RandomAccessDataSource):
 
 
 # TODO: Move this method to swirl_dynamics.data.utils
-def generate_data_from_known_dynamcics(
+def generate_data_from_known_dynamics(
     integrator: ode.ScanOdeSolver,
     dynamics: DynamicsFn,
     num_steps: int,
@@ -158,7 +158,7 @@ def generate_data_from_known_dynamcics(
     warmup: int,
     x0: Array,
 ) -> Array:
-  """Generates data from known dynamcics for on-the-fly ground truth batches."""
+  """Generates data from known dynamics for on-the-fly ground truth batches."""
   num_steps += warmup
   tspan = jnp.arange(num_steps) * dt
   return integrator(dynamics, x0, tspan, {})[warmup:]
@@ -194,7 +194,8 @@ def create_loader_from_hdf5_reshaped(
     seed: Random seed to be used in data sampling.
     split: Data split - train, eval, test, or None.
     spatial_downsample_factor: reduce spatial resolution by factor of x.
-    normalize: Flag for adding data normalization (subtact mean divide by std.).
+    normalize: Flag for adding data normalization (subtract mean divide by
+      std.).
     normalize_stats: Dictionary with mean and std stats to avoid recomputing.
     tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
     tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
@@ -319,7 +320,8 @@ def create_loader_from_hdf5(
     seed: Random seed to be used in data sampling.
     split: Data split - train, eval, test, or None.
     spatial_downsample_factor: reduce spatial resolution by factor of x.
-    normalize: Flag for adding data normalization (subtact mean divide by std.).
+    normalize: Flag for adding data normalization (subtract mean divide by
+      std.).
     normalize_stats: Dictionary with mean and std stats to avoid recomputing.
     tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
     tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
@@ -419,9 +421,9 @@ def create_loader_from_tfds(
     tf_lookup_num_parallel_calls: int = -1,
     tf_interleaved_shuffle: bool = False,
 ) -> tuple[tfgrain.TfDataLoader, dict[str, Array | None]]:
-  """Load pre-computed trajectories dumped to hdf5 file.
+  """Load trajectories from TFDS.
 
-  This loader has fewer options that the one from hdf5, in particular, it has
+  This loader has fewer options than the one from hdf5, in particular, it has
   no normalization. TODO: Add normalization.
 
   Arguments:
@@ -431,8 +433,9 @@ def create_loader_from_tfds(
     seed: Random seed to be used in data sampling.
     dataset_path: Absolute path to dataset tfds folder.
     dataset_name: Name of the dataset.
-    split: Data split choosen from train, eval, test, or None.
-    normalize: Flag for adding data normalization (subtact mean, divide by std).
+    split: Data split chosen from train, eval, test, or None.
+    normalize: Flag for adding data normalization (subtract mean, divide by
+      std).
     tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
     tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
       dataset. -1 is set to let grain optimize tha number of calls.
@@ -616,9 +619,8 @@ def sample_uniform_spherical_shell(
   # Obtain the correct axis for the sum, depending on the shape.
   # Here we suppose that shape comes in the form (nx, ny, d) or (nx, d).
   assert len(shape) < 4 and len(shape) >= 2, (
-      "The shape should represent ",
-      "one- or two-dimensional points.",
-      f" Instead we have shape {shape}",
+      "The shape should represent one- or two-dimensional points."
+      f" Instead we have shape {shape}"
   )
 
   axis_sum = (1,) if len(shape) == 2 else (1, 2)

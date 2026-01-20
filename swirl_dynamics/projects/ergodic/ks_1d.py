@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Kuramoto Sivashinsky 1D custom plotting callback."""
+
 from typing import Any, Mapping
 
 import jax
@@ -36,7 +37,7 @@ def plot_trajectories(
       f" ({trajs.shape[0]}) to select trajectory number {max(case_ids)}."
   )
   assert pred_trajs.shape[0] > max(case_ids), (
-      "Prediced trajectories do not contain enough samples"
+      "Predicted trajectories do not contain enough samples"
       f" ({pred_trajs.shape[0]}) to select trajectory number {max(case_ids)}."
   )
   plot_time = jnp.arange(traj_length) * dt
@@ -104,7 +105,7 @@ class KS1DPlotFigures(stable_ar.PlotFigures):
 
   def __init__(self, cos_sim_plot_steps: int = 500):
     super().__init__()
-    # Correlation breaks down early, do not need all the steps.
+    # Correlation breaks down early; we do not need all the steps.
     self.cos_sim_plot_steps = cos_sim_plot_steps
 
   def on_eval_batches_end(

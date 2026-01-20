@@ -19,10 +19,13 @@
 
 References:
 
-[1] https://www.onurtunali.com/ml/2019/03/08/maximum-mean-discrepancy-in-machine-learning.html#implementation-of-mmd  # pylint: disable=line-too-long
+[1]
+https://www.onurtunali.com/ml/2019/03/08/maximum-mean-discrepancy-in-machine-learning.html#implementation-of-mmd
+# pylint: disable=line-too-long
 [2] Li, Yujia, Kevin Swersky, and Rich Zemel. "Generative moment matching
   networks." International conference on machine learning. PMLR, 2015.
 """
+
 from collections.abc import Callable
 
 import jax
@@ -42,7 +45,8 @@ def mmd(
 ) -> Array:
   """Maximum Mean Discrepancy.
 
-  Emprical maximum mean discrepancy. The lower the result the more evidence that
+  Empirical maximum mean discrepancy. The lower the result the more evidence
+  that
   distributions are the same.
   Input arrays are reshaped to dimension: `batch_size x -1`, where `-1`
   indicates that all non-batch dimensions are flattened.
@@ -123,7 +127,7 @@ def mmd_distributed(x: Array, y: Array) -> Array:
 def sinkhorn_div(x: Array, y: Array) -> Array:
   """Sinkhorn Divergence.
 
-  Emprical sinkhorn divergence. The lower the result the more evidence that
+  Empirical sinkhorn divergence. The lower the result the more evidence that
   distributions are the same.
   Input arrays are reshaped to dimension: `batch_size x -1`, where `-1`
   indicates that all non-batch dimensions are flattened.
@@ -142,8 +146,14 @@ def sinkhorn_div(x: Array, y: Array) -> Array:
   # `batch_size x state_space_dim_flattened`.
   ot = sinkhorn_divergence.sinkhorn_divergence(
       pointcloud.PointCloud,  # geom,
-      x.reshape((x.shape[0], -1,)),  # geom.x,
-      y.reshape((y.shape[0], -1,)),  # geom.y,
+      x.reshape((
+          x.shape[0],
+          -1,
+      )),  # geom.x,
+      y.reshape((
+          y.shape[0],
+          -1,
+      )),  # geom.y,
       static_b=False,
   )
   return jnp.array(ot.divergence)

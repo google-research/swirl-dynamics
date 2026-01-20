@@ -78,7 +78,7 @@ class Integrator(enum.Enum):
   def dispatch(
       self,
   ) -> ode.ScanOdeSolver | ode.MultiStepScanOdeSolver:
-    """Dispatch integator.
+    """Dispatch integrator.
 
     Returns:
       ScanOdeSolver | MultiStepScanOdeSolver
@@ -188,7 +188,7 @@ class Model(enum.Enum):
           use_position_encoding=conf.use_position_encoding,
           num_heads=conf.num_heads,
       )
-    raise ValueError()
+    raise ValueError(f"Unknown model choice: {self.value}")
 
 
 class RolloutWeighting(enum.Enum):
@@ -210,23 +210,21 @@ class RolloutWeighting(enum.Enum):
       return functools.partial(
           rollout_weighting.geometric,
           r=conf.rollout_weighting_r,
-          clip=conf.rollout_weighting_clip
+          clip=conf.rollout_weighting_clip,
       )
     if self.value == RolloutWeighting.INV_SQRT.value:
       return functools.partial(
-          rollout_weighting.inverse_sqrt,
-          clip=conf.rollout_weighting_clip
+          rollout_weighting.inverse_sqrt, clip=conf.rollout_weighting_clip
       )
     if self.value == RolloutWeighting.INV_SQUARED.value:
       return functools.partial(
-          rollout_weighting.inverse_squared,
-          clip=conf.rollout_weighting_clip
+          rollout_weighting.inverse_squared, clip=conf.rollout_weighting_clip
       )
     if self.value == RolloutWeighting.LINEAR.value:
       return functools.partial(
           rollout_weighting.linear,
           m=conf.rollout_weighting_m,
-          clip=conf.rollout_weighting_clip
+          clip=conf.rollout_weighting_clip,
       )
     if self.value == RolloutWeighting.NO_WEIGHT.value:
       return rollout_weighting.no_weight

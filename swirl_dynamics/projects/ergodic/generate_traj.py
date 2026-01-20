@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate predict trajectory.
+"""Generate predicted trajectory.
 
 Helper script for generating trajectories from pre-trained models.
 """

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Lorenz 63 custom plotting callback."""
+
 from typing import Any, Mapping
 
 import jax
@@ -33,7 +34,7 @@ def lorenz63_dynamics(x: Array, t: Array, params: PyTree) -> Array:
     dot{y} = x(rho - z) - y
     dot{z} = xy - beta*z
 
-  Arguments:
+  Args:
       x: Current state.
       t: Time (unused; system is autonomous).
       params: Not used.
@@ -54,7 +55,7 @@ def lorenz63_dynamics(x: Array, t: Array, params: PyTree) -> Array:
 def plot_error(
     dt: Array, traj_length: list[int] | int, trajs: Array, pred_trajs: Array
 ):
-  """Plot root mean squared error (RMSE) error over time."""
+  """Plot root mean squared error (RMSE) over time."""
 
   def rmse_err(true, pred):
     """Helper method to compute RMSE error."""
@@ -189,17 +190,19 @@ def plot_correlations(dt, traj_length, trajs, pred_trajs):
   for d, n in zip(range(3), ["x", "y", "z"]):
     ax[d].plot(
         jnp.arange(traj_length) * dt,
-        jnp.ones(traj_length)*0.9,
-        color="black", linestyle="dashed",
-        label="0.9 threshold"
+        jnp.ones(traj_length) * 0.9,
+        color="black",
+        linestyle="dashed",
+        label="0.9 threshold",
     )
     ax[d].plot(
         jnp.arange(traj_length) * dt,
-        jnp.ones(traj_length)*0.8,
-        color="red", linestyle="dashed",
-        label="0.8 threshold"
+        jnp.ones(traj_length) * 0.8,
+        color="red",
+        linestyle="dashed",
+        label="0.8 threshold",
     )
-    ax[d].set_xlim(0, traj_length*dt)
+    ax[d].set_xlim(0, traj_length * dt)
     ax[d].set_xlabel("t")
     ax[d].set_title(n)
   for d in range(3):

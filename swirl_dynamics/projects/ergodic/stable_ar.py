@@ -164,7 +164,7 @@ class StableARModel(models.BaseModel):
       )
 
       # Compare to full reference trajectory.
-      # TODO: this is code is repeated.
+      # TODO: This code is repeated.
       if self.conf.use_sobolev_norm:
         # TODO: Rollout weighting not implemented for this case!
         dim = len(pred.shape) - 3
@@ -245,6 +245,7 @@ class StableARModel(models.BaseModel):
         trajs=trajs,
         pred_trajs=pred_trajs,
     )
+
   # pytype: enable=bad-return-type
 
 
@@ -295,9 +296,9 @@ class StableARTrainer(trainers.BasicTrainer):
       batch_data: trainers.BatchType,
       num_time_steps: int,
   ) -> trainers.BatchType:
-    """Internal method to prepocesses train batches based on num_time_steps.
+    """Internal method to preprocesses train batches based on num_time_steps.
 
-    This method can be overriden by different trainers.
+    This method can be overridden by different trainers.
 
     Args:
       batch_data: training batch data yielded by the dataset.
@@ -400,7 +401,7 @@ class StableARTrainer(trainers.BasicTrainer):
 
 
 class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
-  """Trainer used for stable AR modeling."""
+  """Trainer used for stable AR modeling (distributed)."""
 
   @flax.struct.dataclass
   class TrainMetrics(clu_metrics.Collection):
@@ -523,7 +524,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
 class PlotFigures(callbacks.Callback):
   """Callback that plots figures to tensorboard.
 
-  Each experiment should inheret this callback and implement the
+  Each experiment should inherit this callback and implement the
   `on_eval_batch_end` method to perform its customized eval plotting.
   """
 
