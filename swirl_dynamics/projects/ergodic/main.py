@@ -156,7 +156,6 @@ def main(argv):
         spatial_downsample_factor=config.spatial_downsample_factor,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
     eval_loader, _ = utils.create_loader_from_hdf5_reshaped(
         num_time_steps=-1,
@@ -170,7 +169,6 @@ def main(argv):
         spatial_downsample_factor=config.spatial_downsample_factor,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
 
   else:
@@ -186,7 +184,6 @@ def main(argv):
         spatial_downsample_factor=config.spatial_downsample_factor,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
     eval_loader, _ = utils.create_loader_from_hdf5(
         num_time_steps=-1,
@@ -200,7 +197,6 @@ def main(argv):
         spatial_downsample_factor=config.spatial_downsample_factor,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
-        tf_interleaved_shuffle=config.tf_interleaved_shuffle,
     )
 
   # Model

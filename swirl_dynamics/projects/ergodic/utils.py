@@ -21,8 +21,10 @@ References:
 """
 
 from collections.abc import Callable
+import dataclasses
 from typing import Any
 
+import grain.python as pygrain
 import grain.tensorflow as tfgrain
 import jax
 import jax.numpy as jnp
@@ -31,12 +33,120 @@ import numpy as np
 from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.data import tfgrain_transforms as transforms
 from swirl_dynamics.lib.solvers import ode
-import tensorflow as tf
 
 
 Array = jax.Array
 PyTree = Any
 DynamicsFn = Callable[[Array, Array, PyTree], Array]
+
+
+@dataclasses.dataclass(frozen=True)
+class RandomSection(pygrain.RandomMapTransform):
+  """Samples a random section in a given trajectory.
+
+  Attributes:
+    feature_names: Names of the features to sample from.
+    num_steps: Number of steps to sample.
+    stride: Stride of the sampling.
+  """
+
+  feature_names: tuple[str, ...]
+  num_steps: int
+  stride: int = 1
+
+  def random_map(
+      self, element: dict[str, Any], rng: np.random.Generator
+  ) -> dict[str, Any]:
+    """Samples a random section in a given trajectory.
+
+    Args:
+      element: A dictionary of arrays.
+      rng: A random number generator.
+
+    Returns:
+      A dictionary of arrays with the same keys as the input dictionary, but
+      with the values being the random section of the array.
+    """
+
+    total_length = element[self.feature_names[0]].shape[0]
+    # Sample length is the number of steps minus one (because the last step is
+    # the target), multiplied by the stride (to downsample) plus one (to include
+    # the last step).
+    sample_length = self.stride * (self.num_steps - 1) + 1
+
+    for name in self.feature_names[1:]:
+      feature_length = element[name].shape[0]
+      if feature_length != total_length:
+        raise ValueError(
+            "Features must have the same dimension along axis 0:"
+            f" {self.feature_names[0]} ({total_length}) vs."
+            f" {name} ({feature_length})"
+        )
+
+    if sample_length > total_length:
+      raise ValueError(
+          f"Not enough steps [{total_length}] "
+          f"for desired sample length [{sample_length}] "
+          f"= stride [{self.stride}] * (num_steps [{self.num_steps}] - 1) + 1"
+      )
+    elif sample_length == total_length:
+      start_idx = 0
+    else:
+      start_idx = rng.integers(0, total_length - sample_length + 1)
+
+    end_idx = start_idx + sample_length
+
+    # Buils the new element with the random section.
+    for name in self.feature_names:
+      element[name] = element[name][start_idx : end_idx : self.stride]
+    return element
+
+
+class ArrayDataSource(pygrain.RandomAccessDataSource):
+  """A data source from a dictionary of arrays.
+
+  This data source is useful for creating a dataloader from a dictionary of
+  arrays.
+
+  Attributes:
+    _arrays: A dictionary of arrays. The arrays must have the same length (i.e.,
+      the number of trajectories).
+    _length: The length of the arrays.
+  """
+
+  def __init__(self, **arrays):
+    """Initializes the data source.
+
+    Args:
+      **arrays: A dictionary of arrays. The arrays must have the same length
+        (i.e., the number of trajectories).
+    """
+    self._arrays = arrays
+    self._length = len(next(iter(arrays.values())))
+
+    # Check that all arrays have the same length. This is important for
+    # RandomSection transform to work correctly.
+    for k, v in arrays.items():
+      if len(v) != self._length:
+        raise ValueError(
+            f"Array {k} has length {len(v)}, expected {self._length}"
+        )
+
+  def __len__(self):
+    """Returns the number of trajectories in the data source."""
+    return self._length
+
+  def __getitem__(self, idx):
+    """Returns a dictionary of arrays at a given index.
+
+    Args:
+      idx: The index of the array to return.
+
+    Returns:
+      A dictionary of arrays with the same keys as the input dictionary, but
+      with the values being the array at the given index.
+    """
+    return {k: v[idx] for k, v in self._arrays.items()}
 
 
 # TODO: Move this method to swirl_dynamics.data.utils
@@ -59,15 +169,14 @@ def create_loader_from_hdf5_reshaped(
     time_stride: int,
     batch_size: int,
     dataset_path: str,
-    seed: int,
+    seed: int = 0,
     split: str | None = None,
     spatial_downsample_factor: int = 1,
     normalize: bool = False,
     normalize_stats: dict[str, Array] | None = None,
     tf_lookup_batch_size: int = 1024,
     tf_lookup_num_parallel_calls: int = -1,
-    tf_interleaved_shuffle: bool = False,
-) -> tuple[tfgrain.TfDataLoader, dict[str, Array | None]]:
+) -> tuple[pygrain.DataLoader, dict[str, Array | None]]:
   """Load pre-computed trajectories dumped to hdf5 file.
 
   If normalize flag is set, method will also return the mean and std used in
@@ -79,7 +188,9 @@ def create_loader_from_hdf5_reshaped(
     time_stride: Stride of trajectory sampling (downsampling by that factor).
     batch_size: Batch size returned by dataloader. If set to -1, use entire
       dataset size as batch_size.
-    dataset_path: Absolute path to dataset file.
+    dataset_path: Absolute path to dataset file. We assume that the file
+      contains two arrays for each split (train, eval, test, or None), named u
+      and t, respectively.
     seed: Random seed to be used in data sampling.
     split: Data split - train, eval, test, or None.
     spatial_downsample_factor: reduce spatial resolution by factor of x.
@@ -88,8 +199,6 @@ def create_loader_from_hdf5_reshaped(
     tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
     tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
       dataset. -1 is set to let grain optimize tha number of calls.
-    tf_interleaved_shuffle: Using a more localized shuffle instead of a global
-      suffle of the data.
 
   Returns:
     loader, stats (optional): tuple of dataloader and dictionary containing
@@ -99,6 +208,8 @@ def create_loader_from_hdf5_reshaped(
   snapshots, tspan = hdf5_utils.read_arrays_as_tuple(
       dataset_path, (f"{split}/u", f"{split}/t")
   )
+
+  # Spatial downsampling if requested.
   if spatial_downsample_factor > 1:
     if snapshots.ndim == 3:
       snapshots = snapshots[:, :, ::spatial_downsample_factor]
@@ -113,8 +224,11 @@ def create_loader_from_hdf5_reshaped(
           f"Number of dimensions {snapshots.ndim} not "
           "supported for spatial downsampling."
       )
-  # grid_points = np.tile(grid, (len(snapshots),) + grid.ndim * (1,))
+
+  # Normalization if requested. We use the train split to calculate the mean and
+  # std of the data.
   if normalize:
+    # If the stats are provided, we use them directly.
     if normalize_stats is not None:
       mean = normalize_stats["mean"]
       std = normalize_stats["std"]
@@ -137,41 +251,41 @@ def create_loader_from_hdf5_reshaped(
   snapshots = snapshots[:, ::time_stride]
   tspan = tspan[:, ::time_stride]
 
+  # Reshaping the data to have num_time_steps time steps per trajectory.
   num_segments_per_traj = snapshots.shape[1] // num_time_steps
-  snapshots = snapshots[:, :(num_segments_per_traj * num_time_steps)]
+  snapshots = snapshots[:, : (num_segments_per_traj * num_time_steps)]
   snapshots = np.reshape(snapshots, (-1, num_time_steps, *snapshots.shape[2:]))
 
-  tspan = tspan[:, :(num_segments_per_traj * num_time_steps)]
+  tspan = tspan[:, : (num_segments_per_traj * num_time_steps)]
   tspan = np.reshape(tspan, (-1, num_time_steps, *tspan.shape[2:]))
 
-  source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
-          "u": snapshots,  # States
-          "t": tspan,  # Time stamps
-      })
-  )
-  # This transform randomly takes a random section from the trajectory with the
-  # desired length and stride.
+  # Wrapping the arrays in a data source.
+  source = ArrayDataSource(u=snapshots, t=tspan)
 
   # Grain fine-tuning for increasing feeding speed.
-  tfgrain.config.update(
-      "tf_lookup_num_parallel_calls", tf_lookup_num_parallel_calls
-  )
-  tfgrain.config.update("tf_interleaved_shuffle", tf_interleaved_shuffle)
-  tfgrain.config.update("tf_lookup_batch_size", tf_lookup_batch_size)
+  worker_count = 0
+  if tf_lookup_num_parallel_calls != -1:
+    worker_count = tf_lookup_num_parallel_calls
 
   if batch_size == -1:  # Use full dataset as batch
     batch_size = len(source)
-  loader = tfgrain.TfDataLoader(
-      source=source,
-      sampler=tfgrain.TfDefaultIndexSampler(
+
+  loader = pygrain.DataLoader(
+      data_source=source,
+      sampler=pygrain.IndexSampler(
           num_records=len(source),
-          seed=seed,
-          num_epochs=None,  # Loads indefinitely.
           shuffle=True,
-          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
+          seed=seed,
+          shard_options=pygrain.ShardOptions(
+              shard_index=jax.process_index(),
+              shard_count=jax.process_count(),
+              drop_remainder=True,
+          ),
+          num_epochs=None,
       ),
-      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+      operations=[pygrain.Batch(batch_size=batch_size, drop_remainder=True)],
+      worker_count=worker_count,
+      worker_buffer_size=tf_lookup_batch_size,
   )
   return loader, {"mean": mean, "std": std}
 
@@ -189,8 +303,7 @@ def create_loader_from_hdf5(
     normalize_stats: dict[str, Array] | None = None,
     tf_lookup_batch_size: int = 1024,
     tf_lookup_num_parallel_calls: int = -1,
-    tf_interleaved_shuffle: bool = False,
-) -> tuple[tfgrain.TfDataLoader, dict[str, Array | None]]:
+) -> tuple[pygrain.DataLoader, dict[str, Array | None]]:
   """Load pre-computed trajectories dumped to hdf5 file.
 
   If normalize flag is set, method will also return the mean and std used in
@@ -211,8 +324,6 @@ def create_loader_from_hdf5(
     tf_lookup_batch_size: Number of lookup batches (in cache) for grain.
     tf_lookup_num_parallel_calls: Number of parallel call for lookups in the
       dataset. -1 is set to let grain optimize tha number of calls.
-    tf_interleaved_shuffle: Using a more localized shuffle instead of a global
-      suffle of the data.
 
   Returns:
     loader, stats (optional): tuple of dataloader and dictionary containing
@@ -251,43 +362,46 @@ def create_loader_from_hdf5(
     snapshots /= std
   else:
     mean, std = None, None
-  source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
-          "u": snapshots,  # states
-          "t": tspan,  # time stamps
-      })
-  )
+
+  source = ArrayDataSource(u=snapshots, t=tspan)
+
   # This transform randomly takes a random section from the trajectory with the
   # desired length and stride.
   if num_time_steps == -1:  # Use full (downsampled) trajectories.
     num_time_steps = tspan.shape[1] // time_stride
-  section_transform = transforms.RandomSection(
+  section_transform = RandomSection(
       feature_names=("u", "t"),
       num_steps=num_time_steps,
       stride=time_stride,
   )
-  dataset_transforms = (section_transform,)
 
   # Grain fine-tuning.
-  tfgrain.config.update(
-      "tf_lookup_num_parallel_calls", tf_lookup_num_parallel_calls
-  )
-  tfgrain.config.update("tf_interleaved_shuffle", tf_interleaved_shuffle)
-  tfgrain.config.update("tf_lookup_batch_size", tf_lookup_batch_size)
+  worker_count = 0
+  if tf_lookup_num_parallel_calls != -1:
+    worker_count = tf_lookup_num_parallel_calls
 
   if batch_size == -1:  # Use full dataset as batch.
     batch_size = len(source)
-  loader = tfgrain.TfDataLoader(
-      source=source,
-      sampler=tfgrain.TfDefaultIndexSampler(
+
+  loader = pygrain.DataLoader(
+      data_source=source,
+      sampler=pygrain.IndexSampler(
           num_records=len(source),
-          seed=seed,
-          num_epochs=None,  # Loads indefinitely.
           shuffle=True,
-          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
+          seed=seed,
+          shard_options=pygrain.ShardOptions(
+              shard_index=jax.process_index(),
+              shard_count=jax.process_count(),
+              drop_remainder=True,
+          ),
+          num_epochs=None,
       ),
-      transformations=dataset_transforms,
-      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+      operations=[
+          section_transform,
+          pygrain.Batch(batch_size=batch_size, drop_remainder=True),
+      ],
+      worker_count=worker_count,
+      worker_buffer_size=tf_lookup_batch_size,
   )
   return loader, {"mean": mean, "std": std}
 
@@ -333,9 +447,8 @@ def create_loader_from_tfds(
   if normalize:
     raise NotImplementedError("This loader does not support normalization.")
 
-  assert (
-      num_time_steps > 0
-  ), f"num_time_steps must be > 0, instead of {num_time_steps}"
+  if num_time_steps <= 0:
+    raise ValueError(f"num_time_steps must be > 0, instead of {num_time_steps}")
 
   # This transform randomly takes a random section from the trajectory with the
   # desired length and stride.
