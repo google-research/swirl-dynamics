@@ -108,7 +108,7 @@ _LENS_TO_ERA = {
 _OUTPUT_RENAME = {
     '2m_temperature': '2mT',
     '10m_magnitude_of_wind': '10mW',
-    'specific_humidity': '2mQ',
+    '2m_specific_humidity': '2mQ',
     'mean_sea_level_pressure': 'MSL',
 }
 
