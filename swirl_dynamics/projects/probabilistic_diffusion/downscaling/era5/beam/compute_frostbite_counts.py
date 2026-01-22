@@ -276,7 +276,6 @@ def main(argv):
             source_chunks=working_chunks_out,
             target_chunks=target_chunks,
             itemsize=np.dtype(DTYPE).itemsize,
-            max_mem=2**29,  # 512MB
         )
         | xbeam.ChunksToZarr(
             OUTPUT_PATH.value,

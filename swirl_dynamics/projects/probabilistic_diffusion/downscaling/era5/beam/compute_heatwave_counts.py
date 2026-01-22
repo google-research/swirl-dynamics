@@ -179,7 +179,7 @@ def main(argv):
       "lengths": -1,
   }
   target_chunks = {
-      "member": -1,
+      "member": 8,
       "longitude": -1,
       "latitude": -1,
       "thresholds": 1,
@@ -225,6 +225,7 @@ def main(argv):
         root
         | xbeam.DatasetToChunks(sample_ds, in_chunks, num_threads=16)
         | xbeam.SplitChunks(working_chunks_in)
+        | "Reshuffle1" >> beam.Reshuffle()
         | beam.MapTuple(
             functools.partial(
                 count_heatwaves,
@@ -232,13 +233,15 @@ def main(argv):
                 lengths=lengths,
             )
         )
+        | "Reshuffle2" >> beam.Reshuffle()
         | xbeam.Rechunk(
             dim_sizes=out_sizes,
             source_chunks=working_chunks_out,
             target_chunks=target_chunks,
             itemsize=np.dtype(DTYPE).itemsize,
-            max_mem=2**29,  # 512MB
+            max_mem=2**30 * 2,  # 2GB
         )
+        | "Reshuffle3" >> beam.Reshuffle()
         | xbeam.ChunksToZarr(
             OUTPUT_PATH.value,
             template=template,

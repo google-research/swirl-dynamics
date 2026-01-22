@@ -126,7 +126,7 @@ class TrajectorySamplerParallel:
   num_overlap_days: int = 1
   sampling_type: Literal["ode", "sde"] = "ode"
   sde_noise_inflate: float = 1.0
-  interp_method: str = "linear"
+  interp_method: str | None = "linear"
 
   def __post_init__(self):
     expected_sample_days = (
@@ -328,7 +328,7 @@ class TrajectorySamplerParallel:
         state,
         (
             self.batch_size,
-            -1,
+            -1,  # Number of segments.
             self.num_model_days * 24 // self.hour_interval,
             len(self.lon_coords),
             len(self.lat_coords),
@@ -362,11 +362,17 @@ class TrajectorySamplerParallel:
                 "longitude": self.lon_coords,
                 "latitude": self.lat_coords,
             },
-            method=self.interp_method,
+            method=self.interp_method or "nearest",
         )
         .sel(time=self.time_coords.astype("datetime64[D]"))
         .transpose("time", "longitude", "latitude")
     )
+
+    # If `interp_method` is set to None, then we set `lowres_ds` to zero. This
+    # is useful for cases where we model the high-res output directly, rather
+    # than the residual between high-res and interpolated low-res.
+    if not self.interp_method:
+      lowres_ds = xr.zeros_like(lowres_ds)
 
     # Rescale and add interpolated low-res.
     time = xr.DataArray(self.time_coords, coords={"time": self.time_coords})
@@ -473,7 +479,7 @@ class TrajectorySamplerParallel:
     _left = jnp.asarray([1.0] + [0.0] * (jax.device_count() - 1))  # pylint: disable=invalid-name
     _right = jnp.asarray([0.0] * (jax.device_count() - 1) + [1.0])  # pylint: disable=invalid-name
 
-    # ~ (num_segments, batch_size, model_days, lon, lat, variables)
+    # ~ (samples, slices * num_segments, time, cond_lon, cond_lat, variables)
     cond = self.load_cond()
 
     for batch_idx in range(num_batches):
@@ -483,7 +489,7 @@ class TrajectorySamplerParallel:
       init_rng, *denoise_rng, rng = jax.random.split(
           rng, num=len(self.tspan) + 2
       )
-      # ~ (num_segments, samples, time, lon, lat, variables)
+      # ~ (samples, slices * num_segments, time, lon, lat, variables)
       x = self.initialize_state(
           jax.random.split(init_rng, jax.device_count()), _left, _right
       )

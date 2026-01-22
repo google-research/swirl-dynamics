@@ -67,6 +67,15 @@ OUTPUT_PATH = flags.DEFINE_string("output_path", None, help="Output Zarr path.")
 RUNNER = flags.DEFINE_string("runner", None, "beam.runners.Runner")
 
 
+VARIABLES = [
+    "2m_temperature",
+    "10m_magnitude_of_wind",
+    "mean_sea_level_pressure",
+    "2m_specific_humidity",
+    "geopotential",
+]
+
+
 def normalize(
     key: xbeam.Key,
     raw_chunk: xarray.Dataset,
@@ -106,9 +115,11 @@ def normalize(
 def main(argv):
   raw_store = gfile_store.GFileStore(RAW_DATA_PATH.value)
   raw_ds, raw_chunks = xbeam.open_zarr(raw_store)
+  raw_ds = raw_ds[VARIABLES]
 
   stats_store = gfile_store.GFileStore(STATS_PATH.value)
   stats_ds = xarray.open_zarr(stats_store, chunks=None)
+  stats_ds = stats_ds[VARIABLES]
 
   template = xbeam.make_template(raw_ds)
 

@@ -250,13 +250,14 @@ def main(argv):
         root
         | xbeam.DatasetToChunks(source_dataset, source_chunks, num_threads=16)
         | xbeam.SplitVariables()
+        | "Reshuffle1" >> beam.Reshuffle()
         | "Rechunk input"
         >> xbeam.Rechunk(
             source_dataset.sizes,  # pytype: disable=wrong-arg-types
             source_chunks,
             WORKING_CHUNKS,
             itemsize=4,
-            max_mem=2**30 * 16,
+            max_mem=2**30 * 2,
         )
         | beam.MapTuple(
             functools.partial(
@@ -265,13 +266,14 @@ def main(argv):
                 window_size=WINDOW_SIZE.value,
             )
         )
+        | "Reshuffle2" >> beam.Reshuffle()
         | "Rechunk output"
         >> xbeam.Rechunk(
             template.sizes,  # pytype: disable=wrong-arg-types
             stats_working_chunks,
             output_chunks,
             itemsize=4,
-            max_mem=2**30 * 16,
+            max_mem=2**30 * 2,
         )
         | xbeam.ChunksToZarr(
             output_store, template, output_chunks, num_threads=16
