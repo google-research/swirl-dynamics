@@ -14,6 +14,7 @@
 
 """Training data pipeline."""
 
+import os
 from typing import SupportsIndex
 
 from absl import logging
@@ -23,6 +24,7 @@ import jax
 import numpy as np
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipelines import transforms
 from swirl_dynamics.projects.probabilistic_diffusion.downscaling.era5.input_pipelines import utils
+import tensorstore as ts
 import xarray_tensorstore as xrts
 
 DatasetVariables = utils.DatasetVariables
@@ -30,7 +32,7 @@ DatasetVariables = utils.DatasetVariables
 DELTA_1D = np.timedelta64(1, "D")
 
 
-class HourlyDailyPair:
+class HourlyDailyPair(pygrain.RandomAccessDataSource):
   """Loads paired (in time) hourly and daily ERA5 data."""
 
   def __init__(
@@ -45,6 +47,7 @@ class HourlyDailyPair:
       num_days_per_example: int = 1,
       max_retries: int = 3,
       retry_seed: int = 9999,
+      num_threads: int = 1,
   ):
     """Data source constructor.
 
@@ -68,10 +71,15 @@ class HourlyDailyPair:
       max_retries: The maximum number of attempts made to retrieve an item with
         a randomly selected key if the original key fails.
       retry_seed: The random seed used for retrying.
+      num_threads: The number of threads for the tensorstore backend.
     """
+    ts_context = ts.Context({
+        "data_copy_concurrency": {"limit": num_threads},
+        "file_io_concurrency": {"limit": num_threads},
+    })
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
-    hourly_ds = xrts.open_zarr(hourly_dataset).sel(
+    hourly_ds = xrts.open_zarr(hourly_dataset, context=ts_context).sel(
         time=slice(*date_range, hourly_downsample)
     )
     # Reindex and transpose the coordinates to accommodate zarr datasets written
@@ -94,7 +102,9 @@ class HourlyDailyPair:
     for v in hourly_variables:
       self._hourly_arrays[v.rename] = hourly_ds[v.name].sel(v.indexers)
 
-    daily_ds = xrts.open_zarr(daily_dataset).sel(time=slice(*date_range))
+    daily_ds = xrts.open_zarr(daily_dataset, context=ts_context).sel(
+        time=slice(*date_range)
+    )
     daily_ds = daily_ds.reindex(
         latitude=np.sort(daily_ds.latitude),
         longitude=np.sort(daily_ds.longitude),
@@ -186,72 +196,112 @@ def create_dataloader(
     seed: int = 42,
     batch_size: int = 16,
     drop_remainder: bool = True,
-    worker_count: int | None = 0,
+    worker_count: int | None = None,
     cond_maskout_prob: float = 0.0,
-    read_options: pygrain.ReadOptions | None = None,
-) -> pygrain.DataLoader:
+    num_pygrain_threads: int = 4,
+    num_tensorstore_threads: int = 1,
+    prefetch_buffer_size_per_worker: int | None = None,
+) -> pygrain.IterDataset:
   """Creates a grain dataloader with paired hourly and daily data."""
-  source = HourlyDailyPair(
-      date_range=date_range,
-      hourly_dataset=hourly_dataset_path,
-      hourly_variables=hourly_variables,
-      hourly_downsample=hourly_downsample,
-      daily_dataset=daily_dataset_path,
-      daily_variables=daily_variables,
-      num_days_per_example=num_days_per_example,
-      replicate_daily=True,
-  )
 
-  standardizations = []
+  # Rule of thumb:
+  # `worker_count` is more or less the number of cpu cores.
+  # `num_tensorstore_threads` proportional to to the # of shards per xrts read,
+  # i.e. the chunking plan of the xarray source.
+  # `num_pygrain_threads` proportional to the # of xrts reads per example.
+  # `prefetch_buffer_size_per_worker` proportional to the total memory divided
+  # by (`worker_count` * `size(example)`). This is # of examples to be divided
+  # by `batch_size` to get the number of prefetched batches per process.
+
+  if worker_count is None:
+    worker_count = os.cpu_count() - 1
+  logging.info("Pygrain worker count: %s", worker_count)
+
+  if not prefetch_buffer_size_per_worker:
+    prefetch_buffer_size_per_worker = batch_size
+
   hourly_var_renames = [v.rename for v in hourly_variables]
+  daily_var_renames = [v.rename for v in daily_variables]
+  all_variables = hourly_var_renames + daily_var_renames
+
+  ds = pygrain.MapDataset.source(
+      HourlyDailyPair(
+          date_range=date_range,
+          hourly_dataset=hourly_dataset_path,
+          hourly_variables=hourly_variables,
+          hourly_downsample=hourly_downsample,
+          daily_dataset=daily_dataset_path,
+          daily_variables=daily_variables,
+          num_days_per_example=num_days_per_example,
+          replicate_daily=True,
+          num_threads=num_tensorstore_threads,
+      )
+  )
+  ds = ds.seed(seed)
+
+  # If output stats are provided, use them to standardize the output data.
+  # Otherwise, the output source is expected be pre-standardized.
   if hourly_stats_path:
-    standardizations += [
+    ds = ds.map(
         transforms.Standardize(
             input_fields=hourly_var_renames,
             mean=utils.read_stats(hourly_stats_path, hourly_variables, "mean"),
             std=utils.read_stats(hourly_stats_path, hourly_variables, "std"),
-        ),
-    ]
-  # Standardization for condition.
-  daily_var_renames = [v.rename for v in daily_variables]
+        )
+    )
+  # If input stats are provided, use them to standardize the input data.
+  # Otherwise, the input source is expected to be pre-standardized.
   if daily_stats_path:
-    standardizations += [
+    ds = ds.map(
         transforms.Standardize(
             input_fields=daily_var_renames,
             mean=utils.read_stats(daily_stats_path, daily_variables, "mean"),
             std=utils.read_stats(daily_stats_path, daily_variables, "std"),
-        ),
-    ]
-
-  all_variables = hourly_var_renames + daily_var_renames
-  transformations = standardizations + [
-      # Data is lon-lat and model takes lat-lon.
-      transforms.Rot90(input_fields=all_variables, k=1, axes=(1, 2)),
+        )
+    )
+  # Data source is lon-lat and model takes lat-lon.
+  ds = ds.map(transforms.Rot90(input_fields=all_variables, k=1, axes=(1, 2)))
+  # Merge output variables into a single channel.
+  ds = ds.map(
       transforms.Concatenate(
           input_fields=hourly_var_renames,
           output_field=sample_field_rename,
           axis=-1,
-      ),
+      )
+  )
+  # Merge input variables into a single channel.
+  ds = ds.map(
       transforms.Concatenate(
           input_fields=daily_var_renames, output_field="daily_mean", axis=-1
-      ),
+      )
+  )
+  # Mask out for hybrid classifier-free training.
+  ds = ds.random_map(
       transforms.RandomMaskout(
           input_fields=("daily_mean",), probability=cond_maskout_prob
-      ),
+      )
+  )
+  # Assemble the condition dictionary in the format expected by the model.
+  ds = ds.map(
       transforms.AssembleCondDict(
           cond_fields=("daily_mean",), prefix="channel:"
-      ),
-  ]
-  data_loader = pygrain.load(
-      source=source,
-      num_epochs=num_epochs,
-      shuffle=shuffle,
-      seed=seed,
-      shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
-      transformations=transformations,
-      batch_size=batch_size,
-      drop_remainder=drop_remainder,
-      worker_count=worker_count,
-      read_options=read_options,
+      )
   )
-  return data_loader
+
+  if shuffle:
+    ds = ds.shuffle()
+
+  ds = ds.repeat(num_epochs=num_epochs)
+
+  ds = ds[jax.process_index() :: jax.process_count()]  # shard the dataset
+
+  ds = ds.to_iter_dataset(
+      read_options=pygrain.ReadOptions(
+          num_threads=num_pygrain_threads,
+          prefetch_buffer_size=prefetch_buffer_size_per_worker,
+      )
+  )
+  ds = ds.batch(batch_size, drop_remainder=drop_remainder)
+  ds = ds.mp_prefetch(pygrain.MultiprocessingOptions(num_workers=worker_count))
+
+  return ds
