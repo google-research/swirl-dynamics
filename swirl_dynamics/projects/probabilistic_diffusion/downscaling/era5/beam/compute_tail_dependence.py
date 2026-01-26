@@ -53,8 +53,8 @@ python swirl_dynamics/projects/probabilistic_diffusion/downscaling/era5/beam/com
   --output_path=${OUTPUT_PATH} \
   --quantile_range=0.9,0.95 \
   --variables=T2,Q2 \
-  --start_year=2010 \
-  --end_year=2019 \
+  --year_start=2010 \
+  --year_end=2019 \
   --months=6,7,8 \
   --hour_of_day=18
 ```
