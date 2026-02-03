@@ -777,7 +777,7 @@ class DataSourceEnsembleWithClimatologyOffset(CommonSourceEnsemble):
       date_input = date_output
 
     dayofyear = int(
-        (date_output - np.datatime64(str(date_output.astype("datetime64[Y]"))))
+        (date_output - np.datetime64(str(date_output.astype("datetime64[Y]"))))
         / np.timedelta64(1, "D")
         + 1
     )
