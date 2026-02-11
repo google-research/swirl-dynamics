@@ -116,6 +116,10 @@ class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
         variables = state.ema_variables
     else:
       variables = state.model_variables
+    if state.flax_mutables:
+      variables = flax.core.FrozenDict(
+          {**variables, **state.flax_mutables}
+      )
     return models.DenoisingModel.inference_fn(variables, *args, **kwargs)
 
 
