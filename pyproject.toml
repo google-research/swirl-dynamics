@@ -4,7 +4,7 @@
 name = "swirl_dynamics"
 description = "Machine learning for dynamical systems."
 readme = "README.md"
-requires-python = ">=3.11"  # Remember to change github pytest workflow.
+requires-python = ">=3.12"  # Remember to change github pytest workflow.
 license = {file = "LICENSE"}
 authors = [
   {name = "The Swirl-Dynamics Authors", email="swirl-dynamics@google.com"},
