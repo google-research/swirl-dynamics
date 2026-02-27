@@ -15,6 +15,7 @@
 """Modules for guidance transforms for denoising functions."""
 
 from collections.abc import Callable, Mapping, Sequence
+import functools
 from typing import Any, Literal, Protocol
 
 import chex
@@ -270,10 +271,16 @@ class ClassifierFreeHybrid:
           )
           for k, v in cond.items()
       }
-      uncond_denoised = denoise_fn(x, sigma, masked_cond)
-      return (1 + self.guidance_strength) * denoise_fn(
-          x, sigma, cond
-      ) - self.guidance_strength * uncond_denoised
+      stacked_conds = jax.tree.map(
+          lambda *arrays: jnp.stack(arrays), cond, masked_cond
+      )
+      denoised_fn_partial = functools.partial(denoise_fn, x, sigma)
+      denoised = jax.vmap(denoised_fn_partial)(stacked_conds)
+      cond_denoised = denoised[0]
+      uncond_denoised = denoised[1]
+      return (
+          1 + self.guidance_strength
+      ) * cond_denoised - self.guidance_strength * uncond_denoised
 
     return _guided_denoise
 
