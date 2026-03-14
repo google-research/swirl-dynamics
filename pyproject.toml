@@ -36,6 +36,7 @@ dependencies = [
   "numpy",
   "optax",
   "orbax-checkpoint",
+  "tensorboard",
   "tensorflow",
   "tqdm",
   "xarray",

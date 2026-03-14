@@ -19,6 +19,7 @@ from typing import Any
 
 from clu import metric_writers
 from etils import epath
+import flax
 import jax
 from swirl_dynamics.templates import callbacks as cb
 from swirl_dynamics.templates import trainers
@@ -125,8 +126,11 @@ def run(
 
         assert eval_iter is not None
         eval_metrics = trainer.eval(eval_iter, num_batches_per_eval).compute()
+        # Handle nested dicts.
         eval_metrics_to_log = {
-            k: v for k, v in eval_metrics.items() if utils.is_scalar(v)
+            "/".join(k): v
+            for k, v in flax.traverse_util.flatten_dict(eval_metrics).items()
+            if utils.is_scalar(v)
         }
         metric_writer.write_scalars(cur_step, eval_metrics_to_log)
 
