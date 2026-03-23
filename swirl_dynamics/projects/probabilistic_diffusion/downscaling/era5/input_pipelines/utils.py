@@ -160,11 +160,29 @@ def regionalize(
 def get_coord_as_nparray(
     dataset: epath.PathLike, dim: str, region: Region | None = None
 ) -> np.ndarray:
+  """Returns an xarray coordinate as a numpy array, optionally regionalized.
+
+  Args:
+    dataset: Path to dataset.
+    dim: Dimension for which to return values.
+    region: Region for which to provide values.
+
+  Returns:
+    Numpy array of coordinate values.
+  """
   dataset = xarray.open_zarr(dataset)
   if region is not None:
-    dataset = dataset.sel(
-        longitude=slice(*region.lon_range),
-        latitude=slice(*region.lat_range),
-        time=slice(None, None, region.time_downsample),
-    )
+
+    desired_selections = {
+        "longitude": slice(*region.lon_range),
+        "latitude": slice(*region.lat_range),
+        "time": slice(None, None, region.time_downsample),
+    }
+    valid_selections = {
+        dim: sel_slice
+        for dim, sel_slice in desired_selections.items()
+        if dim in dataset.dims
+    }
+    dataset = dataset.sel(**valid_selections)
+
   return dataset[dim].to_numpy()
