@@ -205,11 +205,11 @@ def main(argv):
       "lengths": -1,
   }
   target_chunks = {
-      "member": -1,
+      "member": 1,
       "longitude": -1,
       "latitude": -1,
-      "thresholds": 1,
-      "lengths": 1,
+      "thresholds": -1,
+      "lengths": -1,
   }
 
   out_sizes = dict(sample_ds.sizes)
