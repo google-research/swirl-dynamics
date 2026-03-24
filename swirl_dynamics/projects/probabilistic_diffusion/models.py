@@ -133,17 +133,18 @@ class DenoisingModel(models.BaseModel):
     vmapped_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     noised = batch["x"] + vmapped_mult(noise, sigma)
     cond = batch["cond"] if self.cond_shape else None
-    denoised = self.denoiser.apply(
-        {"params": params},
+    denoised, updated_mutables = self.denoiser.apply(
+        {"params": params, **mutables},
         x=noised,
         sigma=sigma,
         cond=cond,
         is_training=True,
+        mutable=mutables.keys() if mutables else False,
         rngs={"dropout": rng3},  # TODO: refactor this.
     )
     loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))
     metric = dict(loss=loss)
-    return loss, (metric, mutables)
+    return loss, (metric, updated_mutables)
 
   def eval_fn(
       self, variables: models.PyTree, batch: models.BatchType, rng: Array
