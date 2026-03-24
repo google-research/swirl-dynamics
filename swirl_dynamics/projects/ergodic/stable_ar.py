@@ -95,8 +95,8 @@ class StableARModel(models.BaseModel):
     x0 = batch["x0"]
     # When using data parallelism, it will add an extra dimension due to the
     # pmap_reshape, so this line is to avoid shape mismatches.
-    tspan = batch["tspan"].reshape((-1,))
-    rollout_weight = batch["rollout_weight"].reshape((-1,))
+    tspan = batch["tspan"][0]
+    rollout_weight = batch["rollout_weight"][0]
 
     if self.conf.add_noise:
       noise = self.conf.noise_level + jax.random.normal(rng, x0.shape)
@@ -218,7 +218,7 @@ class StableARModel(models.BaseModel):
     Returns:
       A dictionary with all the evaluation variables.
     """
-    tspan = batch["tspan"].reshape((-1,))
+    tspan = batch["tspan"][0]
     # Keep extra step for plot functions.
     pred_trajs = self.pred_integrator(batch["ic"], tspan, variables)[
         :, self.conf.num_lookback_steps - 1 :, ...
@@ -466,11 +466,11 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     batch_dict = dict(
         x0=x0,
         true=true,
-        tspan=np.tile(tspan, (jax.device_count(), 1)),
-        rollout_weight=np.tile(rollout_weight, (jax.device_count(), 1)),
+        tspan=np.tile(tspan[None, :], (x0.shape[0], 1)),
+        rollout_weight=np.tile(rollout_weight[None, :], (x0.shape[0], 1)),
     )
 
-    return jax.jit(trainers.reshape_for_pmap)(batch_dict)
+    return batch_dict
 
   def preprocess_train_batch(
       self, batch_data: trainers.BatchType, step: int, rng: Array
@@ -515,10 +515,10 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     batch_dict = dict(
         ic=ic,
         true=batch_data["u"],
-        tspan=np.tile(tspan, (jax.device_count(), 1)),
+        tspan=jnp.tile(tspan[None, :], (ic.shape[0], 1)),
     )
 
-    return jax.jit(trainers.reshape_for_pmap)(batch_dict)
+    return batch_dict
 
 
 class PlotFigures(callbacks.Callback):
