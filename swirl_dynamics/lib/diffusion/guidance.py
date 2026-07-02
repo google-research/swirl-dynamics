@@ -282,7 +282,7 @@ class ClassifierFreeHybrid:
           1 + self.guidance_strength
       ) * cond_denoised - self.guidance_strength * uncond_denoised
 
-    return _guided_denoise
+    return _guided_denoise  # pyrefly: ignore[bad-return]
 
 
 @flax.struct.dataclass
@@ -350,8 +350,8 @@ class ClassifierFreeContrastive:
           for k, v in cond.items()
       }
       constrastive_denoised = denoise_fn(x, sigma, contrastive_cond)
-      return (1 + self.guidance_strength) * denoise_fn(
+      return (1 + self.guidance_strength) * denoise_fn(  # pyrefly: ignore[bad-return]
           x, sigma, cond
       ) - self.guidance_strength * constrastive_denoised
 
-    return _guided_denoise
+    return _guided_denoise  # pyrefly: ignore[bad-return]

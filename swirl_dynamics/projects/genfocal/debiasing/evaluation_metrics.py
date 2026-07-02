@@ -54,7 +54,7 @@ def radial_spectra(
     rad_energy = jax.vmap(energy_k)(jnp.arange(1, num_bins))
     return rad_energy
 
-  return jax.jit(_radial_spectra), bins[1:]
+  return jax.jit(_radial_spectra), bins[1:]  # pyrefly: ignore[bad-return]
 
 
 def build_vectorized_function(

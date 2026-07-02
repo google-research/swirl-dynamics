@@ -33,10 +33,10 @@ def read_stats(
     field: Literal["mean", "std"],
 ) -> dict[str, np.ndarray]:
   """Reads variables from a zarr dataset and returns as a dict of ndarrays."""
-  ds = xrts.open_zarr(dataset)
+  ds = xrts.open_zarr(dataset)  # pyrefly: ignore[bad-argument-type]
   out = {}
   for var, indexers in variables.items():
-    indexers = indexers | {"stats": field} if indexers else {"stats": field}
+    indexers = indexers | {"stats": field} if indexers else {"stats": field}  # pyrefly: ignore[unsupported-operation]
     stats = ds[var].sel(indexers).to_numpy()
     assert stats.ndim == 2 or stats.ndim == 3
     stats = np.expand_dims(stats, axis=-1) if stats.ndim == 2 else stats
@@ -222,7 +222,7 @@ class ComputeWindSpeedExactNested(pygrain.MapTransform):
     ) / self.std[self.speed_field]
 
     if self.remove_inputs:
-      del (
+      del (  # pyrefly: ignore[unsupported-delete]
           features[self.main_field][self.u_field],
           features[self.main_field][self.v_field],
       )

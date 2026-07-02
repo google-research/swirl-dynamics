@@ -354,7 +354,7 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
 
     # shape: (batch, num_frames, hw, emb_dim)
     for axis in attention_axes:
-      x = _run_attention_on_axis(x, emb, axis, three_dim_shape)
+      x = _run_attention_on_axis(x, emb, axis, three_dim_shape)  # pyrefly: ignore[bad-argument-type]
 
     # MLP block.
     x = jnp.reshape(x, (batch_size, num_tokens, emb_dim))
@@ -422,8 +422,8 @@ class TransformerEmbeddingBlock(nn.Module):
     # TODO: add more embeddings in here.
     if self.positional_embedding == 'sinusoidal_3d':
       batch, num_tokens, hidden_dim = inputs.shape
-      height = width = int(np.sqrt(num_tokens // self.temporal_dims))
-      if height * width * self.temporal_dims != num_tokens:
+      height = width = int(np.sqrt(num_tokens // self.temporal_dims))  # pyrefly: ignore[unsupported-operation]
+      if height * width * self.temporal_dims != num_tokens:  # pyrefly: ignore[unsupported-operation]
         raise ValueError('Input is assumed to be square for sinusoidal init.',
                          f'Instead the input shape is {inputs.shape}, which ',
                          f'leads to {height}x{width}x{self.temporal_dims}')
@@ -640,9 +640,9 @@ class PreconditionedDenoiser(ViViTDiffusion):
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
 
     f_x = super().__call__(
         jnp.multiply(c_in, x), c_noise, cond, is_training=is_training

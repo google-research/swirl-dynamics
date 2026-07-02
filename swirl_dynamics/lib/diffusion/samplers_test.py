@@ -40,7 +40,7 @@ class TimeStepSchedulersTest(parameterized.TestCase):
 
     with self.subTest("end_sigma_test"):
       tspan = samplers.uniform_time(
-          scheme, num_steps, end_time=None, end_sigma=sigma_schedule(end_time)
+          scheme, num_steps, end_time=None, end_sigma=sigma_schedule(end_time)  # pyrefly: ignore[bad-argument-type]
       )
       np.testing.assert_allclose(tspan, np.asarray(expected), atol=1e-6)
 

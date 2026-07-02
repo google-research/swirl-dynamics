@@ -327,7 +327,7 @@ class TemporalEncoder(nn.Module):
     kernel_init_method = self.temporal_encoding_config.get('kernel_init_method',
                                                            None)
 
-    x = Embedding3D(patches=self.patches,
+    x = Embedding3D(patches=self.patches,  # pyrefly: ignore[bad-argument-type]
                     embedding_dim=self.hidden_size,
                     kernel_init_method=kernel_init_method)(inputs, train=train)
 
@@ -696,8 +696,8 @@ class TransformerBlock(nn.Module):
     if self.positional_embedding == 'sinusoidal_3d':
       batch, num_tokens, hidden_dim = inputs.shape
       # TODO: change this one to handle non-square domains.
-      height = width = int(np.sqrt(num_tokens // self.temporal_dims))
-      if height * width * self.temporal_dims != num_tokens:
+      height = width = int(np.sqrt(num_tokens // self.temporal_dims))  # pyrefly: ignore[unsupported-operation]
+      if height * width * self.temporal_dims != num_tokens:  # pyrefly: ignore[unsupported-operation]
         raise ValueError('Input is assumed to be square in the '
                          'spatial dimensions for sinusoidal init. Instead the '
                          f'dimensions are {height} and {width}.')

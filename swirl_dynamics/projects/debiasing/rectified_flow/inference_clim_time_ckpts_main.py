@@ -108,7 +108,7 @@ def inference_pipeline(
   # Using the default values. TODO: Refactor this.
   if lens2_member_indexer is None:
     logging.info("Using the default lens2_member_indexer")
-    lens2_member_indexer = _LENS2_MEMBER_INDEXER
+    lens2_member_indexer = _LENS2_MEMBER_INDEXER  # pyrefly: ignore[bad-assignment]
   if era5_variables is None:
     logging.info("Using the default era5_variables")
     era5_variables = _ERA5_VARIABLES
@@ -168,8 +168,8 @@ def inference_pipeline(
       config_eval=config_eval,
       batch_size=batch_size_eval * num_devices,
       lens2_member_indexer=lens2_member_indexer,
-      lens2_variable_names=lens2_variable_names,
-      era5_variables=era5_variables,
+      lens2_variable_names=lens2_variable_names,  # pyrefly: ignore[bad-argument-type]
+      era5_variables=era5_variables,  # pyrefly: ignore[bad-argument-type]
       date_range=date_range,
       regime="test",  # This is the inference regime.
   )

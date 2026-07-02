@@ -348,12 +348,12 @@ class GlobalSkipUNetDenoiser(GlobalSkipUNet):
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
 
     f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
+        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training  # pyrefly: ignore[bad-argument-type]
     )
     return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
 
@@ -530,11 +530,11 @@ class ResConvNetDenoiser(ResConvNet):
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
 
     f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
+        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training  # pyrefly: ignore[bad-argument-type]
     )
     return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)

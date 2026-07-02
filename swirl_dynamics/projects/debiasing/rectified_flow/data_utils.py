@@ -210,14 +210,14 @@ class UnpairedDataLoader:
       worker_count: int = 0,
   ):
 
-    loader, normalize_stats_a = create_loader_from_hdf5(
+    loader, normalize_stats_a = create_loader_from_hdf5(  # pyrefly: ignore[bad-assignment]
         batch_size=batch_size,
         dataset_path=dataset_path_a,
         seed=seed,
         split=split,
         spatial_downsample_factor=spatial_downsample_factor_a,
         normalize=normalize,
-        normalize_stats=normalize_stats_a,
+        normalize_stats=normalize_stats_a,  # pyrefly: ignore[bad-argument-type]
         output_name="x_0",
         drop_remainder=drop_remainder,
         worker_count=worker_count,
@@ -225,14 +225,14 @@ class UnpairedDataLoader:
 
     self.loader_a = iter(loader)
 
-    loader, normalize_stats_b = create_loader_from_hdf5(
+    loader, normalize_stats_b = create_loader_from_hdf5(  # pyrefly: ignore[bad-assignment]
         batch_size=batch_size,
         dataset_path=dataset_path_b,
         seed=seed,
         split=split,
         spatial_downsample_factor=spatial_downsample_factor_b,
         normalize=normalize,
-        normalize_stats=normalize_stats_b,
+        normalize_stats=normalize_stats_b,  # pyrefly: ignore[bad-argument-type]
         output_name="x_1",
         drop_remainder=drop_remainder,
         worker_count=worker_count,
@@ -350,10 +350,10 @@ def read_stats(
     use_batched: bool = False,
 ) -> dict[str, np.ndarray]:
   """Reads variables from a zarr dataset and returns as a dict of ndarrays."""
-  ds = xrts.open_zarr(dataset)
+  ds = xrts.open_zarr(dataset)  # pyrefly: ignore[bad-argument-type]
   out = {}
   for var, indexers in variables.items():
-    indexers = indexers | {"stats": field} if indexers else {"stats": field}
+    indexers = indexers | {"stats": field} if indexers else {"stats": field}  # pyrefly: ignore[unsupported-operation]
     stats = ds[var].sel(indexers).to_numpy()
     assert stats.ndim == 2 or stats.ndim == 3
     stats = np.expand_dims(stats, axis=-1) if stats.ndim == 2 else stats
@@ -406,7 +406,7 @@ class CommonSource(abc.ABC):
       time_stamps: Whether to add the time stamps to the samples.
     """
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
-    ds = xrts.open_zarr(dataset_path).sel(time=slice(*date_range))
+    ds = xrts.open_zarr(dataset_path).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
 
     if dims_order:
       ds = ds.transpose(*dims_order)
@@ -449,7 +449,7 @@ class SingleSource(CommonSource):
   def __len__(self) -> int:
     return self._len
 
-  def _compute_len(self, _time_array: np.ndarray) -> int:
+  def _compute_len(self, _time_array: np.ndarray) -> int:  # pyrefly: ignore[bad-override]
     return len(_time_array)
 
   def _compute_time_idx(self, idx: int) -> int:
@@ -486,7 +486,7 @@ class ContiguousSource(CommonSource):
   def __len__(self) -> int:
     return self._len
 
-  def _compute_len(self, _time_array: np.ndarray, chunk_size: int) -> int:
+  def _compute_len(self, _time_array: np.ndarray, chunk_size: int) -> int:  # pyrefly: ignore[bad-override]
     return len(_time_array) - chunk_size + 1
 
   def _compute_time_idx(self, idx: int) -> slice:
@@ -565,9 +565,9 @@ class DataSourceContiguousEnsembleWithStats:
 
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
-    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))
-    output_ds = xrts.open_zarr(output_dataset).sel(time=slice(*date_range))
-    input_stats_ds = xrts.open_zarr(input_stats_dataset)
+    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
+    output_ds = xrts.open_zarr(output_dataset).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
+    input_stats_ds = xrts.open_zarr(input_stats_dataset)  # pyrefly: ignore[bad-argument-type]
 
     if dims_order_input:
       input_ds = input_ds.transpose(*dims_order_input)
@@ -636,7 +636,7 @@ class DataSourceContiguousEnsembleWithStats:
 
         rng = np.random.default_rng(self._resample_seed + idx)
         resample_idx = rng.integers(0, len(self))
-        item = self.get_item(resample_idx)
+        item = self.get_item(resample_idx)  # pyrefly: ignore[bad-argument-type]
 
     return item
 
@@ -748,8 +748,8 @@ class DataSourceContiguousEnsembleNonOverlappingWithStatsLENS2:
 
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
-    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))
-    input_stats_ds = xrts.open_zarr(input_stats_dataset)
+    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
+    input_stats_ds = xrts.open_zarr(input_stats_dataset)  # pyrefly: ignore[bad-argument-type]
 
     if dims_order_input:
       input_ds = input_ds.transpose(*dims_order_input)
@@ -799,7 +799,7 @@ class DataSourceContiguousEnsembleNonOverlappingWithStatsLENS2:
 
         rng = np.random.default_rng(self._resample_seed + idx)
         resample_idx = rng.integers(0, len(self))
-        item = self.get_item(resample_idx)
+        item = self.get_item(resample_idx)  # pyrefly: ignore[bad-argument-type]
 
     return item
 
@@ -910,7 +910,7 @@ def create_era5_loader(
   )
 
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=None,
       shuffle=shuffle,
       seed=seed,
@@ -988,7 +988,7 @@ def create_lens2_loader(
   )
 
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=None,
       shuffle=shuffle,
       seed=seed,
@@ -1064,7 +1064,7 @@ def create_chunked_era5_loader(
       ),
   ]
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=None,
       shuffle=shuffle,
       seed=seed,
@@ -1145,7 +1145,7 @@ def create_chunked_lens2_loader(
   ]
 
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=None,
       shuffle=shuffle,
       seed=seed,
@@ -1255,7 +1255,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
   ]
 
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output",
           input_fields=(*output_variables.keys(),),
           output_field="x_1",
@@ -1264,7 +1264,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input",
           input_fields=(*input_variables.keys(),),
           output_field="x_0",
@@ -1274,7 +1274,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
   )
   # Also concatenating the statistics.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           output_field="channel:mean",
@@ -1283,7 +1283,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           output_field="channel:std",
@@ -1296,14 +1296,14 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
     # TODO: Add the option to shuffle the statistics.
     # Only input data is shuffled, along with the input statistics.
     transformations.append(
-        transforms.RandomShuffleChunk(
+        transforms.RandomShuffleChunk(  # pyrefly: ignore[bad-argument-type]
             input_fields=("x_0", "channel:mean", "channel:std"),
             batch_size=batch_size,
         ),
     )
   elif batch_ot_shuffle:
     transformations.append(
-        transforms.BatchOT(
+        transforms.BatchOT(  # pyrefly: ignore[bad-argument-type]
             input_field="x_0",
             output_field="x_1",
             batch_size=batch_size,
@@ -1313,7 +1313,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_stats(
     )
 
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=num_epochs,
       shuffle=shuffle,
       seed=seed,
@@ -1433,7 +1433,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
   ]
 
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output",
           input_fields=(*output_variables.keys(),),
           output_field="x_1",
@@ -1442,7 +1442,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input",
           input_fields=(*input_variables.keys(),),
           output_field="x_0",
@@ -1481,7 +1481,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
     )
 
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           output_field="channel:mean",
@@ -1490,7 +1490,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           output_field="channel:std",
@@ -1504,14 +1504,14 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
     # that the statistics are taken from different members. In this case is fine
     # as the chunks are all coming from the same LENS2 member.
     transformations.append(
-        transforms.RandomShuffleChunk(
+        transforms.RandomShuffleChunk(  # pyrefly: ignore[bad-argument-type]
             input_fields=("x_0", "channel:mean", "channel:std"),
             batch_size=chunk_size,
         ),
     )
   elif batch_ot_shuffle:
     transformations.append(
-        transforms.BatchOT(
+        transforms.BatchOT(  # pyrefly: ignore[bad-argument-type]
             input_field="x_0",
             output_field="x_1",
             batch_size=chunk_size,
@@ -1523,12 +1523,12 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
   # Performs the batching, the size of the leaves of each batch is given by
   # [num_chunks, chunk_size, lon, lat, channel].
   transformations.append(
-      pygrain.Batch(
+      pygrain.Batch(  # pyrefly: ignore[bad-argument-type]
           batch_size=num_chunks, drop_remainder=drop_remainder
       )
   )
   # Reshapes the batch to [batch_size, lon, lat, channel].
-  transformations.append(transforms.ReshapeBatch())
+  transformations.append(transforms.ReshapeBatch())  # pyrefly: ignore[bad-argument-type]
 
   sampler = pygrain.IndexSampler(
       num_records=len(source),
@@ -1538,7 +1538,7 @@ def create_ensemble_lens2_era5_loader_chunked_with_normalized_stats(
       shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
   )
   loader = pygrain.DataLoader(
-      data_source=source,
+      data_source=source,  # pyrefly: ignore[bad-argument-type]
       sampler=sampler,
       operations=transformations,
       worker_count=worker_count,
@@ -1640,7 +1640,7 @@ def create_lens2_loader_chunked_with_normalized_stats(
   # Standardizing the statistics (mean and std)
   empty_dict = {len: {} for len in variables.keys()}
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*variables.keys(),),
           mean=read_stats(
@@ -1650,7 +1650,7 @@ def create_lens2_loader_chunked_with_normalized_stats(
       ),
   )
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*variables.keys(),),
           mean=read_stats(mean_stats_path, empty_dict, "std", use_batched=True),
@@ -1680,14 +1680,14 @@ def create_lens2_loader_chunked_with_normalized_stats(
 
   if random_local_shuffle:
     transformations.append(
-        transforms.RandomShuffleChunk(
+        transforms.RandomShuffleChunk(  # pyrefly: ignore[bad-argument-type]
             input_fields=("x_0", "channel:mean", "channel:std"),
             batch_size=batch_size,
         ),
     )
   elif batch_ot_shuffle:
     transformations.append(
-        transforms.BatchOT(
+        transforms.BatchOT(  # pyrefly: ignore[bad-argument-type]
             input_field="x_0",
             output_field="x_1",
             batch_size=batch_size,
@@ -1700,12 +1700,12 @@ def create_lens2_loader_chunked_with_normalized_stats(
   # [num_chunks, chunk_size, lon, lat, channel]. We need to reshape the batch
   # to [batch_size, lon, lat, channel].
   transformations.append(
-      pygrain.Batch(
+      pygrain.Batch(  # pyrefly: ignore[bad-argument-type]
           batch_size=num_chunks, drop_remainder=drop_remainder
       )
   )
   # Reshapes the batch to [batch_size, lon, lat, channel].
-  transformations.append(transforms.ReshapeBatch())
+  transformations.append(transforms.ReshapeBatch())  # pyrefly: ignore[bad-argument-type]
 
   sampler = pygrain.IndexSampler(
       num_records=len(source),
@@ -1715,7 +1715,7 @@ def create_lens2_loader_chunked_with_normalized_stats(
       shard_options=pygrain.ShardByJaxProcess(drop_remainder=True),
   )
   loader = pygrain.DataLoader(
-      data_source=source,
+      data_source=source,  # pyrefly: ignore[bad-argument-type]
       sampler=sampler,
       operations=transformations,
       worker_count=worker_count,

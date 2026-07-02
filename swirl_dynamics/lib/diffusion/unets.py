@@ -554,7 +554,7 @@ class AxialMLPInterpConvMerge(MergeChannelCond):
     for key, value in sorted(cond.items()):
       if value.shape[-3:-1] == out_spatial_shape:
         continue
-      proc_cond[key] = Axial2DMLP(out_dims=value.shape[-3:-1])(value)
+      proc_cond[key] = Axial2DMLP(out_dims=value.shape[-3:-1])(value)  # pyrefly: ignore[bad-argument-type]
 
     merge_channel_cond = InterpConvMerge(
         embed_dim=self.embed_dim,
@@ -1108,9 +1108,9 @@ class PreconditionedDenoiser(UNet):
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
 
     f_x = super().__call__(
         jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
@@ -1163,9 +1163,9 @@ class HeavyTailedDenoiser(UNet):
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
 
     f_x = super().__call__(
         jnp.multiply(c_in, x), c_noise, cond, is_training=is_training

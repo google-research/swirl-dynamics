@@ -144,10 +144,10 @@ def sampling_from_batch(
   # Setting up the conditional ODE for the sampling.
   cond = {
       "channel:mean": move_time_to_channel(
-          batch["channel:mean"], time_chunk_size, time_to_channel
+          batch["channel:mean"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
       ),
       "channel:std": move_time_to_channel(
-          batch["channel:std"], time_chunk_size, time_to_channel
+          batch["channel:std"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
       ),
   }
 
@@ -179,17 +179,17 @@ def sampling_from_batch(
 
   # Running the integration. Then take the last state.
   out = integrate_fn(
-      move_time_to_channel(batch["x_0"], time_chunk_size, time_to_channel)
+      move_time_to_channel(batch["x_0"], time_chunk_size, time_to_channel)  # pyrefly: ignore[bad-argument-type]
   )[-1, :]
 
   # Denormalize the output according to output (ERA5) climatology.
   # In the case we use the reverse flow, the output is the LENS3 climatology.
   # This needs to be changed outside this function by modifying the statistics.
   era5_std = move_time_to_channel(
-      batch["output_std"], time_chunk_size, time_to_channel
+      batch["output_std"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
   era5_mean = move_time_to_channel(
-      batch["output_mean"], time_chunk_size, time_to_channel
+      batch["output_mean"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
   out = out * era5_std + era5_mean
 
@@ -256,25 +256,25 @@ def sampling_era5_to_era5_from_batch(
   # Setting up the conditional ODE for the sampling.
   cond = {
       "channel:mean": move_time_to_channel(
-          batch["channel:mean"], time_chunk_size, time_to_channel
+          batch["channel:mean"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
       ),
       "channel:std": move_time_to_channel(
-          batch["channel:std"], time_chunk_size, time_to_channel
+          batch["channel:std"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
       ),
   }
 
   # Extracts the (unnormalized) climatology for the input and output.
   lens2_std = move_time_to_channel(
-      batch["input_std"], time_chunk_size, time_to_channel
+      batch["input_std"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
   lens2_mean = move_time_to_channel(
-      batch["input_mean"], time_chunk_size, time_to_channel
+      batch["input_mean"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
   era5_std = move_time_to_channel(
-      batch["output_std"], time_chunk_size, time_to_channel
+      batch["output_std"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
   era5_mean = move_time_to_channel(
-      batch["output_mean"], time_chunk_size, time_to_channel
+      batch["output_mean"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
 
   latent_dynamics_fn = ode_solvers.nn_module_to_dynamics(
@@ -295,7 +295,7 @@ def sampling_era5_to_era5_from_batch(
   # Denormalizes the input according to the output (ERA5) climatology and it
   # normalizes according to the input (LENS2) climatology.
   era5_norm_era5 = move_time_to_channel(
-      batch["x_1"], time_chunk_size, time_to_channel
+      batch["x_1"], time_chunk_size, time_to_channel  # pyrefly: ignore[bad-argument-type]
   )
   denorm = era5_norm_era5 * era5_std + era5_mean
   # Normalize by the universal gravitational constant the geopotentials.

@@ -146,7 +146,7 @@ class ReFlowModel(models.BaseModel):
         rng, x=x, sigma=jnp.ones((1,)), is_training=False
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -196,12 +196,12 @@ class ReFlowModel(models.BaseModel):
       weighted_norm = self.weighted_norm
 
     # Eq. (1) in [1], but with a possibly weighted norm.
-    error = ((batch["x_1"] - batch["x_0"]) - v_t)
+    error = ((batch["x_1"] - batch["x_0"]) - v_t)  # pyrefly: ignore[unsupported-operation]
     loss = jnp.mean(weighted_norm * jnp.square(error))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -265,14 +265,14 @@ class ReFlowModel(models.BaseModel):
     return eval_losses
 
   @staticmethod
-  def inference_fn(variables: models.PyTree, flow_model: nn.Module):
+  def inference_fn(variables: models.PyTree, flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, time: float | Array) -> Array:
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(variables, x=x, sigma=time, is_training=False)
+      return flow_model.apply(variables, x=x, sigma=time, is_training=False)  # pyrefly: ignore[bad-return]
 
     return _flow
 
@@ -362,7 +362,7 @@ class ConditionalReFlowModel(ReFlowModel):
       weighted_norm = self.weighted_norm
 
     # Eq. (1) in [1], but with a possibly weighted norm.
-    error = ((batch["x_1"] - batch["x_0"]) - v_t)
+    error = ((batch["x_1"] - batch["x_0"]) - v_t)  # pyrefly: ignore[unsupported-operation]
     loss = jnp.mean(weighted_norm * jnp.square(error))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
@@ -457,7 +457,7 @@ class ConditionalReFlowModel(ReFlowModel):
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(
+      return flow_model.apply(  # pyrefly: ignore[bad-return]
           variables, x=x, sigma=time, cond=cond, is_training=False
       )
 

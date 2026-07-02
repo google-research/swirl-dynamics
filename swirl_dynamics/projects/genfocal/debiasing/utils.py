@@ -366,7 +366,7 @@ def build_model_from_config(
         use_position_encoding=config.use_position_encoding,
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
-        ffn_type=config.ffn_type,
+        ffn_type=config.ffn_type,  # pyrefly: ignore[bad-argument-type]
         dtype=dtype,
         param_dtype=dtype,
     )

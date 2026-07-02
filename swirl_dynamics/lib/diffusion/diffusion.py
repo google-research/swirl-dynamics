@@ -65,7 +65,7 @@ def sigma2logsnr(sigma: InvertibleSchedule) -> InvertibleSchedule:
 
 def logsnr2sigma(logsnr: InvertibleSchedule) -> InvertibleSchedule:
   """Converts a logsnr schedule to a sigma schedule."""
-  forward = lambda t: jnp.exp(-logsnr(t) / 2)
+  forward = lambda t: jnp.exp(-logsnr(t) / 2)  # pyrefly: ignore[unsupported-operation]
   inverse = lambda sigma: logsnr.inverse(-2 * jnp.log(sigma))
   return InvertibleSchedule(forward, inverse)
 
@@ -320,7 +320,7 @@ def _uniform_samples(
   """Generates samples from uniform distribution on [0, 1]."""
   if uniform_grid:
     s0 = jax.random.uniform(rng, dtype=jnp.float32)
-    grid = jnp.linspace(0, 1, np.prod(shape), endpoint=False, dtype=jnp.float32)
+    grid = jnp.linspace(0, 1, np.prod(shape), endpoint=False, dtype=jnp.float32)  # pyrefly: ignore[no-matching-overload]
     samples = jnp.reshape(jnp.remainder(grid + s0, 1), shape)
   else:
     samples = jax.random.uniform(rng, shape, dtype=jnp.float32)
@@ -419,7 +419,7 @@ def edm_weighting(data_std: float = 1.0) -> NoiseLossWeighting:
         data_std * sigma
     )
 
-  return _weight_fn
+  return _weight_fn  # pyrefly: ignore[bad-return]
 
 
 def t_edm_weighting(df: int, data_std: float = 1.0) -> NoiseLossWeighting:
@@ -444,4 +444,4 @@ def t_edm_weighting(df: int, data_std: float = 1.0) -> NoiseLossWeighting:
     den = (df / (df - 2)) * jnp.square(sigma * data_std)
     return num / den
 
-  return _weight_fn
+  return _weight_fn  # pyrefly: ignore[bad-return]

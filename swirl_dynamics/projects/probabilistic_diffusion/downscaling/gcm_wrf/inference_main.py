@@ -122,10 +122,10 @@ _RANDOM_MASKOUT_PROBABILITY = flags.DEFINE_float(
 def main(_):
   logs_dir = _LOGS_DIR.value
   config_path = tf.io.gfile.glob(
-      f'{os.path.dirname(logs_dir)}/config_file/*.gin'
+      f'{os.path.dirname(logs_dir)}/config_file/*.gin'  # pyrefly: ignore[no-matching-overload]
   )[0]
   gin.parse_config_file(config_path)
-  dataset_config = config_lib.DatasetConfig()
+  dataset_config = config_lib.DatasetConfig()  # pyrefly: ignore[missing-argument]
   batch_size = _BATCH_SIZE.value
   date_range = (_EVAL_DATE_START.value, _EVAL_DATE_END.value)
   samples_per_cond = _SAMPLES_PER_COND.value
@@ -147,7 +147,7 @@ def main(_):
         'the full high resolution data.'
     )
 
-  out_path = os.path.join(
+  out_path = os.path.join(  # pyrefly: ignore[no-matching-overload]
       logs_dir,
       'inference',
       os.path.basename(model_dir),
@@ -313,7 +313,7 @@ def main(_):
           dataset_config.output_variables + derived_vars,
       )
       generated_samples = jnp.concatenate(
-          (generated_samples, derived_samples), axis=-1
+          (generated_samples, derived_samples), axis=-1  # pyrefly: ignore[bad-argument-type]
       )
 
     if batch_id == 0:
@@ -349,13 +349,13 @@ def main(_):
             inputs,
             dataset_config.input_variables + derived_vars,
         )
-        inputs = jnp.concatenate((inputs, derived_inputs), axis=-1)
+        inputs = jnp.concatenate((inputs, derived_inputs), axis=-1)  # pyrefly: ignore[bad-argument-type]
 
         derived_targets = eval_lib.get_derived_fields(
             targets,
             dataset_config.output_variables + derived_vars,
         )
-        targets = jnp.concatenate((targets, derived_targets), axis=-1)
+        targets = jnp.concatenate((targets, derived_targets), axis=-1)  # pyrefly: ignore[bad-argument-type]
 
       input_ds_list.append(
           inference_lib.batch_to_dataset(

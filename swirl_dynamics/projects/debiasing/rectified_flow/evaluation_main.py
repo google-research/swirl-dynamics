@@ -91,7 +91,7 @@ def read_stats(
   if not era5_variables:
     era5_variables = _ERA5_VARIABLES
   if not lens2_variables:
-    lens2_variables = _LENS2_VARIABLES
+    lens2_variables = _LENS2_VARIABLES  # pyrefly: ignore[bad-assignment]
 
   mean_era5_dict = data_utils.read_stats(
       _ERA5_STATS_PATH, era5_variables, "mean"
@@ -99,10 +99,10 @@ def read_stats(
   std_era5_dict = data_utils.read_stats(_ERA5_STATS_PATH, era5_variables, "std")
 
   mean_lens2_dict = data_utils.read_stats(
-      _LENS2_STATS_PATH, lens2_variables, "mean"
+      _LENS2_STATS_PATH, lens2_variables, "mean"  # pyrefly: ignore[bad-argument-type]
   )
   std_lens2_dict = data_utils.read_stats(
-      _LENS2_STATS_PATH, lens2_variables, "std"
+      _LENS2_STATS_PATH, lens2_variables, "std"  # pyrefly: ignore[bad-argument-type]
   )
 
   mean_array = []
@@ -149,13 +149,13 @@ def read_normalized_stats(
    The ensemble mean and std of the trajectory mean and std.
   """
   if not lens2_variables:
-    lens2_variables = _LENS2_VARIABLES
+    lens2_variables = _LENS2_VARIABLES  # pyrefly: ignore[bad-assignment]
 
   print("Reading the normalized statistics of LENS2 across ensemble members.")
   print(f"LENS2 variables {lens2_variables}")
 
   # We extract the keys, which are the fields of the dataset.
-  keys_dict = {len: {} for len in lens2_variables.keys()}
+  keys_dict = {len: {} for len in lens2_variables.keys()}  # pyrefly: ignore[missing-attribute]
   mean_mean = data_utils.read_stats(_LENS2_MEAN_STATS_PATH, keys_dict, "mean")
   mean_std = data_utils.read_stats(_LENS2_MEAN_STATS_PATH, keys_dict, "std")
 
@@ -244,14 +244,14 @@ def evaluation_pipeline(
   # Using the default values. TODO: Refactor this.
   if lens2_member_indexer is None:
     logging.info("Using the default lens2_member_indexer")
-    lens2_member_indexer = _LENS2_MEMBER_INDEXER
+    lens2_member_indexer = _LENS2_MEMBER_INDEXER  # pyrefly: ignore[bad-assignment]
   if era5_variables is None:
     logging.info("Using the default era5_variables")
     era5_variables = _ERA5_VARIABLES
 
   # This is within the lens2_member_indexer tuple of dictionaries.
   # TODO: Refactor this.
-  lens2_indexer = lens2_member_indexer[0]["member"]
+  lens2_indexer = lens2_member_indexer[0]["member"]  # pyrefly: ignore[unsupported-operation]
 
   # We leverage parallelization among current devices.
   num_devices = jax.local_device_count()
@@ -308,8 +308,8 @@ def evaluation_pipeline(
       config_eval=config_eval,
       batch_size=batch_size_eval * num_devices,
       lens2_member_indexer=lens2_member_indexer,
-      lens2_variable_names=lens2_variable_names,
-      era5_variables=era5_variables,
+      lens2_variable_names=lens2_variable_names,  # pyrefly: ignore[bad-argument-type]
+      era5_variables=era5_variables,  # pyrefly: ignore[bad-argument-type]
       date_range=date_range,
       regime="eval",
   )
@@ -370,16 +370,16 @@ def evaluation_pipeline(
   ) / np.mean(np.sqrt(np.sum(np.square(target_array), axis=(1, 2))), axis=0)
 
   wass_err_dict = metrics.wass1_error(
-      input_array, output_array, target_array, variables=variables
+      input_array, output_array, target_array, variables=variables  # pyrefly: ignore[bad-argument-type]
   )
   log_energy_dict = metrics.log_energy_error(
-      input_array, output_array, target_array, variables=variables
+      input_array, output_array, target_array, variables=variables  # pyrefly: ignore[bad-argument-type]
   )
 
   mean_err_dict = metrics.smoothed_average_l1_error(
-      input_array,
-      output_array,
-      target_array,
+      input_array,  # pyrefly: ignore[bad-argument-type]
+      output_array,  # pyrefly: ignore[bad-argument-type]
+      target_array,  # pyrefly: ignore[bad-argument-type]
       variables=variables,
   )
 

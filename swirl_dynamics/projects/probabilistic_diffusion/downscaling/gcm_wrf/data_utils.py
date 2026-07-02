@@ -77,7 +77,7 @@ def get_common_times_dataset(
 ) -> pd.DatetimeIndex:
   """Filters a dataset to cover dates contained in the given date_range."""
   times = get_common_times(ds, date_range)
-  return ds.sel(time=times)
+  return ds.sel(time=times)  # pyrefly: ignore[bad-return]
 
 
 def replace_time_with_doy(ds: xr.Dataset) -> xr.Dataset:
@@ -148,7 +148,7 @@ def compute_rolling_stat(
   elif stat_fn == 'std':
     rolling_stat = stacked.weighted(window_weights).std(dim=('window', 'year'))
   else:
-    rolling_stat = stat_fn(
+    rolling_stat = stat_fn(  # pyrefly: ignore[not-callable]
         stacked, weights=window_weights, dim=('window', 'year')
     )
   # Remove edges

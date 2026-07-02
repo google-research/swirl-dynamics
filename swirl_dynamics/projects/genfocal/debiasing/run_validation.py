@@ -160,7 +160,7 @@ def evaluation_pipeline(
       batch_size=batch_size_eval * num_devices,
       lens2_member_indexer=lens2_member_indexer,
       lens2_variable_names=lens2_variable_names,
-      era5_variables=era5_variables,
+      era5_variables=era5_variables,  # pyrefly: ignore[bad-argument-type]
       date_range=date_range,
       regime="eval",
   )
@@ -221,16 +221,16 @@ def evaluation_pipeline(
   ) / np.mean(np.sqrt(np.sum(np.square(target_array), axis=(1, 2))), axis=0)
 
   wass_err_dict = metrics.wass1_error(
-      input_array, output_array, target_array, variables=variables
+      input_array, output_array, target_array, variables=variables  # pyrefly: ignore[bad-argument-type]
   )
   log_energy_dict = metrics.log_energy_error(
-      input_array, output_array, target_array, variables=variables
+      input_array, output_array, target_array, variables=variables  # pyrefly: ignore[bad-argument-type]
   )
 
   mean_err_dict = metrics.smoothed_average_l1_error(
-      input_array,
-      output_array,
-      target_array,
+      input_array,  # pyrefly: ignore[bad-argument-type]
+      output_array,  # pyrefly: ignore[bad-argument-type]
+      target_array,  # pyrefly: ignore[bad-argument-type]
       variables=variables,
   )
 

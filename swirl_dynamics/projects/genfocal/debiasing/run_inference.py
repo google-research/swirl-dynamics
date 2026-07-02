@@ -151,7 +151,7 @@ def inference_pipeline(
       batch_size=batch_size_eval * num_devices,
       lens2_member_indexer=lens2_member_indexer,
       lens2_variable_names=lens2_variable_names,
-      era5_variables=era5_variables,
+      era5_variables=era5_variables,  # pyrefly: ignore[bad-argument-type]
       date_range=date_range,
       regime="test" if not reverse_flow else "eval",
   )

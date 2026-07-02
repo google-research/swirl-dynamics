@@ -708,90 +708,90 @@ class PairedDownscalingEvaluator(evaluate.Evaluator):
   """Evaluator for the conditional sampling benchmark."""
 
   @flax.struct.dataclass
-  class AggregatingMetrics(clu_metrics.Collection):
+  class AggregatingMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
     """Aggregated metric definitions for the PairedDownscalingEvaluator."""
 
     # Time-averaged spatial metrics
     crps: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("crps")
         .from_fun(_unmasked("crps"))
     )
     bias: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("bias")
         .from_fun(_unmasked("bias"))
     )
     ens_mean_mse: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("ens_mean_mse")
         .from_fun(_unmasked("ens_mean_mse"))
     )
     ens_variance: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("ens_var")
         .from_fun(_unmasked("ens_var"))
     )
     # Spread skill ratio (https://doi.org/10.1175/JHM-D-14-0008.1)
-    variance_mse_ratio: evaluate.TensorRatio(axis=0).from_outputs(
+    variance_mse_ratio: evaluate.TensorRatio(axis=0).from_outputs(  # pyrefly: ignore[invalid-annotation]
         "ens_var", "ens_mean_mse"
     )
 
     # Time-averaged spectra
     radial_spectrum: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("radial_spectrum")
         .from_fun(_unmasked("radial_spectrum"))
     )
     obs_radial_spectrum: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("obs_radial_spectrum")
         .from_fun(_unmasked("obs_radial_spectrum"))
     )
     radial_spectrum_log_ratio: (
-        evaluate.TensorAverage(axis=0)
+        evaluate.TensorAverage(axis=0)  # pyrefly: ignore[invalid-annotation]
         .from_output("radial_spectrum_log_ratio")
         .from_fun(_unmasked("radial_spectrum_log_ratio"))
     )
 
     # Time and space averaged metrics
     global_mean_crps: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("crps")
         .from_fun(_unmasked("crps"))
     )
     global_mean_bias: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("bias")
         .from_fun(_unmasked("bias"))
     )
     global_mean_ens_mean_mse: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("ens_mean_mse")
         .from_fun(_unmasked("ens_mean_mse"))
     )
     global_mean_ens_variance: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("ens_var")
         .from_fun(_unmasked("ens_var"))
     )
-    global_mean_variance_mse_ratio: evaluate.TensorRatio(
+    global_mean_variance_mse_ratio: evaluate.TensorRatio(  # pyrefly: ignore[invalid-annotation]
         axis=(0, 1, 2)
     ).from_outputs("ens_var", "ens_mean_mse")
 
     # Land-only metrics
     land_mean_crps: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("crps")
         .from_fun(_masked("crps"))
     )
     land_mean_bias: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("bias")
         .from_fun(_masked("bias"))
     )
     land_mean_ens_mean_mse: (
-        evaluate.TensorAverage(axis=(0, 1, 2))
+        evaluate.TensorAverage(axis=(0, 1, 2))  # pyrefly: ignore[invalid-annotation]
         .from_output("ens_mean_mse")
         .from_fun(_masked("ens_mean_mse"))
     )

@@ -142,10 +142,10 @@ def main(_):
 
   logs_dir = _LOGS_DIR.value
   config_path = tf.io.gfile.glob(
-      f'{os.path.dirname(logs_dir)}/config_file/*.gin'
+      f'{os.path.dirname(logs_dir)}/config_file/*.gin'  # pyrefly: ignore[no-matching-overload]
   )[0]
   gin.parse_config_file(config_path)
-  dataset_config = config_lib.DatasetConfig()
+  dataset_config = config_lib.DatasetConfig()  # pyrefly: ignore[missing-argument]
   batch_size = 1  # Required by eval benchmarks
   sample_batch_size = _SAMPLE_BATCH_SIZE.value
   date_range = (_EVAL_DATE_START.value, _EVAL_DATE_END.value)
@@ -165,7 +165,7 @@ def main(_):
         'the full high resolution data.'
     )
 
-  out_path = os.path.join(
+  out_path = os.path.join(  # pyrefly: ignore[no-matching-overload]
       logs_dir,
       'eval_metrics',
       os.path.basename(model_dir),

@@ -324,8 +324,8 @@ class SdeSampler(dfn_lib.SdeSampler):
         num_samples, rng, cond, guidance_inputs
     )
 
-    broadcast_shape = (1,) * (len(cond["channel:input"].shape) - 1)
-    added_input = cond["channel:input"] * jax.lax.broadcast(
+    broadcast_shape = (1,) * (len(cond["channel:input"].shape) - 1)  # pyrefly: ignore[unsupported-operation]
+    added_input = cond["channel:input"] * jax.lax.broadcast(  # pyrefly: ignore[unsupported-operation]
         jnp.array(input_std), broadcast_shape
     ) + jax.lax.broadcast(jnp.array(input_mean), broadcast_shape)
 

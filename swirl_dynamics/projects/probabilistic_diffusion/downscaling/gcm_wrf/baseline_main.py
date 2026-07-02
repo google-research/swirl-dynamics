@@ -159,10 +159,10 @@ def input_as_output(
 def main(_):
   logs_dir = _LOGS_DIR.value
   config_path = tf.io.gfile.glob(
-      f'{os.path.dirname(logs_dir)}/config_file/*.gin'
+      f'{os.path.dirname(logs_dir)}/config_file/*.gin'  # pyrefly: ignore[no-matching-overload]
   )[0]
   gin.parse_config_file(config_path)
-  dataset_config = config_lib.DatasetConfig()
+  dataset_config = config_lib.DatasetConfig()  # pyrefly: ignore[missing-argument]
   batch_size = 1  # Required by eval benchmarks
   sample_batch_size = _SAMPLE_BATCH_SIZE.value
   date_range = (_EVAL_DATE_START.value, _EVAL_DATE_END.value)
@@ -171,16 +171,16 @@ def main(_):
   output_dataset = _OUTPUT_DATASET.value or dataset_config.output_dataset
   model_dir = os.path.dirname(output_dataset.rstrip('/'))
 
-  if 'hourly_d01_cubic_interpolated_to_d02' in _BASELINE_DATASET_PATH.value:
+  if 'hourly_d01_cubic_interpolated_to_d02' in _BASELINE_DATASET_PATH.value:  # pyrefly: ignore[not-iterable]
     baseline_name = 'interp_baseline'
-  elif 'bcsd' in _BASELINE_DATASET_PATH.value:
+  elif 'bcsd' in _BASELINE_DATASET_PATH.value:  # pyrefly: ignore[not-iterable]
     baseline_name = 'bcsd_baseline'
-  elif 'staresdm' in _BASELINE_DATASET_PATH.value:
+  elif 'staresdm' in _BASELINE_DATASET_PATH.value:  # pyrefly: ignore[not-iterable]
     baseline_name = 'staresdm_baseline'
   else:
     raise ValueError('Baseline dataset path not recognized.')
 
-  out_path = os.path.join(
+  out_path = os.path.join(  # pyrefly: ignore[no-matching-overload]
       logs_dir,
       f'{baseline_name}_metrics',
       os.path.basename(model_dir),
@@ -207,7 +207,7 @@ def main(_):
       'resample_seed': 42,
       'crop_input': False,
   }
-  source = paired_hourly.DataSource(**source_kwargs)
+  source = paired_hourly.DataSource(**source_kwargs)  # pyrefly: ignore[bad-argument-type]
   num_aggregation_batches = min(_NUM_AGGREGATION_BATCHES.value, len(source))
 
   output_coords = source.get_output_coords()
@@ -232,7 +232,7 @@ def main(_):
   logging.info('Evaluating metrics for fields: %s', output_coords['fields'])
 
   test_loader = paired_hourly.create_dataset(
-      **source_kwargs,
+      **source_kwargs,  # pyrefly: ignore[bad-argument-type]
       input_stats=None,  # We want to pass this through the identity function
       output_stats=None,  # We want to evaluate on physical space
       random_maskout_probability=0.0,

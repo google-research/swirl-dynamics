@@ -131,7 +131,7 @@ class PreconditioningTest(parameterized.TestCase):
       {"sigma": [0.2, 0.3]},
   )
   def test_precondition_module(self, sigma: float | Sequence[float]):
-    sigma = jnp.array(sigma)
+    sigma = jnp.array(sigma)  # pyrefly: ignore[bad-assignment]
     sigma_data = 1.5
     simple_network = SimpleNetwork()
     preconditioned_network = preconditioning.Preconditioned(
@@ -139,10 +139,10 @@ class PreconditioningTest(parameterized.TestCase):
     )
     x = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
 
-    output = preconditioned_network(x, sigma, is_training=False)
+    output = preconditioned_network(x, sigma, is_training=False)  # pyrefly: ignore[bad-argument-type]
 
     # Verification.
-    sigma_b = _broadcastable(sigma, x.shape)
+    sigma_b = _broadcastable(sigma, x.shape)  # pyrefly: ignore[bad-argument-type]
     expected_output = _expected_output(x, sigma_b, sigma_data)
     np.testing.assert_allclose(output, expected_output)
 
@@ -151,7 +151,7 @@ class PreconditioningTest(parameterized.TestCase):
       {"sigma": [0.2, 0.3]},
   )
   def test_precondition_decorator(self, sigma: float | Sequence[float]):
-    sigma = jnp.array(sigma)
+    sigma = jnp.array(sigma)  # pyrefly: ignore[bad-assignment]
     sigma_data = 1.5
     network = SimpleNetworkWithDecorator(sigma_data=sigma_data)
     x = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
@@ -159,7 +159,7 @@ class PreconditioningTest(parameterized.TestCase):
     output = network(x, sigma, is_training=False)
 
     # Verification.
-    sigma_b = _broadcastable(sigma, x.shape)
+    sigma_b = _broadcastable(sigma, x.shape)  # pyrefly: ignore[bad-argument-type]
     expected_output = _expected_output(x, sigma_b, sigma_data)
     np.testing.assert_allclose(output, expected_output)
 

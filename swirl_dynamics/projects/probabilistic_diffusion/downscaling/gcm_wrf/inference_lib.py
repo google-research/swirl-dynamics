@@ -54,7 +54,7 @@ def samples_to_dataset(
   dims = ['time', sample_dim, *spatial_dims]
   num_samples, n_south_north, n_west_east = samples.shape[1:4]
   if spatial_coords is None:
-    spatial_coords = {
+    spatial_coords = {  # pyrefly: ignore[bad-assignment]
         spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
         spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
     }
@@ -67,7 +67,7 @@ def samples_to_dataset(
       coords={
           'time': (['time'], times),
           sample_dim: ([sample_dim], range(num_samples)),
-          **spatial_coords,
+          **spatial_coords,  # pyrefly: ignore[invalid-argument]
       },
       attrs=dict(description=f'Downscaled {num_samples}-member ensembles.'),
   )
@@ -105,7 +105,7 @@ def batch_to_dataset(
   dims = ['time', *spatial_dims]
   n_south_north, n_west_east = batch.shape[1:3]
   if spatial_coords is None:
-    spatial_coords = {
+    spatial_coords = {  # pyrefly: ignore[bad-assignment]
         spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
         spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
     }
@@ -118,7 +118,7 @@ def batch_to_dataset(
       data_vars=data_vars,
       coords={
           'time': (['time'], times),
-          **spatial_coords,
+          **spatial_coords,  # pyrefly: ignore[invalid-argument]
       },
   )
   if singleton_dim_dict is not None:

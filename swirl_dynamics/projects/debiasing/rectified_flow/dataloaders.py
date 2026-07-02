@@ -126,7 +126,7 @@ def read_stats_simple(
   Returns:
     A dictionary of variables and their statistics.
   """
-  ds = xrts.open_zarr(dataset)
+  ds = xrts.open_zarr(dataset)  # pyrefly: ignore[bad-argument-type]
   out = {}
   for var in variables_names:
     var_idx = var + "_std" if field == "std" else var
@@ -226,11 +226,11 @@ class CommonSourceEnsemble(abc.ABC):
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
     # Open the datasets.
-    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))
-    output_ds = xrts.open_zarr(output_dataset).sel(time=slice(*date_range))
+    input_ds = xrts.open_zarr(input_dataset).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
+    output_ds = xrts.open_zarr(output_dataset).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
     # These contain the climatologies
-    input_stats_ds = xrts.open_zarr(input_climatology)
-    output_stats_ds = xrts.open_zarr(output_climatology)
+    input_stats_ds = xrts.open_zarr(input_climatology)  # pyrefly: ignore[bad-argument-type]
+    output_stats_ds = xrts.open_zarr(output_climatology)  # pyrefly: ignore[bad-argument-type]
 
     # Read the time arrays.
     self._input_time_array = xrts.read(input_ds["time"]).data
@@ -240,7 +240,7 @@ class CommonSourceEnsemble(abc.ABC):
     if self._output_time_array.size == 0:
       # This may happen when using the inference dataloader.
       logging.warning("Output time array is empty, setting to dummy value.")
-      output_ds = xrts.open_zarr(output_dataset)
+      output_ds = xrts.open_zarr(output_dataset)  # pyrefly: ignore[bad-argument-type]
 
     # Transpose the datasets if necessary.
     if dims_order_input:
@@ -471,7 +471,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
   def __len__(self):
     return self._len
 
-  def _compute_len(self) -> int:
+  def _compute_len(self) -> int:  # pyrefly: ignore[bad-override]
     return len(self._indexes) * self._len_time
 
   def _compute_indices(
@@ -593,7 +593,7 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
   def __len__(self):
     return self._len
 
-  def _compute_len(self) -> int:
+  def _compute_len(self) -> int:  # pyrefly: ignore[bad-override]
     return len(self._indexes) * self._len_time
 
   def _compute_indices(
@@ -723,7 +723,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
   def __len__(self):
     return self._len
 
-  def _compute_len(self) -> int:
+  def _compute_len(self) -> int:  # pyrefly: ignore[bad-override]
     return len(self._indexes) * self._len_time
 
   def _compute_indices(
@@ -754,7 +754,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     if len(daysofyear) != len(set(daysofyear)):
       raise ValueError(f"Dates are not unique: {daysofyear}")
 
-    return (member, dates, dates, daysofyear)
+    return (member, dates, dates, daysofyear)  # pyrefly: ignore[bad-return]
 
   def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
     return data_utils.maybe_expand_dims(
@@ -896,7 +896,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   ]
 
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output",
           input_fields=(*output_variables.keys(),),
           output_field="x_1",
@@ -905,7 +905,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input",
           input_fields=(*input_variables.keys(),),
           output_field="x_0",
@@ -915,7 +915,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   )
   # Also normalizing the statistics.
   transformations.append(
-      transforms.StandardizeNestedToNewField(
+      transforms.StandardizeNestedToNewField(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           main_output_field="channel:mean",
           input_fields=(*input_variables.keys(),),
@@ -933,7 +933,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   )
 
   transformations.append(
-      transforms.StandardizeNestedToNewField(
+      transforms.StandardizeNestedToNewField(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           main_output_field="channel:std",
           input_fields=(*input_variables.keys(),),
@@ -953,7 +953,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   # Concatenating the statistics.
   # The input statistics are normalized, as they are fed to the model.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="channel:mean",
           input_fields=(*input_variables.keys(),),
           output_field="channel:mean",
@@ -962,7 +962,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="channel:std",
           input_fields=(*input_variables.keys(),),
           output_field="channel:std",
@@ -973,7 +973,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
 
   # We also concatenate the raw input statistics.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           output_field="input_mean",
@@ -982,7 +982,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           output_field="input_std",
@@ -994,7 +994,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   # The output statistics are raw, as they are used to return the samples to the
   # original scale (mostly during inference).
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output_mean",
           input_fields=(*output_variables.keys(),),
           output_field="output_mean",
@@ -1003,7 +1003,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output_std",
           input_fields=(*output_variables.keys(),),
           output_field="output_std",
@@ -1013,7 +1013,7 @@ def create_ensemble_lens2_era5_loader_with_climatology(
   )
 
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=num_epochs,
       shuffle=shuffle,
       seed=seed,
@@ -1120,7 +1120,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   ]
 
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output",
           input_fields=(*output_variables.keys(),),
           output_field="x_1",
@@ -1129,7 +1129,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input",
           input_fields=(*input_variables.keys(),),
           output_field="x_0",
@@ -1139,7 +1139,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   )
   # Also standardizing the statistics.
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
@@ -1155,7 +1155,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
@@ -1172,7 +1172,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   )
   # Concatenating the statistics for the input.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           output_field="channel:mean",
@@ -1181,7 +1181,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           output_field="channel:std",
@@ -1191,7 +1191,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   )
   # Concatenating the statistics for the output.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output_mean",
           input_fields=(*output_variables.keys(),),
           output_field="output_mean",
@@ -1200,7 +1200,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output_std",
           input_fields=(*output_variables.keys(),),
           output_field="output_std",
@@ -1213,11 +1213,11 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   # version.
   # TODO: Refactor this for better readability.
   transformations.append(
-      pygrain.Batch(batch_size=num_chunks, drop_remainder=drop_remainder)
+      pygrain.Batch(batch_size=num_chunks, drop_remainder=drop_remainder)  # pyrefly: ignore[bad-argument-type]
   )
   # This one goes at the end.
   # Reshapes the batch to [batch, lon, lat, channel].
-  transformations.append(transforms.ReshapeBatch())
+  transformations.append(transforms.ReshapeBatch())  # pyrefly: ignore[bad-argument-type]
 
   sampler = pygrain.IndexSampler(
       num_records=len(source),
@@ -1228,7 +1228,7 @@ def create_ensemble_lens2_era5_chunked_loader_with_climatology(
   )
 
   return pygrain.DataLoader(
-      data_source=source,
+      data_source=source,  # pyrefly: ignore[bad-argument-type]
       sampler=sampler,
       operations=transformations,
       worker_count=worker_count,
@@ -1338,7 +1338,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   ]
 
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output",
           input_fields=(*output_variables.keys(),),
           output_field="x_1",
@@ -1347,7 +1347,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input",
           input_fields=(*input_variables.keys(),),
           output_field="x_0",
@@ -1357,7 +1357,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   )
   # Also standardizing the statistics.
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
@@ -1373,7 +1373,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.StandardizeNested(
+      transforms.StandardizeNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           mean=read_stats_simple(
@@ -1390,7 +1390,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   )
   # Concatenating the statistics for the input.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_mean",
           input_fields=(*input_variables.keys(),),
           output_field="channel:mean",
@@ -1399,7 +1399,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="input_std",
           input_fields=(*input_variables.keys(),),
           output_field="channel:std",
@@ -1409,7 +1409,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   )
   # Concatenating the statistics for the output.
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output_mean",
           input_fields=(*output_variables.keys(),),
           output_field="output_mean",
@@ -1418,7 +1418,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
       ),
   )
   transformations.append(
-      transforms.ConcatenateNested(
+      transforms.ConcatenateNested(  # pyrefly: ignore[bad-argument-type]
           main_field="output_std",
           input_fields=(*output_variables.keys(),),
           output_field="output_std",
@@ -1431,13 +1431,13 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
     # Reshapes to [new_chunk_size, lon, lat, channel * time_batch_size],
     # where new_chunk_size = chunk_size // time_batch_size.
     transformations.append(
-        transforms.TimeToChannel(time_batch_size=time_batch_size)
+        transforms.TimeToChannel(time_batch_size=time_batch_size)  # pyrefly: ignore[bad-argument-type]
     )
   else:
     # Reshapes to [new_chunk_size, time_batch_size, lon, lat, channel],
     # where new_chunk_size = chunk_size // time_batch_size.
     transformations.append(
-        transforms.TimeSplit(time_batch_size=time_batch_size)
+        transforms.TimeSplit(time_batch_size=time_batch_size)  # pyrefly: ignore[bad-argument-type]
     )
 
   # Here it performs the batching. We can either have the time dimension merged
@@ -1445,13 +1445,13 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   # [num_chunks, new_chunk_size, lon, lat, channel * time_batch_size] or
   # [num_chunks, new_chunk_size, time_batch_size, lon, lat, channel]
   transformations.append(
-      pygrain.Batch(batch_size=num_chunks, drop_remainder=drop_remainder)
+      pygrain.Batch(batch_size=num_chunks, drop_remainder=drop_remainder)  # pyrefly: ignore[bad-argument-type]
   )
 
   # Reshapes the batch again.
   # [num_chunks * new_chunk_size, lon, lat, channel * time_batch_size] or
   # [num_chunks * new_chunk_size, time_batch_size, lon, lat, channel]
-  transformations.append(transforms.ReshapeBatch())
+  transformations.append(transforms.ReshapeBatch())  # pyrefly: ignore[bad-argument-type]
 
   sampler = pygrain.IndexSampler(
       num_records=len(source),
@@ -1462,7 +1462,7 @@ def create_ensemble_lens2_era5_time_chunked_loader_with_climatology(
   )
 
   return pygrain.DataLoader(
-      data_source=source,
+      data_source=source,  # pyrefly: ignore[bad-argument-type]
       sampler=sampler,
       operations=transformations,
       worker_count=worker_count,
@@ -1735,7 +1735,7 @@ def build_inference_dataloader(
       input_member_indexer=lens2_member_indexer,
       output_dataset_path=output_dataset_path,
       output_climatology=output_climatology,
-      output_variables=era5_variables,
+      output_variables=era5_variables,  # pyrefly: ignore[bad-argument-type]
       time_stamps=True,
       inference_mode=inference_mode,  # Using the inference dataset.
       num_epochs=1,  # This is so the loop stops automatically.

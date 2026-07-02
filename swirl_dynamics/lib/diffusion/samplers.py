@@ -121,7 +121,7 @@ def eval_fn_and_trace_jac(
     trace_jac = jnp.trace(dfndx, axis1=1, axis2=2)
   else:
     # Approximate trace computation using Hutchinson's trace estimator.
-    eps = jax.random.bernoulli(rng, shape=(num_probes, *y.shape))
+    eps = jax.random.bernoulli(rng, shape=(num_probes, *y.shape))  # pyrefly: ignore[bad-argument-type]
     eps = eps.astype(x.dtype) * 2 - 1  # scale to {-1, 1}
     (eps_vjp,) = jax.vmap(vjp_fn)(eps)
     trace_jac = jnp.mean(jnp.einsum("nbd,nbd->nb", eps_vjp, eps), axis=0)
@@ -163,7 +163,7 @@ def uniform_time(
     )
 
   start = diffusion.MAX_DIFFUSION_TIME
-  end = end_time or scheme.sigma.inverse(end_sigma)
+  end = end_time or scheme.sigma.inverse(end_sigma)  # pyrefly: ignore[bad-argument-type]
   return jnp.linspace(start, end, num_steps)
 
 
@@ -174,7 +174,7 @@ def exponential_noise_decay(
 ) -> Array:
   """Time steps corresponding to exponentially decaying sigma."""
   exponent = jnp.arange(num_steps) / (num_steps - 1)
-  r = end_sigma / scheme.sigma_max
+  r = end_sigma / scheme.sigma_max  # pyrefly: ignore[unsupported-operation]
   sigma_schedule = scheme.sigma_max * jnp.power(r, exponent)
   return jnp.asarray(scheme.sigma.inverse(sigma_schedule))
 
@@ -188,7 +188,7 @@ def edm_noise_decay(
   """Time steps corresponding to Eq. 5 in Karras et al."""
   rho_inv = 1 / rho
   sigma_schedule = jnp.arange(num_steps) / (num_steps - 1)
-  sigma_schedule *= jnp.power(end_sigma, rho_inv) - jnp.power(
+  sigma_schedule *= jnp.power(end_sigma, rho_inv) - jnp.power(  # pyrefly: ignore[bad-argument-type]
       scheme.sigma_max, rho_inv
   )
   sigma_schedule += jnp.power(scheme.sigma_max, rho_inv)
@@ -231,7 +231,7 @@ class Sampler:
   guidance_transforms: Sequence[guidance.Transform] = ()
   apply_denoise_at_end: bool = True
   return_full_paths: bool = False
-  noise_dist: NoiseDist = jax.random.normal
+  noise_dist: NoiseDist = jax.random.normal  # pyrefly: ignore[bad-assignment]
 
   def generate(
       self,
@@ -269,10 +269,10 @@ class Sampler:
 
     samples = denoised[-1] if self.return_full_paths else denoised
     if self.apply_denoise_at_end:
-      denoise_fn = self.get_guided_denoise_fn(guidance_inputs=guidance_inputs)
+      denoise_fn = self.get_guided_denoise_fn(guidance_inputs=guidance_inputs)  # pyrefly: ignore[bad-argument-type]
       samples = denoise_fn(
           jnp.divide(samples, self.scheme.scale(self.tspan[-1])),
-          self.scheme.sigma(self.tspan[-1]),
+          self.scheme.sigma(self.tspan[-1]),  # pyrefly: ignore[bad-argument-type]
           cond,
       )
       if self.return_full_paths:
@@ -313,7 +313,7 @@ class Sampler:
     denoise_fn = self.denoise_fn
     for transform in self.guidance_transforms:
       denoise_fn = transform(denoise_fn, guidance_inputs)
-    return denoise_fn
+    return denoise_fn  # pyrefly: ignore[bad-return]
 
 
 @flax.struct.dataclass
@@ -370,8 +370,8 @@ class OdeSampler(Sampler):
       x_hat = jnp.divide(x, s)
       dlog_sigma_dt = dlog_dt(self.scheme.sigma)(t)
       dlog_s_dt = dlog_dt(self.scheme.scale)(t)
-      target = denoise_fn(x_hat, sigma, params["cond"])
-      return (dlog_sigma_dt + dlog_s_dt) * x - dlog_sigma_dt * s * target
+      target = denoise_fn(x_hat, sigma, params["cond"])  # pyrefly: ignore[bad-argument-type]
+      return (dlog_sigma_dt + dlog_s_dt) * x - dlog_sigma_dt * s * target  # pyrefly: ignore[bad-return]
 
     return _dynamics
 
@@ -536,9 +536,9 @@ class ExponentialOdeSampler(Sampler):
     x0 += (
         s0
         * (1 - sigma0 / sigma1)
-        * denoise_fn(jnp.divide(x1, s1), sigma1, params["cond"])
+        * denoise_fn(jnp.divide(x1, s1), sigma1, params["cond"])  # pyrefly: ignore[bad-argument-type]
     )
-    return x0
+    return x0  # pyrefly: ignore[bad-return]
 
   def forward_step(
       self,
@@ -584,13 +584,13 @@ class ExponentialOdeSampler(Sampler):
     s1, sigma1 = self.scheme.scale(t1), self.scheme.sigma(t1)
 
     if logp0 is None:
-      denoised = denoise_fn(jnp.divide(x0, s0), sigma0, params["cond"])
+      denoised = denoise_fn(jnp.divide(x0, s0), sigma0, params["cond"])  # pyrefly: ignore[bad-argument-type]
       x1 = (s1 * sigma1) / (s0 * sigma0) * x0
       x1 += s1 * (1 - sigma1 / sigma0) * denoised
       logp1 = None
 
     else:
-      denoise_fn0 = lambda x: denoise_fn(x, sigma0, params["cond"])
+      denoise_fn0 = lambda x: denoise_fn(x, sigma0, params["cond"])  # pyrefly: ignore[bad-argument-type]
       denoised, trace_jac = eval_fn_and_trace_jac(
           fn=denoise_fn0,
           x=jnp.divide(x0, s0),
@@ -605,7 +605,7 @@ class ExponentialOdeSampler(Sampler):
           * (jnp.log(s1 / s0) + jnp.log(sigma1 / sigma0))
           + (jnp.log(sigma0 / sigma1)) * trace_jac
       )
-    return x1, logp1
+    return x1, logp1  # pyrefly: ignore[bad-return]
 
   def compute_log_likelihood(
       self,
@@ -739,8 +739,8 @@ class SdeSampler(Sampler):
       dlog_sigma_dt = dlog_dt(self.scheme.sigma)(t)
       dlog_s_dt = dlog_dt(self.scheme.scale)(t)
       drift = (2 * dlog_sigma_dt + dlog_s_dt) * x
-      drift -= 2 * dlog_sigma_dt * s * denoise_fn(x_hat, sigma, params["cond"])
-      return drift
+      drift -= 2 * dlog_sigma_dt * s * denoise_fn(x_hat, sigma, params["cond"])  # pyrefly: ignore[bad-argument-type]
+      return drift  # pyrefly: ignore[bad-return]
 
     def _diffusion(x: Array, t: Array, params: Params) -> Array:
       del x, params
@@ -829,7 +829,7 @@ class ExponentialSdeSampler(Sampler):
     x0 += (
         s0
         * (1 - sigma0**2 / sigma1**2)
-        * denoise_fn(jnp.divide(x1, s1), sigma1, params["cond"])
+        * denoise_fn(jnp.divide(x1, s1), sigma1, params["cond"])  # pyrefly: ignore[bad-argument-type]
     )
     x0 += (
         s0
@@ -837,7 +837,7 @@ class ExponentialSdeSampler(Sampler):
         * jnp.sqrt(sigma1**2 - sigma0**2)
         * jax.random.normal(rng, x1.shape, x1.dtype)
     )
-    return x0
+    return x0  # pyrefly: ignore[bad-return]
 
 
 @flax.struct.dataclass

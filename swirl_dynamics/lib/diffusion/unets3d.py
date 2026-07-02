@@ -680,9 +680,9 @@ class PreconditionedDenoiser3d(UNet3d):
     c_in = 1 / jnp.sqrt(total_var)
     c_noise = 0.25 * jnp.log(sigma)
 
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)
+    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
+    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
 
     # All these coefficients are computed in the input dtype.
     c_in = c_in.astype(orig_dtype)
