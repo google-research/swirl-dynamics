@@ -51,7 +51,7 @@ def _combine_stats(mean: Dataset, var: Dataset, count: Dataset) -> Dataset:
   stats_coords = xarray.DataArray(
       ["mean", "var", "count"], dims="stats", name="stats"
   )
-  return xarray.concat([mean, var, count], dim=stats_coords)
+  return xarray.concat([mean, var, count], dim=stats_coords)  # pyrefly: ignore[no-matching-overload]
 
 
 def initialize_stats(
@@ -61,7 +61,7 @@ def initialize_stats(
   mean = dataset.fillna(0) if skipna else dataset
   var = xarray.zeros_like(mean)
   count = mean.notnull() if skipna else xarray.ones_like(mean)
-  new_dataset = _combine_stats(mean, var, count)
+  new_dataset = _combine_stats(mean, var, count)  # pyrefly: ignore[bad-argument-type]
   return key.with_offsets(stats=0), new_dataset
 
 
@@ -123,15 +123,15 @@ class MeanAndVariance(beam.CombineFn):
   def merge_accumulators(
       self, accumulators: Iterable[xarray.Dataset | xarray.DataArray]
   ) -> xarray.Dataset | xarray.DataArray:
-    means, variances, counts = zip(*list(map(self._split_stats, accumulators)))
+    means, variances, counts = zip(*list(map(self._split_stats, accumulators)))  # pyrefly: ignore[bad-specialization]
     count = sum(counts)
     mean = sum([m * c / count for m, c in zip(means, counts)])
     variance = sum([
         (v + (m - mean) ** 2) * c / count
         for m, v, c in zip(means, variances, counts)
     ])
-    new_accumulator = _combine_stats(mean, variance, count)
-    return new_accumulator.compute()
+    new_accumulator = _combine_stats(mean, variance, count)  # pyrefly: ignore[bad-specialization]
+    return new_accumulator.compute()  # pyrefly: ignore[missing-attribute]
 
   def extract_output(self, accumulator: xarray.Dataset) -> xarray.Dataset:
     return accumulator.compute()
@@ -152,7 +152,7 @@ def compute_final_stats(
 
 def main(argv):
   input_store = INPUT_PATH.value
-  input_store = gfile_store.GFileStore(input_store)
+  input_store = gfile_store.GFileStore(input_store)  # pyrefly: ignore[bad-argument-type]
   source_dataset, source_chunks = xbeam.open_zarr(input_store)
 
   # Enforce year range.
@@ -173,7 +173,7 @@ def main(argv):
   output_chunks["stats"] = 1  # chunk size, not number of chunks
 
   output_store = OUTPUT_PATH.value
-  output_store = gfile_store.GFileStore(output_store)
+  output_store = gfile_store.GFileStore(output_store)  # pyrefly: ignore[bad-argument-type]
 
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     _ = (

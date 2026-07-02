@@ -35,12 +35,12 @@ def dummy_iter(batch_sz):
 class TestTrainer(trainers.BaseTrainer):
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
   @flax.struct.dataclass
-  class EvalMetrics(clu_metrics.Collection):
-    eval_accuracy: clu_metrics.Average.from_output("accuracy")
+  class EvalMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    eval_accuracy: clu_metrics.Average.from_output("accuracy")  # pyrefly: ignore[invalid-annotation]
 
   @property
   def train_step(self):

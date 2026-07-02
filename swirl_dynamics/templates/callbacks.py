@@ -162,7 +162,7 @@ class TrainStateCheckpoint(Callback):
     assert self.last_eval_metric is not None
     cur_step = trainer.train_state.int_step
     scalar_train_metrics = {
-        k: float(v) for k, v in train_metrics.items() if utils.is_scalar(v)
+        k: float(v) for k, v in train_metrics.items() if utils.is_scalar(v)  # pyrefly: ignore[bad-argument-type]
     }
     if self.ckpt_manager.should_save(cur_step):
       self.ckpt_manager.save(
@@ -182,7 +182,7 @@ class TrainStateCheckpoint(Callback):
   ) -> None:
     del trainer
     self.last_eval_metric = {
-        k: float(v) for k, v in eval_metrics.items() if utils.is_scalar(v)
+        k: float(v) for k, v in eval_metrics.items() if utils.is_scalar(v)  # pyrefly: ignore[bad-argument-type]
     }
 
   def on_train_end(self, trainer: Trainer) -> None:
@@ -446,7 +446,7 @@ class LogLearningRateToTensorBoard(Callback):
   ) -> None:
     self.metric_writer.write_scalars(
         trainer.train_state.int_step,
-        {"learning_rate": self.lr_schedule(trainer.train_state.int_step)},
+        {"learning_rate": self.lr_schedule(trainer.train_state.int_step)},  # pyrefly: ignore[bad-argument-type]
     )
 
 

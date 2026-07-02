@@ -188,11 +188,11 @@ def main(argv):
   months = [int(m) for m in MONTHS.value]
 
   sample_ds = xr.open_zarr(SAMPLE_PATH.value, consolidated=True)
-  sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)
+  sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
   sample_ds = utils.select_time(sample_ds, years, months)
 
-  ref_ds = utils.get_reference_ds(REFERENCE.value, SAMPLE_VARIABLES, sample_ds)
-  ref_ds = add_derived_variables(ref_ds, ZS_PATH.value)
+  ref_ds = utils.get_reference_ds(REFERENCE.value, SAMPLE_VARIABLES, sample_ds)  # pyrefly: ignore[bad-argument-type]
+  ref_ds = add_derived_variables(ref_ds, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
   ref_ds = utils.select_time(ref_ds, years, months)
 
   work_chunks = {"time": -1, "member": -1, "longitude": 1, "latitude": 1}

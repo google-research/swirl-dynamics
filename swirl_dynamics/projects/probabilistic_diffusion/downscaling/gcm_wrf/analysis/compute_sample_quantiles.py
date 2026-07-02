@@ -215,12 +215,12 @@ def evaluate_chunk_quantile(
       obs_chunk, bootstrap_samples, dim=bootstrap_dim
   )
   offsets = {agg_dim: None for agg_dim in agg_dims}
-  offsets['quantile'] = 0
+  offsets['quantile'] = 0  # pyrefly: ignore[unsupported-operation]
   ppf_ds = resampled_chunk.quantile(q, dim=agg_dims)
 
   if bootstrap_samples > 1:
     transpose_dims = ('bootstrap_sample', 'quantile')
-    offsets['bootstrap_sample'] = 0
+    offsets['bootstrap_sample'] = 0  # pyrefly: ignore[unsupported-operation]
   else:
     transpose_dims = ('quantile',)
 
@@ -276,8 +276,8 @@ def main(argv: list[str]) -> None:
     expand_dims = dict(quantile=quantiles)
   template = (
       xbeam.make_template(inf)
-      .isel(**{agg_dim: 0 for agg_dim in agg_dims}, drop=True)
-      .expand_dims(**expand_dims)
+      .isel(**{agg_dim: 0 for agg_dim in agg_dims}, drop=True)  # pyrefly: ignore[bad-argument-type]
+      .expand_dims(**expand_dims)  # pyrefly: ignore[bad-argument-type]
       .transpose(*transpose_dims, ...)
   )
 
@@ -288,7 +288,7 @@ def main(argv: list[str]) -> None:
         | xbeam.DatasetToChunks(inf, input_chunks, split_vars=True)
         | 'RechunkIn'
         >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
-            inf.sizes,
+            inf.sizes,  # pyrefly: ignore[bad-argument-type]
             input_chunks,
             in_working_chunks,
             itemsize=RECHUNK_ITEMSIZE.value,

@@ -183,7 +183,7 @@ def make_spatial_corr_plots(
     # Process reference.
     logging.info("Computing spatial corr for reference, %s.", city)
     ref_data, ref_neighbors = get_pixel_time_series_and_neighbors(
-        reference, city, daily_aggregate_fun, srange, method
+        reference, city, daily_aggregate_fun, srange, method  # pyrefly: ignore[bad-argument-type]
     )
     ref_corr = spatial_corr(ref_data, ref_neighbors)
     make_spatial_corr_plot(ref_corr, city, fig, axes[0, i])
@@ -197,7 +197,7 @@ def make_spatial_corr_plots(
     # Process predictions.
     logging.info("Computing spatial corr for predictions, %s.", city)
     pred_data, pred_neighbors = get_pixel_time_series_and_neighbors(
-        predictions, city, daily_aggregate_fun, srange, method
+        predictions, city, daily_aggregate_fun, srange, method  # pyrefly: ignore[bad-argument-type]
     )
     pred_corr = spatial_corr(pred_data, pred_neighbors)
     pred_err = compute_err(ref_corr.to_numpy(), pred_corr.to_numpy())
@@ -223,7 +223,7 @@ def make_spatial_corr_plots(
       make_spatial_corr_plot(comp_corr, city, fig, axes[j + 2, i], comp_err)
       axes[j + 2, i].set_title(f"{city}: {comp}")
 
-  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)
+  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)  # pyrefly: ignore[bad-argument-type]
 
   res_save_name = f"{save_dir}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)

@@ -268,7 +268,7 @@ def TensorRatio(  # pylint: disable=invalid-name
       """
 
       @flax.struct.dataclass
-      class FromOutputs(cls):
+      class FromOutputs(cls):  # pyrefly: ignore[invalid-inheritance]
         """Wrapper Metric class that collects numerator and denominator."""
 
         @classmethod
@@ -483,7 +483,7 @@ class Evaluator:
 
 
 PYGRAIN_CHECKPOINTER = checkpoint.Checkpointer(
-    pygrain.PyGrainCheckpointHandler()
+    pygrain.PyGrainCheckpointHandler()  # pyrefly: ignore[bad-argument-type]
 )  # pytype:disable=wrong-arg-types
 
 
@@ -592,8 +592,8 @@ def run(
     iterator = ckpt["iterator"]
     cur_step = evaluator.state.step
 
-  max_eval_batches = max_eval_batches or np.inf
-  is_finished = cur_step >= max_eval_batches if not max_eval_batches else False
+  max_eval_batches = max_eval_batches or np.inf  # pyrefly: ignore[bad-assignment]
+  is_finished = cur_step >= max_eval_batches if not max_eval_batches else False  # pyrefly: ignore[unsupported-operation]
   ran_out = False
 
   while not is_finished and not ran_out:
@@ -609,7 +609,7 @@ def run(
 
     else:
       cur_step += num_aggregation_batches
-      if cur_step >= max_eval_batches:
+      if cur_step >= max_eval_batches:  # pyrefly: ignore[unsupported-operation]
         is_finished = True
 
     finally:
@@ -640,7 +640,7 @@ def run(
                 out_dir=results_subfolder,
                 basename=f"{key}_collected_metrics",
                 append_dim="time",
-                coords=datacoords,
+                coords=datacoords,  # pyrefly: ignore[bad-argument-type]
                 append_slice=slice(
                     cur_step - num_aggregation_batches, cur_step
                 ),
@@ -663,7 +663,7 @@ def run(
           value,
           out_dir=results_subfolder,
           basename=f"{key}_aggregated_metrics",
-          coords=datacoords,
+          coords=datacoords,  # pyrefly: ignore[bad-argument-type]
       )
   else:
     raise ValueError(f"Unknown results format: {results_format}")

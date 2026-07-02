@@ -43,17 +43,17 @@ def plot_trajectories(
       f" ({pred_trajs.shape[0]}) to select trajectory number {max(case_ids)}."
   )
   fig = plt.figure(
-      figsize=(3 * len(traj_lengths), 6 * len(case_ids)),
+      figsize=(3 * len(traj_lengths), 6 * len(case_ids)),  # pyrefly: ignore[bad-argument-type]
       constrained_layout=True,
   )
   subfigs = fig.subfigures(nrows=len(case_ids), ncols=1)
   for case_id, subfig in zip(case_ids, subfigs):
     ax = subfig.subplots(
-        nrows=2, ncols=len(traj_lengths), sharex=True, sharey=True
+        nrows=2, ncols=len(traj_lengths), sharex=True, sharey=True  # pyrefly: ignore[bad-argument-type]
     )
     ax[0, 0].set_ylabel(f"GT (Traj #: {case_id})")
     ax[1, 0].set_ylabel("Predicted")
-    for c, traj_length in enumerate(traj_lengths):
+    for c, traj_length in enumerate(traj_lengths):  # pyrefly: ignore[bad-argument-type]
       ax[0, c].imshow(trajs[case_id, traj_length, ...].squeeze(axis=-1))
       ax[0, c].set_title(f"Time: {traj_length*dt:0.2f}")
       ax[0, c].set_xticks([])
@@ -72,7 +72,7 @@ class NS2dPlotFigures(stable_ar.PlotFigures):
     # Correlation breaks down early; we do not need all the steps.
     self.cos_sim_plot_steps = cos_sim_plot_steps
 
-  def on_eval_batches_end(
+  def on_eval_batches_end(  # pyrefly: ignore[bad-override]
       self, trainer: callbacks.Trainer, eval_metrics: Mapping[str, Array]
   ) -> None:
     dt = eval_metrics["dt"]

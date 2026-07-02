@@ -165,7 +165,7 @@ def main(argv):
         dataset_path=config.dataset_path,
         split="eval",
         normalize=config.normalize,
-        normalize_stats=normalize_stats,
+        normalize_stats=normalize_stats,  # pyrefly: ignore[bad-argument-type]
         spatial_downsample_factor=config.spatial_downsample_factor,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,
@@ -193,7 +193,7 @@ def main(argv):
         dataset_path=config.dataset_path,
         split="eval",
         normalize=config.normalize,
-        normalize_stats=normalize_stats,
+        normalize_stats=normalize_stats,  # pyrefly: ignore[bad-argument-type]
         spatial_downsample_factor=config.spatial_downsample_factor,
         tf_lookup_batch_size=config.tf_lookup_batch_size,
         tf_lookup_num_parallel_calls=config.tf_lookup_num_parallel_calls,

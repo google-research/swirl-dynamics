@@ -108,7 +108,7 @@ class KS1DPlotFigures(stable_ar.PlotFigures):
     # Correlation breaks down early; we do not need all the steps.
     self.cos_sim_plot_steps = cos_sim_plot_steps
 
-  def on_eval_batches_end(
+  def on_eval_batches_end(  # pyrefly: ignore[bad-override]
       self, trainer: callbacks.Trainer, eval_metrics: Mapping[str, Array]
   ) -> None:
     dt = eval_metrics["dt"]

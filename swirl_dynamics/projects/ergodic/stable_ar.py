@@ -79,7 +79,7 @@ class StableARModel(models.BaseModel):
     init_input = jnp.ones((1,) + self.conf.state_dimension)
     return self.conf.dynamics_model.init(rng, init_input)
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: models.BatchType,
@@ -123,10 +123,10 @@ class StableARModel(models.BaseModel):
 
       # Computing losses.
       measure_dist = (
-          self.conf.measure_dist(pred, true[:, 0, ...]) * rollout_weight[-1]
+          self.conf.measure_dist(pred, true[:, 0, ...]) * rollout_weight[-1]  # pyrefly: ignore[bad-argument-type]
       )
       measure_dist_k = (
-          self.conf.measure_dist(pred, true[:, -1, ...]) * rollout_weight[-1]
+          self.conf.measure_dist(pred, true[:, -1, ...]) * rollout_weight[-1]  # pyrefly: ignore[bad-argument-type]
       )
 
       # Compare to true trajectory last step.
@@ -154,7 +154,7 @@ class StableARModel(models.BaseModel):
       ]
       measure_dist = jnp.mean(
           jax.vmap(
-              lambda p: self.conf.measure_dist(p, true[:, 0, ...]),
+              lambda p: self.conf.measure_dist(p, true[:, 0, ...]),  # pyrefly: ignore[bad-argument-type]
               in_axes=(1),
           )(pred)
           * rollout_weight
@@ -267,23 +267,23 @@ class StableARTrainer(trainers.BasicTrainer):
   """Trainer used for stable AR modeling."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    loss: clu_metrics.Average.from_output("loss")
-    loss_std: clu_metrics.Std.from_output("loss")
-    l2: clu_metrics.Average.from_output("l2")
-    l2_std: clu_metrics.Std.from_output("l2")
-    measure_dist: clu_metrics.Average.from_output("measure_dist")
-    measure_dist_std: clu_metrics.Std.from_output("measure_dist")
-    measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")
-    measure_dist_k_std: clu_metrics.Std.from_output("measure_dist_k")
-    rollout: clu_metrics.Average.from_output("rollout")
-    max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    l2: clu_metrics.Average.from_output("l2")  # pyrefly: ignore[invalid-annotation]
+    l2_std: clu_metrics.Std.from_output("l2")  # pyrefly: ignore[invalid-annotation]
+    measure_dist: clu_metrics.Average.from_output("measure_dist")  # pyrefly: ignore[invalid-annotation]
+    measure_dist_std: clu_metrics.Std.from_output("measure_dist")  # pyrefly: ignore[invalid-annotation]
+    measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")  # pyrefly: ignore[invalid-annotation]
+    measure_dist_k_std: clu_metrics.Std.from_output("measure_dist_k")  # pyrefly: ignore[invalid-annotation]
+    rollout: clu_metrics.Average.from_output("rollout")  # pyrefly: ignore[invalid-annotation]
+    max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")  # pyrefly: ignore[invalid-annotation]
 
   @flax.struct.dataclass
-  class EvalMetrics(clu_metrics.Collection):
-    sd: clu_metrics.Average.from_output("sd")
-    dt: clu_metrics.Average.from_output("dt")
-    all_trajs: clu_metrics.CollectingMetric.from_outputs(
+  class EvalMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    sd: clu_metrics.Average.from_output("sd")  # pyrefly: ignore[invalid-annotation]
+    dt: clu_metrics.Average.from_output("dt")  # pyrefly: ignore[invalid-annotation]
+    all_trajs: clu_metrics.CollectingMetric.from_outputs(  # pyrefly: ignore[invalid-annotation]
         ("trajs", "pred_trajs")
     )
 
@@ -320,10 +320,10 @@ class StableARTrainer(trainers.BasicTrainer):
       # - Lorenz: (bsz, num_lookback_steps, 3)
       # - KS: (bsz, num_lookback_steps, spatial_dim, 1)
       # - NS: (bsz, num_lookback_steps, spatial_dim, spatial_dim, 1)
-      x0 = batch_data["u"][:, : self.conf.num_lookback_steps, ...]
+      x0 = batch_data["u"][:, : self.conf.num_lookback_steps, ...]  # pyrefly: ignore[bad-index]
       # Expected shape: (bsz, num_rollout_steps + 1, ...),
       # where ... is same as just above.
-      true = batch_data["u"][
+      true = batch_data["u"][  # pyrefly: ignore[bad-index]
           :,
           self.conf.num_lookback_steps
           - 1 : num_time_steps
@@ -336,10 +336,10 @@ class StableARTrainer(trainers.BasicTrainer):
       # - Lorenz: (bsz, 3)
       # - KS: (bsz, spatial_dim, 1)
       # - NS: (bsz, spatial_dim, spatial_dim, 1)
-      x0 = batch_data["u"][:, 0, ...]
+      x0 = batch_data["u"][:, 0, ...]  # pyrefly: ignore[bad-index]
       # Expected shape: (bsz, num_rollout_steps + 1, ...),
       # where ... is same as just above.
-      true = batch_data["u"][:, :num_time_steps, ...]
+      true = batch_data["u"][:, :num_time_steps, ...]  # pyrefly: ignore[bad-index]
     return dict(
         x0=x0,
         true=true,
@@ -381,16 +381,16 @@ class StableARTrainer(trainers.BasicTrainer):
         f" desired steps ({num_time_steps})."
     )
     # pytype: enable=attribute-error
-    return self._preprocess_train_batch(batch_data, num_time_steps)
+    return self._preprocess_train_batch(batch_data, num_time_steps)  # pyrefly: ignore[bad-argument-type]
 
   def preprocess_eval_batch(
       self, batch_data: trainers.BatchType, rng: Array
   ) -> trainers.BatchType:
     """Preprocessed batch data."""
     if self.conf.num_lookback_steps > 1:
-      ic = batch_data["u"][:, : self.conf.num_lookback_steps, ...]
+      ic = batch_data["u"][:, : self.conf.num_lookback_steps, ...]  # pyrefly: ignore[bad-index]
     else:
-      ic = batch_data["u"][:, 0, ...]
+      ic = batch_data["u"][:, 0, ...]  # pyrefly: ignore[bad-index]
     dt = jnp.mean(jnp.diff(batch_data["t"], axis=1))
     tspan = jnp.arange(batch_data["t"].shape[1]) * dt  # pytype: disable=attribute-error
     return dict(
@@ -404,23 +404,23 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
   """Trainer used for stable AR modeling (distributed)."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    loss: clu_metrics.Average.from_output("loss")
-    loss_std: clu_metrics.Std.from_output("loss")
-    l2: clu_metrics.Average.from_output("l2")
-    l2_std: clu_metrics.Std.from_output("l2")
-    measure_dist: clu_metrics.Average.from_output("measure_dist")
-    measure_dist_std: clu_metrics.Std.from_output("measure_dist")
-    measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")
-    measure_dist_k_std: clu_metrics.Std.from_output("measure_dist_k")
-    rollout: clu_metrics.Average.from_output("rollout")
-    max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    l2: clu_metrics.Average.from_output("l2")  # pyrefly: ignore[invalid-annotation]
+    l2_std: clu_metrics.Std.from_output("l2")  # pyrefly: ignore[invalid-annotation]
+    measure_dist: clu_metrics.Average.from_output("measure_dist")  # pyrefly: ignore[invalid-annotation]
+    measure_dist_std: clu_metrics.Std.from_output("measure_dist")  # pyrefly: ignore[invalid-annotation]
+    measure_dist_k: clu_metrics.Average.from_output("measure_dist_k")  # pyrefly: ignore[invalid-annotation]
+    measure_dist_k_std: clu_metrics.Std.from_output("measure_dist_k")  # pyrefly: ignore[invalid-annotation]
+    rollout: clu_metrics.Average.from_output("rollout")  # pyrefly: ignore[invalid-annotation]
+    max_rollout_decay: clu_metrics.Average.from_output("max_rollout_decay")  # pyrefly: ignore[invalid-annotation]
 
   @flax.struct.dataclass
-  class EvalMetrics(clu_metrics.Collection):
-    sd: clu_metrics.Average.from_output("sd")
-    dt: clu_metrics.Average.from_output("dt")
-    all_trajs: clu_metrics.CollectingMetric.from_outputs(
+  class EvalMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    sd: clu_metrics.Average.from_output("sd")  # pyrefly: ignore[invalid-annotation]
+    dt: clu_metrics.Average.from_output("dt")  # pyrefly: ignore[invalid-annotation]
+    all_trajs: clu_metrics.CollectingMetric.from_outputs(  # pyrefly: ignore[invalid-annotation]
         ("trajs", "pred_trajs")
     )
 
@@ -453,15 +453,15 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     # x0, except when num_lookback_steps > 1, where true[:, 0] corresponds to
     # the last time step in x0).
     if self.conf.num_lookback_steps > 1:
-      x0 = batch_data["u"][:, : self.conf.num_lookback_steps, ...]
-      true = batch_data["u"][
+      x0 = batch_data["u"][:, : self.conf.num_lookback_steps, ...]  # pyrefly: ignore[bad-index]
+      true = batch_data["u"][  # pyrefly: ignore[bad-index]
           :,
           self.conf.num_lookback_steps - 1 : num_time_steps + self.conf.num_lookback_steps - 1,  # pylint: disable=line-too-long
           ...,
       ]
     else:
-      x0 = batch_data["u"][:, 0, ...]
-      true = batch_data["u"][:, :num_time_steps, ...]
+      x0 = batch_data["u"][:, 0, ...]  # pyrefly: ignore[bad-index]
+      true = batch_data["u"][:, :num_time_steps, ...]  # pyrefly: ignore[bad-index]
 
     batch_dict = dict(
         x0=x0,
@@ -499,16 +499,16 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
       num_time_steps = jax.random.randint(
           rng, (1,), minval=2, maxval=num_time_steps + 1
       )[0]
-    return self._preprocess_train_batch(batch_data, num_time_steps)
+    return self._preprocess_train_batch(batch_data, num_time_steps)  # pyrefly: ignore[bad-argument-type]
 
   def preprocess_eval_batch(
       self, batch_data: trainers.BatchType, rng: Array
   ) -> trainers.BatchType:
     """Preprocessed batch data."""
     if self.conf.num_lookback_steps > 1:
-      ic = batch_data["u"][:, : self.conf.num_lookback_steps, ...]
+      ic = batch_data["u"][:, : self.conf.num_lookback_steps, ...]  # pyrefly: ignore[bad-index]
     else:
-      ic = batch_data["u"][:, 0, ...]
+      ic = batch_data["u"][:, 0, ...]  # pyrefly: ignore[bad-index]
     dt = jnp.mean(jnp.diff(batch_data["t"], axis=1))
     tspan = jnp.arange(batch_data["t"].shape[1]) * dt  # pytype: disable=attribute-error
 

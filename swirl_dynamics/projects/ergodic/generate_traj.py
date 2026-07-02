@@ -151,8 +151,8 @@ def generate_pred_traj(exps_df, all_steps, dt, trajs, mean=None, std=None):
           ics /= std
         pt = inference_model(ics, np.arange(all_steps) * dt)
         if normalize:
-          pt *= std
-          pt += mean
+          pt *= std  # pyrefly: ignore[unsupported-operation]
+          pt += mean  # pyrefly: ignore[unsupported-operation]
         del params
         print("Generated.", end=" ")
         hdf5_utils.save_array_dict(traj_file, {"pred_traj": pt})

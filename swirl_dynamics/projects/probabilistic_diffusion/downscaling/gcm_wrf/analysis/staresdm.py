@@ -297,7 +297,7 @@ def main(argv: list[str]) -> None:
       if dim not in source_dataset.coords
   }
   template = xbeam.make_template(source_dataset).assign_coords(
-      **unassigned_coords
+      **unassigned_coords  # pyrefly: ignore[bad-unpacking]
   )
 
   # Static kwargs for _staresdm_on_chunks.

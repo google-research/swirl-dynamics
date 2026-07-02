@@ -193,7 +193,7 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
       )
       # Use metrics from the last step.
       out_state, metrics_update = self.train_step(state, batch(-1), rng)
-      return out_state, train_metrics.merge(metrics_update), out_rng
+      return out_state, train_metrics.merge(metrics_update), out_rng  # pyrefly: ignore[bad-argument-type]
 
     return fn
 
@@ -497,7 +497,7 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
     """
 
   @flax.struct.dataclass
-  class EvalMetrics(Metrics):
+  class EvalMetrics(Metrics):  # pyrefly: ignore[bad-override]
     """Evaluation metrics definition.
 
     Same as `TrainMetrics`, except applying to the output of `model.eval_fn`.
@@ -524,7 +524,7 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
       )
       # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
       new_state = self.update_train_state(  # pytype: disable=wrong-keyword-args  # always-use-property-annotation
-          train_state=train_state, grads=grads, mutables=mutables
+          train_state=train_state, grads=grads, mutables=mutables  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
       )
       # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
       metrics_update = self.TrainMetrics.single_from_model_output(**metrics)
@@ -565,7 +565,7 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
     ) -> Metrics:
       """Use model to compute the evaluation metrics."""
       eval_metrics = self.model.eval_fn(
-          variables=train_state.model_variables, batch=batch, rng=rng
+          variables=train_state.model_variables, batch=batch, rng=rng  # pyrefly: ignore[bad-argument-type]
       )
       # `eval_metrics` must include keys required by `EvalMetrics` definition
       return self.EvalMetrics.single_from_model_output(**eval_metrics)
@@ -575,8 +575,8 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
   def initialize_train_state(self, rng: Array) -> BasicTrainState:
     """Initializes the model variables and the train state."""
     init_vars = self.model.initialize(rng)
-    mutables, params = flax.core.pop(init_vars, "params")
-    return train_states.BasicTrainState.create(
+    mutables, params = flax.core.pop(init_vars, "params")  # pyrefly: ignore[bad-argument-type]
+    return train_states.BasicTrainState.create(  # pyrefly: ignore[bad-return]
         replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
@@ -625,7 +625,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
       # just work
       # pylint: disable=no-value-for-parameter, unexpected-keyword-arg
       new_state = self.update_train_state(  # pytype: disable=wrong-keyword-args  # always-use-property-annotation
-          train_state=train_state, grads=grads, mutables=mutables
+          train_state=train_state, grads=grads, mutables=mutables  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
       )
       # pylint: enable=no-value-for-parameter, unexpected-keyword-arg
       # This takes care of both `gather` (local) and `reduce` (global) so a
@@ -646,7 +646,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
     ) -> Metrics:
       """Use model to compute the evaluation metrics."""
       eval_metrics = self.model.eval_fn(
-          variables=train_state.model_variables, batch=batch, rng=rng
+          variables=train_state.model_variables, batch=batch, rng=rng  # pyrefly: ignore[bad-argument-type]
       )
       return self.EvalMetrics.gather_from_model_output(
           axis_name=PMAP_AXIS_NAME, **eval_metrics

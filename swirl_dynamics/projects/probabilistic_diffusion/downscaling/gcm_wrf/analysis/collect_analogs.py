@@ -217,7 +217,7 @@ def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
     selection = {'time': slice(TIME_START.value, TIME_STOP.value)}
     ds = ds.sel({k: v for k, v in selection.items() if k in ds.dims})
   if VARIABLES.value:
-    ds = xr.Dataset(ds.get(VARIABLES.value))
+    ds = xr.Dataset(ds.get(VARIABLES.value))  # pyrefly: ignore[bad-argument-type]
   if SAMPLING_PERIOD.value > 1:
     ds = ds.isel(time=slice(None, None, SAMPLING_PERIOD.value))
   return ds

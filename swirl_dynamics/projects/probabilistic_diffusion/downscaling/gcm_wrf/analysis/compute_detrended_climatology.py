@@ -163,7 +163,7 @@ def detrend_chunk(
   isel_dict = {
       k: slice(v, v + chunks[k]) for k, v in offsets_without_time.items()
   }
-  trend_ds = trend_ds.isel(**isel_dict)
+  trend_ds = trend_ds.isel(**isel_dict)  # pyrefly: ignore[bad-argument-type]
   for obs in list(obs_chunk.keys()):
     coeff = trend_ds[str(obs) + '_polyfit_coefficients']
     obs_chunk[str(obs)] = obs_chunk[str(obs)] - xr.polyval(
@@ -192,12 +192,12 @@ def compute_stat_chunk(
   clim_key = obs_key.with_offsets(time=None, **offsets)
   if statistic != 'mean':
     clim_key = clim_key.replace(
-        vars={f'{var}_{statistic}' for var in clim_key.vars}
+        vars={f'{var}_{statistic}' for var in clim_key.vars}  # pyrefly: ignore[not-iterable]
     )
     for var in obs_chunk:
       obs_chunk = obs_chunk.rename({var: f'{var}_{statistic}'})
   if statistic == 'quantile':
-    statistic = Quantile(quantiles).compute
+    statistic = Quantile(quantiles).compute  # pyrefly: ignore[bad-argument-type]
   compute_kwargs = {
       'obs': obs_chunk,
       'window_size': window_size,
@@ -207,7 +207,7 @@ def compute_stat_chunk(
 
   if frequency == 'hourly':
     clim_chunk = data_utils.compute_hourly_stat(
-        **compute_kwargs, hour_interval=hour_interval
+        **compute_kwargs, hour_interval=hour_interval  # pyrefly: ignore[bad-argument-type]
     )
   elif frequency == 'daily':
     clim_chunk = data_utils.compute_daily_stat(**compute_kwargs)
@@ -228,7 +228,7 @@ def main(argv: list[str]) -> None:
       for k in list(obs.dims)
       if k not in list(obs.coords)
   }
-  obs = obs.assign_coords(**coords)
+  obs = obs.assign_coords(**coords)  # pyrefly: ignore[bad-unpacking]
 
   trend_ds = xr.open_zarr(TREND_PATH.value)
 
@@ -308,7 +308,7 @@ def main(argv: list[str]) -> None:
         )
         | 'RechunkIn'
         >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
-            obs.sizes,
+            obs.sizes,  # pyrefly: ignore[bad-argument-type]
             input_chunks,
             in_working_chunks,
             itemsize=RECHUNK_ITEMSIZE.value,
@@ -346,7 +346,7 @@ def main(argv: list[str]) -> None:
         | beam.Flatten()
         | 'RechunkOut'
         >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
-            clim_template.sizes,
+            clim_template.sizes,  # pyrefly: ignore[bad-argument-type]
             out_working_chunks,
             output_chunks,
             itemsize=RECHUNK_ITEMSIZE.value,

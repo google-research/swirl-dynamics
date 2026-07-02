@@ -155,18 +155,18 @@ def main(argv: list[str]) -> None:
                 k,
                 _interpolate_chunk(
                     v,
-                    out_spatial_shape=out_spatial_shape,
+                    out_spatial_shape=out_spatial_shape,  # pyrefly: ignore[bad-argument-type]
                     source_grid=(in_lat, in_long),
                     target_grid=(out_lat, out_long),
                     method=METHOD.value,
                 ),
             )
         )
-        | xbeam.ConsolidateChunks(output_chunks)
+        | xbeam.ConsolidateChunks(output_chunks)  # pyrefly: ignore[bad-argument-type]
         | xbeam.ChunksToZarr(
             OUTPUT_PATH.value,
             template,
-            output_chunks,
+            output_chunks,  # pyrefly: ignore[bad-argument-type]
         )
     )
 

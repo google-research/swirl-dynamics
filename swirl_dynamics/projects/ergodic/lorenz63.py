@@ -79,8 +79,8 @@ def plot_trajectory_hists(
     dt: Array, traj_lengths: list[int] | int, trajs: Array, pred_trajs: Array
 ):
   """Plots trajectory histograms."""
-  fig = plt.figure(figsize=(14, 3 * len(traj_lengths)), constrained_layout=True)
-  subfigs = fig.subfigures(nrows=len(traj_lengths), ncols=1)
+  fig = plt.figure(figsize=(14, 3 * len(traj_lengths)), constrained_layout=True)  # pyrefly: ignore[bad-argument-type]
+  subfigs = fig.subfigures(nrows=len(traj_lengths), ncols=1)  # pyrefly: ignore[bad-argument-type]
 
   bins = 80
   vmin = 0
@@ -89,7 +89,7 @@ def plot_trajectory_hists(
   y_range = [-28, 28]
   z_range = [-10, 60]
 
-  for step, subfig in zip(traj_lengths, subfigs):
+  for step, subfig in zip(traj_lengths, subfigs):  # pyrefly: ignore[bad-argument-type]
     x = trajs[:, step - 1, :][:, 0]
     y = trajs[:, step - 1, :][:, 1]
     z = trajs[:, step - 1, :][:, 2]
@@ -222,7 +222,7 @@ class Lorenz63PlotFigures(stable_ar.PlotFigures):
     # Correlation breaks down early, do not need all the steps
     self.corr_plot_steps = corr_plot_steps
 
-  def on_eval_batches_end(
+  def on_eval_batches_end(  # pyrefly: ignore[bad-override]
       self, trainer: callbacks.Trainer, eval_metrics: Mapping[str, Array]
   ) -> None:
     dt = eval_metrics["dt"]

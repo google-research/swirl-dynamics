@@ -67,7 +67,7 @@ def create_batch_decode_pipeline(
       len(snapshots), size=num_snapshots_to_train, replace=False
   )
   source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
+      tf.data.Dataset.from_tensor_slices({  # pyrefly: ignore[bad-argument-type]
           "u": np.swapaxes(snapshots[train_idx], 0, 1),
           "x": grid,
       })
@@ -134,7 +134,7 @@ def create_encode_decode_pipeline(
   snapshots = snapshots[train_idx]
 
   source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
+      tf.data.Dataset.from_tensor_slices({  # pyrefly: ignore[bad-argument-type]
           "u": snapshots,
           "x": np.tile(grid, (len(snapshots), 1, 1)),
       })
@@ -194,7 +194,7 @@ def create_latent_dynamics_pipeline(
       hdf5_file_path, (snapshot_field, tspan_field, grid_field)
   )
   source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
+      tf.data.Dataset.from_tensor_slices({  # pyrefly: ignore[bad-argument-type]
           "u": snapshots,
           "t": tspan,
           "x": np.tile(grid, (len(snapshots), 1, 1)),

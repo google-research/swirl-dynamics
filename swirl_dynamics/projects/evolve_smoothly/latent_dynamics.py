@@ -78,7 +78,7 @@ class LatentDynamics(models.BaseModel):
     assert out.shape[-1] == self.ansatz.num_params
     return variables
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: models.BatchType,
@@ -118,7 +118,7 @@ class LatentDynamics(models.BaseModel):
     )
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: PyTree,
       batch: models.BatchType,
@@ -153,7 +153,7 @@ class LatentDynamics(models.BaseModel):
     )
 
   @staticmethod
-  def inference_fn(
+  def inference_fn(  # pyrefly: ignore[bad-override]
       variables: PyTree,
       encoder: EncodingFn,
       ansatz: ansatzes.Ansatz,
@@ -182,7 +182,7 @@ class LatentDynamics(models.BaseModel):
         Ambient space trajectories of shape ~ (nbatch, ntime, ngrid, 1) and
         optionally latent trajectores of shape ~ (nbatch, ntime, latent_dim).
       """
-      v0 = encoder(u0)
+      v0 = encoder(u0)  # pyrefly: ignore[bad-argument-type]
       v = jax.vmap(integrate_fn, in_axes=(0, 0))(v0, tspan)
       u = jax.vmap(
           jax.vmap(ansatz.batch_evaluate, in_axes=(0, None)), in_axes=(0, 0)
@@ -199,25 +199,25 @@ class LatentDynamicsTrainer(trainers.BasicTrainer[LatentDynamics, TrainState]):
   """Trainer for the LatentDynamics model."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
     """Training metrics declaration for `LatentDynamics` model."""
 
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_reconstruction_loss: clu_metrics.Average.from_output(
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_reconstruction_loss: clu_metrics.Average.from_output(  # pyrefly: ignore[invalid-annotation]
         "reconstruction_loss"
     )
-    train_latent_loss: clu_metrics.Average.from_output("latent_loss")
-    train_consistency_loss: clu_metrics.Average.from_output("consistency_loss")
+    train_latent_loss: clu_metrics.Average.from_output("latent_loss")  # pyrefly: ignore[invalid-annotation]
+    train_consistency_loss: clu_metrics.Average.from_output("consistency_loss")  # pyrefly: ignore[invalid-annotation]
 
   @flax.struct.dataclass
-  class EvalMetrics(clu_metrics.Collection):
+  class EvalMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
     """Evaluation metrics declaration for `LatentDynamics` model."""
 
-    eval_reconstruction_rel_l2: clu_metrics.Average.from_output(
+    eval_reconstruction_rel_l2: clu_metrics.Average.from_output(  # pyrefly: ignore[invalid-annotation]
         "reconstruction_rel_l2"
     )
-    eval_latent_rel_l2: clu_metrics.Average.from_output("latent_rel_l2")
-    eval_consistency_rel_l2: clu_metrics.Average.from_output(
+    eval_latent_rel_l2: clu_metrics.Average.from_output("latent_rel_l2")  # pyrefly: ignore[invalid-annotation]
+    eval_consistency_rel_l2: clu_metrics.Average.from_output(  # pyrefly: ignore[invalid-annotation]
         "consistency_rel_l2"
     )
 

@@ -104,7 +104,7 @@ def _compute_time_change(
         suffix = '1day'
       else:
         suffix = f'{period}days'
-      output_chunk = output_chunk.assign(**{f'{var}_diff_{suffix}': change})
+      output_chunk = output_chunk.assign(**{f'{var}_diff_{suffix}': change})  # pyrefly: ignore[bad-argument-type]
 
   return output_chunk.drop_vars(variables)
 
@@ -157,7 +157,7 @@ def main(argv: list[str]) -> None:
   periods = list(int(v) for v in ROLLING_PERIODS.value)
   obs, input_chunks = xbeam.open_zarr(INPUT_PATH.value)
   # Only retain analysis_vars.
-  obs = obs.get(analysis_vars)
+  obs = obs.get(analysis_vars)  # pyrefly: ignore[bad-argument-type]
   assert isinstance(obs, xr.Dataset)
   if START_YEAR.value is not None and END_YEAR.value is not None:
     time_slice = slice(str(START_YEAR.value), str(END_YEAR.value))

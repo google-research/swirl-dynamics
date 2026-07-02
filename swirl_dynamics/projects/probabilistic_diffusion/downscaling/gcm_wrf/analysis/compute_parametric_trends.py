@@ -76,7 +76,7 @@ def compute_chunk_trend(
   )
   coeff_key = obs_key.with_offsets(**offsets)
   coeff_key = coeff_key.replace(
-      vars={f'{var}_polyfit_coefficients' for var in coeff_key.vars}
+      vars={f'{var}_polyfit_coefficients' for var in coeff_key.vars}  # pyrefly: ignore[not-iterable]
   )
   return coeff_key, coeff_chunk
 
@@ -93,7 +93,7 @@ def main(argv: list[str]) -> None:
       for k in list(obs.dims)
       if k not in list(obs.coords)
   }
-  obs = obs.assign_coords(**coords)
+  obs = obs.assign_coords(**coords)  # pyrefly: ignore[bad-unpacking]
 
   # Chunks for temporal reduce.
   in_working_chunks = {'time': -1}
@@ -134,7 +134,7 @@ def main(argv: list[str]) -> None:
         | xbeam.DatasetToChunks(obs, input_chunks, split_vars=True)
         | 'RechunkIn'
         >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
-            obs.sizes,
+            obs.sizes,  # pyrefly: ignore[bad-argument-type]
             input_chunks,
             in_working_chunks,
             itemsize=RECHUNK_ITEMSIZE.value,

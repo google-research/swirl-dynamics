@@ -169,13 +169,13 @@ def make_temporal_psd_plot(
       axes[i].set_xlim(xlim)
     if ylim is not None:
       axes[i].set_ylim(ylim)
-    for rfreq in reference_freqs:
+    for rfreq in reference_freqs:  # pyrefly: ignore[not-iterable]
       axes[i].axvline(x=rfreq, color="k", linestyle="dashed", linewidth=0.5)
 
   axes[0].set_ylabel("PSD")
 
-  save_dir = epath.Path(save_dir) / "temporal_psd"
-  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)
+  save_dir = epath.Path(save_dir) / "temporal_psd"  # pyrefly: ignore[bad-argument-type, bad-assignment]
+  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)  # pyrefly: ignore[bad-argument-type]
 
   res_save_name = f"{save_dir}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)

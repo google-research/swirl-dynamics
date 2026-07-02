@@ -107,7 +107,7 @@ def _combine_stats(
       dims="stats",
       name="stats",
   )
-  return xr.concat(
+  return xr.concat(  # pyrefly: ignore[no-matching-overload]
       [mean, second_moment, mixed_second_moment, count], dim=stats_coords
   )
 
@@ -147,16 +147,16 @@ def compute_moments_chunk(
   variables = [str(key) for key in dataset.keys()]
   clim_mean = beam_utils.get_climatology_mean(clim, variables, **clim_sel)
 
-  dataset = dataset - clim_mean
+  dataset = dataset - clim_mean  # pyrefly: ignore[bad-assignment]
   count = dataset.notnull() if skipna else xr.ones_like(dataset)
   mean = dataset
   second_moment = dataset * dataset
-  mixed_second_moment = dataset * dataset.isel(**reference_point)
+  mixed_second_moment = dataset * dataset.isel(**reference_point)  # pyrefly: ignore[bad-argument-type]
   new_dataset = _combine_stats(
       mean=mean,
       second_moment=second_moment,
       mixed_second_moment=mixed_second_moment,
-      count=count,
+      count=count,  # pyrefly: ignore[bad-argument-type]
   )
   return key.with_offsets(stats=0), new_dataset.drop_vars(["hour", "dayofyear"])
 
@@ -244,13 +244,13 @@ class AccumulateStatistics(beam.CombineFn):
     mixed_second_moment = sum(
         [m * c / count for m, c in zip(mixed_second_moments, counts)]
     )
-    new_accumulator = _combine_stats(
+    new_accumulator = _combine_stats(  # pyrefly: ignore[bad-specialization]
         mean=mean,
         second_moment=second_moment,
         mixed_second_moment=mixed_second_moment,
         count=count,
     )
-    return new_accumulator.compute()
+    return new_accumulator.compute()  # pyrefly: ignore[missing-attribute]
 
   def extract_output(self, accumulator: xr.Dataset) -> xr.Dataset:
     return accumulator.compute()
@@ -279,7 +279,7 @@ def compute_correlation(
     same dimensions as the input dataset, without the `stats` dimension.
   """
   reference_point = {spatial_dims[0]: loc[0], spatial_dims[1]: loc[1]}
-  ref_dataset = dataset.isel(**reference_point)
+  ref_dataset = dataset.isel(**reference_point)  # pyrefly: ignore[bad-argument-type]
   cov = dataset.sel(stats="mixed_second_moment") - dataset.sel(
       stats="mean"
   ) * ref_dataset.sel(stats="mean")
@@ -304,7 +304,7 @@ def _get_locs(size: int, num_ref_points: int) -> np.ndarray:
 
 def main(argv):
   input_store = INPUT_PATH.value
-  input_store = gfile_store.GFileStore(input_store)
+  input_store = gfile_store.GFileStore(input_store)  # pyrefly: ignore[bad-argument-type]
   source_dataset, source_chunks = xbeam.open_zarr(input_store)
   source_dataset = _impose_data_selection(source_dataset)
 
@@ -326,7 +326,7 @@ def main(argv):
   out_working_chunks = {k: v for k, v in source_chunks.items() if k != "time"}
   out_working_chunks["time"] = 1
 
-  template_ds = source_dataset.isel(**{TIME_DIM.value: 0}, drop=True)
+  template_ds = source_dataset.isel(**{TIME_DIM.value: 0}, drop=True)  # pyrefly: ignore[bad-argument-type]
   template = xbeam.make_template(template_ds)
 
   transpose_dims = ("reference_point",)
@@ -337,7 +337,7 @@ def main(argv):
   output_chunks["reference_point"] = 1
 
   output_store = OUTPUT_PATH.value
-  output_store = gfile_store.GFileStore(output_store)
+  output_store = gfile_store.GFileStore(output_store)  # pyrefly: ignore[bad-argument-type]
 
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     pcoll = (

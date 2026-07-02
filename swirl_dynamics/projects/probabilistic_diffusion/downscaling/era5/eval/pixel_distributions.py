@@ -178,8 +178,8 @@ def make_pixel_density_plot(
   ylabel = "Cumulative Probability" if cumulative else "Probability Density"
   axes[0].set_ylabel(ylabel)
 
-  save_dir = epath.Path(save_dir) / plot_type
-  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)
+  save_dir = epath.Path(save_dir) / plot_type  # pyrefly: ignore[bad-argument-type, bad-assignment]
+  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)  # pyrefly: ignore[bad-argument-type]
 
   res_save_name = f"{save_dir}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)
@@ -273,8 +273,8 @@ def make_pixel_qq_plot(
 
   axes[0].set_ylabel("sample")
 
-  save_dir = epath.Path(save_dir) / "qq"
-  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)
+  save_dir = epath.Path(save_dir) / "qq"  # pyrefly: ignore[bad-argument-type, bad-assignment]
+  eval_utils.save_fig(save_dir=save_dir, save_name=f"{plot_name}.png", fig=fig)  # pyrefly: ignore[bad-argument-type]
 
   res_save_name = f"{save_dir}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)

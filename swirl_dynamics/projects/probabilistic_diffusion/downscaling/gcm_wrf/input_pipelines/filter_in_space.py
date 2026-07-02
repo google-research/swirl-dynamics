@@ -117,7 +117,7 @@ def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
     selection = {TIME_DIM.value: slice(TIME_START.value, TIME_STOP.value)}
     ds = ds.sel({k: v for k, v in selection.items() if k in ds.dims})
   if VARIABLES.value:
-    ds = xr.Dataset(ds.get(VARIABLES.value))
+    ds = xr.Dataset(ds.get(VARIABLES.value))  # pyrefly: ignore[bad-argument-type]
   return ds
 
 
@@ -147,7 +147,7 @@ def main(argv: list[str]) -> None:
                     v,
                     scale=SCALE.value,
                     mode=MODE.value,
-                    spatial_dims=spatial_dims,
+                    spatial_dims=spatial_dims,  # pyrefly: ignore[bad-argument-type]
                 ),
             )
         )

@@ -192,7 +192,7 @@ def main(argv):
   lengths = [int(l) for l in LENGTHS.value]
 
   sample_ds = xr.open_zarr(SAMPLE_PATH.value, consolidated=True)
-  sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)
+  sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
   sample_ds = utils.select_time(sample_ds, years, months)
 
   # If a reference path is provided, the script will compute statistics on
@@ -202,7 +202,7 @@ def main(argv):
     sample_ds = utils.get_reference_ds(
         REFERENCE_PATH.value, SAMPLE_VARIABLES, sample_ds
     )
-    sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)
+    sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
     sample_ds = utils.select_time(sample_ds, years, months)
 
   in_chunks = {"time": -1, "member": -1, "longitude": 1, "latitude": 1}
@@ -269,7 +269,7 @@ def main(argv):
             )
         )
         | xbeam.Rechunk(
-            dim_sizes=out_sizes,
+            dim_sizes=out_sizes,  # pyrefly: ignore[bad-argument-type]
             source_chunks=working_chunks_out,
             target_chunks=target_chunks,
             itemsize=np.dtype(_DTYPE).itemsize,

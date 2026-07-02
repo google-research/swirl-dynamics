@@ -118,7 +118,7 @@ class MeasureDistance(enum.Enum):
         "SD": measure_distances.sinkhorn_div,
     }[self.value]
     if downsample_factor > 1:
-      return functools.partial(
+      return functools.partial(  # pyrefly: ignore[bad-return]
           measure_distances.spatial_downsampled_dist,
           dist_fn,
           spatial_downsample=downsample_factor,

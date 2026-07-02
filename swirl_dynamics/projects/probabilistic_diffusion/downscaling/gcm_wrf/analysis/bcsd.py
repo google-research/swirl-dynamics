@@ -257,7 +257,7 @@ def _bcsd_on_chunks(
         )
         # Multiply the anomaly by the target climatology.
         var_bcsd = bc_mult_anom * target_clim_mean[var]
-        source_bcsd = source_bcsd.drop_vars(var).assign(**{var: var_bcsd})
+        source_bcsd = source_bcsd.drop_vars(var).assign(**{var: var_bcsd})  # pyrefly: ignore[bad-argument-type]
 
     return source_bcsd.drop_vars(['hour', 'dayofyear'])
   else:
@@ -292,7 +292,7 @@ def main(argv: list[str]) -> None:
       if dim not in source_dataset.coords
   }
   template = xbeam.make_template(source_dataset).assign_coords(
-      **unassigned_coords
+      **unassigned_coords  # pyrefly: ignore[bad-unpacking]
   )
 
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:

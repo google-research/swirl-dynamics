@@ -203,23 +203,23 @@ class DummyModel(trainers.models.BaseModel):
     new_mutables = {"m": flax_mutables["m"] + 1.0}
     return jnp.sum(params["w"] ** 2), ({"loss": 0.1}, new_mutables)
 
-  def eval_fn(self, variables, batch, rng):
+  def eval_fn(self, variables, batch, rng):  # pyrefly: ignore[bad-override]
     return {}
 
 
 @flax.struct.dataclass
 class DummyMetrics(trainers.clu_metrics.Collection):
-  loss: trainers.clu_metrics.Average.from_output("loss")
+  loss: trainers.clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
 
 class DummyTrainer(trainers.BasicTrainer):
-  TrainMetrics = DummyMetrics  # pylint: disable=invalid-name
-  EvalMetrics = DummyMetrics  # pylint: disable=invalid-name
+  TrainMetrics = DummyMetrics  # pylint: disable=invalid-name  # pyrefly: ignore[bad-override]
+  EvalMetrics = DummyMetrics  # pylint: disable=invalid-name  # pyrefly: ignore[bad-override]
 
 
 class DummyDistributedTrainer(trainers.BasicDistributedTrainer):
-  TrainMetrics = DummyMetrics  # pylint: disable=invalid-name
-  EvalMetrics = DummyMetrics  # pylint: disable=invalid-name
+  TrainMetrics = DummyMetrics  # pylint: disable=invalid-name  # pyrefly: ignore[bad-override]
+  EvalMetrics = DummyMetrics  # pylint: disable=invalid-name  # pyrefly: ignore[bad-override]
 
 
 class InitializeFromCheckpointTest(parameterized.TestCase):

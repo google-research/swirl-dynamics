@@ -270,8 +270,8 @@ def make_spatial_corr_plots(
         "lat": pred_corr.latitude.to_numpy(),
     }
 
-  save_dir = epath.Path(save_dir) / "spatial_corr"
-  fig.savefig(save_dir / f"{plot_name}.png")
+  save_dir = epath.Path(save_dir) / "spatial_corr"  # pyrefly: ignore[bad-argument-type, bad-assignment]
+  fig.savefig(save_dir / f"{plot_name}.png")  # pyrefly: ignore[unsupported-operation]
 
   res_save_name = f"{save_dir}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)
@@ -313,13 +313,13 @@ def main(argv: list[str]) -> None:
   years = list(range(YEAR_START.value, YEAR_END.value + 1))
   months = [int(m) for m in MONTHS.value]
 
-  sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)
+  sample_ds = add_derived_variables(sample_ds, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
   sample_ds = utils.select_time(sample_ds, years, months)
 
   ref_ds = utils.get_reference_ds(
-      REFERENCE_PATH.value, SAMPLE_VARIABLES, sample_ds
+      REFERENCE_PATH.value, SAMPLE_VARIABLES, sample_ds  # pyrefly: ignore[bad-argument-type]
   )
-  ref_ds = add_derived_variables(ref_ds, ZS_PATH.value)
+  ref_ds = add_derived_variables(ref_ds, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
   ref_ds = utils.select_time(ref_ds, years, months)
 
   if HOUR_OF_DAY.value:

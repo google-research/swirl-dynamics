@@ -185,8 +185,8 @@ class CollectingResultsTest(parameterized.TestCase):
 
 @flax.struct.dataclass
 class TestAggMetrics(clu_metrics.Collection):
-  mean: evaluate.TensorAverage().from_output("abc")
-  tensor_mean: evaluate.TensorAverage(axis=-1).from_output("abc")
+  mean: evaluate.TensorAverage().from_output("abc")  # pyrefly: ignore[invalid-annotation]
+  tensor_mean: evaluate.TensorAverage(axis=-1).from_output("abc")  # pyrefly: ignore[invalid-annotation]
 
 
 class EvalStateTest(parameterized.TestCase):
@@ -224,7 +224,7 @@ class DummyBenchmark:
 
 
 class DummyEvaluator(evaluate.Evaluator):
-  AggregatingMetrics = TestAggMetrics  # pylint:disable=invalid-name
+  AggregatingMetrics = TestAggMetrics  # pylint:disable=invalid-name  # pyrefly: ignore[bad-override]
 
 
 class EvaluatorTest(parameterized.TestCase):

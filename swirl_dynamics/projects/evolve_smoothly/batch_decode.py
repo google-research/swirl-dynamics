@@ -53,7 +53,7 @@ class BatchDecode(models.BaseModel):
         jnp.ones((1, self.ansatz.input_dim)),
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: models.BatchType,
@@ -68,7 +68,7 @@ class BatchDecode(models.BaseModel):
     loss = jnp.mean(jnp.square(batch["u"] - ypred))
     return loss, ({"loss": loss}, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self, variables: PyTree, batch: models.BatchType, rng: jax.Array
   ) -> models.ArrayDict:
     """Evaluates mean, worst-case and std relative l2 errors."""
@@ -78,7 +78,7 @@ class BatchDecode(models.BaseModel):
     )
     rrmse = metrics.mean_squared_error(
         pred=ypred,
-        true=batch["u"],
+        true=batch["u"],  # pyrefly: ignore[bad-argument-type]
         sum_axes=(-1, -2),
         relative=True,
         squared=False,
@@ -90,11 +90,11 @@ class BatchDecodeTrainer(trainers.BasicTrainer):
   """Trainer for the AnsatzDecode model."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Average.from_output("loss")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
   @flax.struct.dataclass
-  class EvalMetrics(clu_metrics.Collection):
-    eval_rrmse_mean: clu_metrics.Average.from_output("rrmse")
-    eval_rrmse_std: clu_metrics.Std.from_output("rrmse")
+  class EvalMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    eval_rrmse_mean: clu_metrics.Average.from_output("rrmse")  # pyrefly: ignore[invalid-annotation]
+    eval_rrmse_std: clu_metrics.Std.from_output("rrmse")  # pyrefly: ignore[invalid-annotation]

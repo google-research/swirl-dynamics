@@ -76,7 +76,7 @@ class EncodeDecode(models.BaseModel):
       )
     return enc_vars
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: models.BatchType,
@@ -109,7 +109,7 @@ class EncodeDecode(models.BaseModel):
     )
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self, variables: PyTree, batch: models.BatchType, rng: Array
   ) -> models.ArrayDict:
     """Evaluates mean, worst-case and std relative l2 errors."""
@@ -134,13 +134,13 @@ class EncodeDecode(models.BaseModel):
     )
 
   @staticmethod
-  def inference_fn(
+  def inference_fn(  # pyrefly: ignore[bad-override]
       variables: PyTree, encoder: nn.Module
   ) -> Callable[[ArrayLike], Array]:
     """Returns an encoder inference function."""
 
     def encode(u: ArrayLike) -> Array:
-      return encoder.apply(variables, u, is_training=False)
+      return encoder.apply(variables, u, is_training=False)  # pyrefly: ignore[bad-return]
 
     return encode
 
@@ -152,25 +152,25 @@ class EncodeDecodeTrainer(trainers.BasicTrainer[EncodeDecode, TrainState]):
   """Trainer for the EncodeDecode model."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Average.from_output("loss")
-    train_reconstruction_loss: clu_metrics.Average.from_output(
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_reconstruction_loss: clu_metrics.Average.from_output(  # pyrefly: ignore[invalid-annotation]
         "reconstruction_loss"
     )
-    train_consistency_loss: clu_metrics.Average.from_output("consistency_loss")
+    train_consistency_loss: clu_metrics.Average.from_output("consistency_loss")  # pyrefly: ignore[invalid-annotation]
 
   @flax.struct.dataclass
-  class EvalMetrics(clu_metrics.Collection):
-    eval_reconstruction_rel_l2: clu_metrics.Average.from_output(
+  class EvalMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    eval_reconstruction_rel_l2: clu_metrics.Average.from_output(  # pyrefly: ignore[invalid-annotation]
         "reconstruction_rel_l2"
     )
-    eval_consistency_rel_l2: clu_metrics.Average.from_output(
+    eval_consistency_rel_l2: clu_metrics.Average.from_output(  # pyrefly: ignore[invalid-annotation]
         "consistency_rel_l2"
     )
 
   @staticmethod
-  def build_inference_fn(
+  def build_inference_fn(  # pyrefly: ignore[bad-override]
       state: TrainState, encoder: nn.Module
   ) -> Callable[[ArrayLike], Array]:
     """Builds an encoder inference function from a train state."""

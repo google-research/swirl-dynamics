@@ -67,14 +67,14 @@ def _impose_model_calendar(
     The date range with the constraints imposed.
   """
   for model_name, constraint in DATE_CONSTRAINTS.items():
-    if model_name in model_ds_path:
+    if model_name in model_ds_path:  # pyrefly: ignore[not-iterable]
       if "homogenize_months" in constraint.keys():
-        date_range = date_range[date_range.day != 31]
+        date_range = date_range[date_range.day != 31]  # pyrefly: ignore[missing-attribute]
       if "avoid_leap_days" in constraint.keys():
         date_range = date_range[
-            ~((date_range.month == 2) & (date_range.day == 29))
+            ~((date_range.month == 2) & (date_range.day == 29))  # pyrefly: ignore[missing-attribute]
         ]
-  return date_range
+  return date_range  # pyrefly: ignore[bad-return]
 
 
 class DataSource:
@@ -122,19 +122,19 @@ class DataSource:
         domain.
       xr_: The xarray library to use to open zarr files.
     """
-    date_range = pd.date_range(*date_range, freq=f"{time_downsample}H")
-    date_range = _impose_model_calendar(input_dataset, date_range)
+    date_range = pd.date_range(*date_range, freq=f"{time_downsample}H")  # pyrefly: ignore[bad-assignment]
+    date_range = _impose_model_calendar(input_dataset, date_range)  # pyrefly: ignore[bad-argument-type, bad-assignment]
     input_ds = xr_.open_zarr(input_dataset)
-    input_ds = data_utils.get_common_times_dataset(input_ds, date_range)
+    input_ds = data_utils.get_common_times_dataset(input_ds, date_range)  # pyrefly: ignore[bad-argument-type]
     if crop_input:
-      input_ds = input_ds.isel(**D2_WITHIN_D1)
+      input_ds = input_ds.isel(**D2_WITHIN_D1)  # pyrefly: ignore[missing-attribute]
 
     self._input_arrays = [input_ds[v] for v in input_variables]
 
     output_ds = xr_.open_zarr(output_dataset)
-    output_ds = data_utils.get_common_times_dataset(output_ds, date_range)
+    output_ds = data_utils.get_common_times_dataset(output_ds, date_range)  # pyrefly: ignore[bad-argument-type]
     self._output_arrays = [output_ds[v] for v in output_variables]
-    self._output_coords = output_ds.coords
+    self._output_coords = output_ds.coords  # pyrefly: ignore[missing-attribute]
 
     # Pre-load normalized static features
     static_input_ds = xr_.open_zarr(static_input_dataset)
@@ -147,8 +147,8 @@ class DataSource:
         [xrts.read(arr).data for arr in static_features], axis=-1
     )
 
-    self._dates = data_utils.get_common_times(input_ds, date_range)
-    self._len = input_ds.dims["time"]
+    self._dates = data_utils.get_common_times(input_ds, date_range)  # pyrefly: ignore[bad-argument-type]
+    self._len = input_ds.dims["time"]  # pyrefly: ignore[missing-attribute]
     logging.info(
         "%s samples considered covering dates %s", self._len, date_range
     )
@@ -193,7 +193,7 @@ class DataSource:
 
         rng = np.random.default_rng(self._resample_seed + idx)
         resample_idx = rng.integers(0, len(self))
-        item = self.get_item(resample_idx)
+        item = self.get_item(resample_idx)  # pyrefly: ignore[bad-argument-type]
 
     return item
 
@@ -335,7 +335,7 @@ def create_dataset(
   ])
 
   loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=None,
       shuffle=shuffle,
       seed=seed,

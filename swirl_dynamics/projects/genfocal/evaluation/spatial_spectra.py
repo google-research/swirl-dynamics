@@ -95,7 +95,7 @@ def eval_spatial_radial_psd_chunk(
       f" {len(chunk.time.values)}"
   )
 
-  chunk = add_derived_variables(chunk, ZS_PATH.value)
+  chunk = add_derived_variables(chunk, ZS_PATH.value)  # pyrefly: ignore[bad-argument-type]
 
   new_key = key.with_offsets(
       longitude=None, latitude=None, member=None, rad_freq=0
@@ -226,7 +226,7 @@ def main(argv: list[str]) -> None:
         | xbeam.DatasetToChunks(inference_ds, input_chunks, split_vars=False)
         | "RechunkIn"
         >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
-            inference_ds.sizes,
+            inference_ds.sizes,  # pyrefly: ignore[bad-argument-type]
             input_chunks,
             {"longitude": -1, "latitude": -1, "member": -1, "time": 1},
             itemsize=RECHUNK_ITEMSIZE.value,

@@ -161,7 +161,7 @@ def generate_data_from_known_dynamics(
   """Generates data from known dynamics for on-the-fly ground truth batches."""
   num_steps += warmup
   tspan = jnp.arange(num_steps) * dt
-  return integrator(dynamics, x0, tspan, {})[warmup:]
+  return integrator(dynamics, x0, tspan, {})[warmup:]  # pyrefly: ignore[bad-argument-type]
 
 
 def create_loader_from_hdf5_reshaped(
@@ -473,7 +473,7 @@ def create_loader_from_tfds(
 
   loader = tfgrain.load_from_tfds(
       name=dataset_name,
-      split=split,
+      split=split,  # pyrefly: ignore[bad-argument-type]
       data_dir=dataset_path,
       shuffle=True,
       seed=seed,

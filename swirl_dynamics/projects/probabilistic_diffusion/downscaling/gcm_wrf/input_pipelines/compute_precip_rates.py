@@ -95,7 +95,7 @@ def _convert_precip_to_rates_chunk(
 
     # Compute snow rates. Negative rates indicate snow melt.
     snow_rate = snow_chunk - snow_chunk.shift(time=period)
-    rates_chunk = rates_chunk.assign(**{f'SNOW_{period}h': snow_rate})
+    rates_chunk = rates_chunk.assign(**{f'SNOW_{period}h': snow_rate})  # pyrefly: ignore[bad-argument-type]
 
   return rates_chunk.drop_vars(['RAINNC', 'RAINC', 'SNOW'])
 
@@ -105,7 +105,7 @@ def main(argv: list[str]) -> None:
   periods = list(int(v) for v in ACCUMULATION_PERIODS.value)
   obs, input_chunks = xbeam.open_zarr(INPUT_PATH.value)
   # Only retain analysis_vars.
-  obs = obs.get(analysis_vars)
+  obs = obs.get(analysis_vars)  # pyrefly: ignore[bad-argument-type]
   assert isinstance(obs, xr.Dataset)
   if START_YEAR.value is not None and END_YEAR.value is not None:
     time_slice = slice(str(START_YEAR.value), str(END_YEAR.value))
