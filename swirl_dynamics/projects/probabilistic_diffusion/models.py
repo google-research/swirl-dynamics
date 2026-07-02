@@ -94,7 +94,7 @@ class DenoisingModel(models.BaseModel):
   num_eval_cases_per_lvl: int = 1
   min_eval_noise_lvl: float = 1e-3
   max_eval_noise_lvl: float = 50.0
-  noise_dist: dfn_lib.NoiseDist = jax.random.normal
+  noise_dist: dfn_lib.NoiseDist = jax.random.normal  # pyrefly: ignore[bad-assignment]
 
   def initialize(self, rng: Array):
     x = jnp.ones((1,) + self.input_shape)
@@ -103,7 +103,7 @@ class DenoisingModel(models.BaseModel):
         rng, x=x, sigma=jnp.ones((1,)), cond=cond, is_training=False
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -141,11 +141,11 @@ class DenoisingModel(models.BaseModel):
         is_training=True,
         rngs={"dropout": rng3},  # TODO: refactor this.
     )
-    loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))
+    loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))  # pyrefly: ignore[unsupported-operation]
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self, variables: models.PyTree, batch: models.BatchType, rng: Array
   ) -> models.ArrayDict:
     """Compute metrics on an eval batch.
@@ -215,7 +215,7 @@ class DenoisingModel(models.BaseModel):
     return {f"sigma_lvl{i}": loss for i, loss in enumerate(ema_losses)}
 
   @staticmethod
-  def inference_fn(variables: models.PyTree, denoiser: nn.Module):
+  def inference_fn(variables: models.PyTree, denoiser: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference denoising function."""
 
     def _denoise(
@@ -223,7 +223,7 @@ class DenoisingModel(models.BaseModel):
     ) -> Array:
       if not jnp.shape(jnp.asarray(sigma)):
         sigma *= jnp.ones((x.shape[0],))
-      return denoiser.apply(
+      return denoiser.apply(  # pyrefly: ignore[bad-return]
           variables, x=x, sigma=sigma, cond=cond, is_training=False
       )
 

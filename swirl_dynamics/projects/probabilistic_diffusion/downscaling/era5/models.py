@@ -85,8 +85,8 @@ class DenoisingModel(dfn_models.DenoisingModel):
         batch["cond"],
         batch.get("guidance_inputs", {}),
     )  # ~ (batch, samples, *sample_dims)
-    crps = jnp.mean(metric_lib.crps(forecasts=samples, observations=batch["x"]))
-    return {
+    crps = jnp.mean(metric_lib.crps(forecasts=samples, observations=batch["x"]))  # pyrefly: ignore[bad-argument-type]
+    return {  # pyrefly: ignore[bad-return]
         # Take first batch element and one sample only. The batch axis is kept
         # to work with `CollectingMetric` in clu.
         "example_sample": jnp.asarray(samples)[:1, 0],

@@ -62,7 +62,7 @@ class NetworksTest(parameterized.TestCase):
         variables, x, is_training=True, rngs={"dropout": jax.random.PRNGKey(42)}
     )
     self.assertEqual(out.shape, x.shape)
-    self.assertEqual(out_training.shape, x.shape)
+    self.assertEqual(out_training.shape, x.shape)  # pyrefly: ignore[missing-attribute]
 
   @parameterized.parameters(
       ((16, 8), "CIRCULAR", 1, 2),

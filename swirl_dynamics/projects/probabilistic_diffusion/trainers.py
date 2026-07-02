@@ -52,12 +52,12 @@ class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
   """Single-device trainer for denoising models."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Std.from_output("loss")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
   @functools.cached_property
-  def EvalMetrics(self):
+  def EvalMetrics(self):  # pyrefly: ignore[bad-override]
     denoising_metrics = {
         f"eval_denoise_lvl{i}": clu_metrics.Average.from_output(f"sigma_lvl{i}")
         for i in range(self.model.num_eval_noise_levels)
@@ -71,7 +71,7 @@ class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
   def initialize_train_state(self, rng: Array) -> TrainState:
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
-    return DenoisingModelTrainState.create(
+    return DenoisingModelTrainState.create(  # pyrefly: ignore[bad-return]
         replicate=self.is_distributed,
         params=params,
         opt_state=self.optimizer.init(params),
@@ -94,7 +94,7 @@ class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
           grads, train_state.opt_state, train_state.params
       )
       new_params = optax.apply_updates(train_state.params, updates)
-      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)
+      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)  # pyrefly: ignore[bad-argument-type]
       return train_state.replace(
           step=train_state.step + 1,
           opt_state=new_opt_state,

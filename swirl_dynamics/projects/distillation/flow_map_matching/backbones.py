@@ -369,7 +369,7 @@ class FlowMapUNet(nn.Module):
         )
       else:
         emb = self.cond_embed_fn(
-            **self.cond_embed_kwargs,
+            **self.cond_embed_kwargs,  # pyrefly: ignore[bad-argument-type]
         )(emb, cond, is_training=is_training)
 
     skips = unets.DStack(

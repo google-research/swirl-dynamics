@@ -30,7 +30,7 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
   ):
     with self.assertRaisesRegex(ValueError, "matching shapes"):
       probabilistic_forecast._process_forecasts(
-          np.ones(forecasts_shape), np.ones(observations_shape), ensemble_axis
+          np.ones(forecasts_shape), np.ones(observations_shape), ensemble_axis  # pyrefly: ignore[bad-argument-type]
       )
 
   @parameterized.parameters(
@@ -38,7 +38,7 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
   )
   def test_mad_with_broadcast_output_shape(self, test_shape):
     out = probabilistic_forecast._mean_abs_diff_with_broadcast(
-        np.ones(test_shape)
+        np.ones(test_shape)  # pyrefly: ignore[bad-argument-type]
     )
     self.assertEqual(out.shape, test_shape[:-1])
 

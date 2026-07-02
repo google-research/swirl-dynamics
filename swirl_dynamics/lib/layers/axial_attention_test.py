@@ -62,8 +62,8 @@ class AxialAttentionLayersTest(parameterized.TestCase):
 
     # Check output dtype
     out = model.apply(variables, inputs)
-    self.assertEqual(out.dtype, dtype)
-    self.assertEqual(out.shape, input_shape)
+    self.assertEqual(out.dtype, dtype)  # pyrefly: ignore[missing-attribute]
+    self.assertEqual(out.shape, input_shape)  # pyrefly: ignore[missing-attribute]
 
 
 if __name__ == "__main__":

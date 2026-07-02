@@ -78,7 +78,7 @@ class ResNetTest(parameterized.TestCase):
         {'params': params, 'batch_stats': batch_stats}, x, is_training=False
     )
     dim_expected = (dim_in / 2, features)
-    self.assertSequenceEqual(y.shape, dim_expected)
+    self.assertSequenceEqual(y.shape, dim_expected)  # pyrefly: ignore[missing-attribute]
 
 
 class EncoderResNetTest(parameterized.TestCase):
@@ -123,7 +123,7 @@ class EncoderResNetTest(parameterized.TestCase):
         {'params': params, 'batch_stats': batch_stats}, x, is_training=False
     )
     dim_expected = (1, dim_out)
-    self.assertSequenceEqual(y.shape, dim_expected)
+    self.assertSequenceEqual(y.shape, dim_expected)  # pyrefly: ignore[missing-attribute]
 
 
 if __name__ == '__main__':

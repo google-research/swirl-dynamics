@@ -138,7 +138,7 @@ class DenoisingModel(templates.BaseModel):
         rng, x=x, sigma=jnp.ones((1,)), cond=cond, is_training=False
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self, params: PyTree, batch: BatchType, rng: Array, mutables: PyTree
   ) -> LossAndAux:
     """Computes the denoising loss on a training batch.
@@ -176,7 +176,7 @@ class DenoisingModel(templates.BaseModel):
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self, variables: PyTree, batch: BatchType, rng: Array
   ) -> Mapping[str, jax.Array]:
     """Compute metrics on an evaluation batch."""
@@ -324,7 +324,7 @@ class DenoisingModel(templates.BaseModel):
     )
 
   @classmethod
-  def inference_fn(cls, variables: PyTree, denoiser: nn.Module):
+  def inference_fn(cls, variables: PyTree, denoiser: nn.Module):  # pyrefly: ignore[bad-override]
     """Constructs the inference denoising function from variables and denoiser."""
 
     def _denoise(
@@ -332,7 +332,7 @@ class DenoisingModel(templates.BaseModel):
     ) -> Array:
       if not jnp.shape(jnp.asarray(sigma)):
         sigma *= jnp.ones((x.shape[0],))
-      return denoiser.apply(
+      return denoiser.apply(  # pyrefly: ignore[bad-return]
           variables, x=x, sigma=sigma, cond=cond, is_training=False
       )
 
@@ -361,14 +361,14 @@ class DenoisingTrainer(templates.BasicDistributedTrainer[Model, State]):
   """A data-parallel trainer for the super-resolution denoising model."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
     """Training metrics for the denoising model."""
 
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Std.from_output("loss")
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
   @functools.cached_property
-  def EvalMetrics(self):
+  def EvalMetrics(self):  # pyrefly: ignore[bad-override]
     """Evaluation metrics for the denoising model."""
     denoising_metrics = {
         f"eval_denoise_lvl{i}": clu_metrics.Average.from_output(f"sigma_lvl{i}")
@@ -422,7 +422,7 @@ class DenoisingTrainer(templates.BasicDistributedTrainer[Model, State]):
           grads, train_state.opt_state, train_state.params
       )
       new_params = optax.apply_updates(train_state.params, updates)
-      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)
+      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)  # pyrefly: ignore[bad-argument-type]
       return train_state.replace(
           step=train_state.step + 1,
           opt_state=new_opt_state,

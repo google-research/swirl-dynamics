@@ -59,7 +59,7 @@ def collected_metrics_to_ds(
   if coords is not None:
     for cur_size in fixed_shape:
       dims.append(
-          list(coords.dims.keys())[list(coords.dims.values()).index(cur_size)]
+          list(coords.dims.keys())[list(coords.dims.values()).index(cur_size)]  # pyrefly: ignore[bad-argument-type]
       )
     if len(dims) == len(set(dims)):
       coord_dict = {

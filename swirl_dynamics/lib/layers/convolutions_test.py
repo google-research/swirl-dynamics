@@ -40,7 +40,7 @@ class ConvLayersTest(parameterized.TestCase):
     lon_axis = -3 if padding == "lonlat" else -2
     rolled_inputs = jnp.roll(inputs, shift=3, axis=lon_axis)
     out_ = model.apply(var, inputs=rolled_inputs)
-    np.testing.assert_allclose(
+    np.testing.assert_allclose(  # pyrefly: ignore[no-matching-overload]
         jnp.roll(out, shift=3, axis=lon_axis), out_, atol=1e-6
     )
 
@@ -81,8 +81,8 @@ class ConvLayersTest(parameterized.TestCase):
 
     # Check output dtype
     out = model.apply(variables, inputs)
-    self.assertEqual(out.dtype, dtype)
-    self.assertEqual(out.shape, input_shape)
+    self.assertEqual(out.dtype, dtype)  # pyrefly: ignore[missing-attribute]
+    self.assertEqual(out.shape, input_shape)  # pyrefly: ignore[missing-attribute]
 
 
 if __name__ == "__main__":

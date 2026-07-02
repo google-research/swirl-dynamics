@@ -46,7 +46,7 @@ class DilatedBlockTest(parameterized.TestCase):
     x = jax.random.normal(rng, ((batch_size,) + input_dim + (input_channels,)))
     params = d_block.init(rng, x)['params']
     y = d_block.apply({'params': params}, x)
-    self.assertEqual(y.shape, ((batch_size,) + input_dim + (num_channels,)))
+    self.assertEqual(y.shape, ((batch_size,) + input_dim + (num_channels,)))  # pyrefly: ignore[missing-attribute]
 
 
 class PeriodicConvNetModelTest(parameterized.TestCase):
@@ -81,7 +81,7 @@ class PeriodicConvNetModelTest(parameterized.TestCase):
     x = jax.random.normal(rng, ((batch_size,) + input_dim + (input_channels,)))
     params = test_model.init(rng, x)['params']
     y = test_model.apply({'params': params}, x)
-    self.assertEqual(y.shape, ((batch_size,) + input_dim + (input_channels,)))
+    self.assertEqual(y.shape, ((batch_size,) + input_dim + (input_channels,)))  # pyrefly: ignore[missing-attribute]
 
 
 if __name__ == '__main__':

@@ -96,7 +96,7 @@ def main(argv):
       num_time_steps=config.data.num_time_steps,
       time_stride=config.data.time_stride,
       batch_size=config.data.batch_size,
-      normalize_stats=stats,
+      normalize_stats=stats,  # pyrefly: ignore[bad-argument-type]
       spatial_downsample_factor=config.spatial_downsample_factor,
       dataset_path=config.data.file_path_data,
       tf_lookup_batch_size=config.data.tf_lookup_batch_size,

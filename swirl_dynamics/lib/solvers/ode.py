@@ -46,7 +46,7 @@ def nn_module_to_dynamics(
     # NOTE: `params` here is the whole of model variable, not just the `params`
     # key
     variables = params
-    return module.apply(variables, *args, **static_kwargs)
+    return module.apply(variables, *args, **static_kwargs)  # pyrefly: ignore[bad-return]
 
   return _dynamics_func
 

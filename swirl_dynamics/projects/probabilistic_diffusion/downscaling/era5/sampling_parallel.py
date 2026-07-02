@@ -281,7 +281,7 @@ class TrajectorySamplerParallel:
 
       # Note: input is lon-lat but denoiser takes lat-lon.
       denoised = self.denoise_fn(
-          jnp.rot90(x1, k=1, axes=(-3, -2)) / s1, sigma1, cond
+          jnp.rot90(x1, k=1, axes=(-3, -2)) / s1, sigma1, cond  # pyrefly: ignore[bad-argument-type]
       )
       denoised = jnp.rot90(denoised, k=-1, axes=(-3, -2))
       if self.num_overlap_days > 0:
@@ -315,7 +315,7 @@ class TrajectorySamplerParallel:
         x0 += noise
       else:
         raise ValueError(f"Unknown sampling type: {self.sampling_type}")
-      return x0
+      return x0  # pyrefly: ignore[bad-return]
 
     return jax.jit(_shard_denoise)
 
@@ -362,7 +362,7 @@ class TrajectorySamplerParallel:
                 "longitude": self.lon_coords,
                 "latitude": self.lat_coords,
             },
-            method=self.interp_method or "nearest",
+            method=self.interp_method or "nearest",  # pyrefly: ignore[bad-argument-type]
         )
         .sel(time=self.time_coords.astype("datetime64[D]"))
         .transpose("time", "longitude", "latitude")

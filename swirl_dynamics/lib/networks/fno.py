@@ -166,7 +166,7 @@ class SpectralConv(nn.Module):
     x = jnp.fft.irfftn(x, s=domain_size, axes=fft_axes, norm=self.fft_norm)
 
     if self.use_bias:
-      x = x + self.bias[None]
+      x = x + self.bias[None]  # pyrefly: ignore[unsupported-operation]
 
     return x
 
@@ -348,7 +348,7 @@ class Fno2d(nn.Module):
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:
     batch_sz, *grid_size, _ = x.shape
-    grid = self.get_grid(tuple(grid_size), dtype=self.grid_dtype)
+    grid = self.get_grid(tuple(grid_size), dtype=self.grid_dtype)  # pyrefly: ignore[bad-argument-type]
     grid = jnp.tile(grid, (batch_sz,) + (1,) * (len(grid_size) + 1))
 
     # Scaling follows the reference repo in the class description

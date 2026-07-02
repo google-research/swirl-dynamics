@@ -112,7 +112,7 @@ def create_loader_from_hdf5(
   else:
     mean, std = None, None
   source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
+      tf.data.Dataset.from_tensor_slices({  # pyrefly: ignore[bad-argument-type]
           "u": snapshots,  # states
       })
   )

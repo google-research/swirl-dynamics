@@ -127,7 +127,7 @@ class UNet(nn.Module):
     emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)
     # Incorporating the embedding from the conditional inputs.
     if self.cond_embed_fn:
-      emb = self.cond_embed_fn(**self.cond_embed_kwargs)(
+      emb = self.cond_embed_fn(**self.cond_embed_kwargs)(  # pyrefly: ignore[bad-unpacking]
           emb, cond, is_training=is_training
       )
 

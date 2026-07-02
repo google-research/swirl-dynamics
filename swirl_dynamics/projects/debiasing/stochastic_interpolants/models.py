@@ -129,7 +129,7 @@ class StochasticInterpolantModel(models.BaseModel):
         rng, x=x, sigma=jnp.ones((1,)), is_training=False
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -167,7 +167,7 @@ class StochasticInterpolantModel(models.BaseModel):
     if self.use_same_noise_rng:
       noise_flow_rng = noise_rng
     noise_flow = self.noising_process_flow(noise_flow_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)  # pyrefly: ignore[bad-argument-type]
 
     v_t = self.flow_model.apply(
         {"params": params},
@@ -178,17 +178,17 @@ class StochasticInterpolantModel(models.BaseModel):
     )
 
     loss = self.loss_stochastic_interpolant(
-        v_t,
+        v_t,  # pyrefly: ignore[bad-argument-type]
         time,
-        batch["x_0"],
-        batch["x_1"],
+        batch["x_0"],  # pyrefly: ignore[bad-argument-type]
+        batch["x_1"],  # pyrefly: ignore[bad-argument-type]
         noise_flow,
         self.interpolant,
     )
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -253,14 +253,14 @@ class StochasticInterpolantModel(models.BaseModel):
     return eval_losses
 
   @classmethod
-  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):
+  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, time: float | Array) -> Array:
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(variables, x=x, sigma=time, is_training=False)
+      return flow_model.apply(variables, x=x, sigma=time, is_training=False)  # pyrefly: ignore[bad-return]
 
     return _flow
 
@@ -327,7 +327,7 @@ class StochasticInterpolantCRPSModel(models.BaseModel):
         rng, x=x, sigma=jnp.ones((1,)), is_training=False
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -371,8 +371,8 @@ class StochasticInterpolantCRPSModel(models.BaseModel):
 
     # We prepate two samples for the CRPS loss.
     # TODO: Add a feature of adding more samples to CRPS loss.
-    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp_1)
-    x_t_2 = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp_2)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp_1)  # pyrefly: ignore[bad-argument-type]
+    x_t_2 = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp_2)  # pyrefly: ignore[bad-argument-type]
 
     v_t = self.flow_model.apply(
         {"params": params},
@@ -391,18 +391,18 @@ class StochasticInterpolantCRPSModel(models.BaseModel):
 
     # Compute the reference flow.
     v_ref = self.interpolant.calculate_time_derivative_interpolant(
-        time, batch["x_0"], batch["x_1"], noise_flow
+        time, batch["x_0"], batch["x_1"], noise_flow  # pyrefly: ignore[bad-argument-type]
     )
 
     # Compute CRPS loss
     loss = 0.5 * jnp.mean(
-        jnp.abs(v_t - v_ref) + jnp.abs(v_t_2 - v_ref)
-    ) - 0.25 * jnp.mean(jnp.abs(v_t - v_t_2))
+        jnp.abs(v_t - v_ref) + jnp.abs(v_t_2 - v_ref)  # pyrefly: ignore[unsupported-operation]
+    ) - 0.25 * jnp.mean(jnp.abs(v_t - v_t_2))  # pyrefly: ignore[unsupported-operation]
 
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -467,14 +467,14 @@ class StochasticInterpolantCRPSModel(models.BaseModel):
     return eval_losses
 
   @classmethod
-  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):
+  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, time: float | Array) -> Array:
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(variables, x=x, sigma=time, is_training=False)
+      return flow_model.apply(variables, x=x, sigma=time, is_training=False)  # pyrefly: ignore[bad-return]
 
     return _flow
 
@@ -531,7 +531,7 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
         rng, x=x, sigma=jnp.ones((1,)), is_training=False
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -564,7 +564,7 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
     # Interpolation between x_0 and x_1 (check the interpolant)
     # Check the dimensions here.
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Here we assume that the flow model has two outputs, one for the flow and
     # one for the score (or the denoised sample if using a denoising loss).
@@ -579,16 +579,16 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
     loss_flow = self.loss_stochastic_interpolant_flow(
         v_t,
         time,
-        batch["x_0"],
-        batch["x_1"],
+        batch["x_0"],  # pyrefly: ignore[bad-argument-type]
+        batch["x_1"],  # pyrefly: ignore[bad-argument-type]
         noise,
         self.interpolant,
     )
     loss_score = self.loss_stochastic_interpolant_score(
-        s_t,
+        s_t,  # pyrefly: ignore[bad-argument-type]
         time,
-        batch["x_0"],
-        batch["x_1"],
+        batch["x_0"],  # pyrefly: ignore[bad-argument-type]
+        batch["x_1"],  # pyrefly: ignore[bad-argument-type]
         noise,
         self.interpolant,
     )
@@ -597,7 +597,7 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
     metric = dict(loss=loss, loss_flow=loss_flow, loss_score=loss_score)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -669,14 +669,14 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
     return eval_losse
 
   @classmethod
-  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):
+  def inference_fn(cls, variables: models.PyTree, flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, time: float | Array) -> Array:
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(variables, x=x, sigma=time, is_training=False)
+      return flow_model.apply(variables, x=x, sigma=time, is_training=False)  # pyrefly: ignore[bad-return]
 
     return _flow
 
@@ -738,7 +738,7 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     if self.use_same_noise_rng:
       noise_flow_rng = noise_rng
     noise_flow = self.noising_process_flow(noise_flow_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)
+    x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning.
     if self.cond_shape is not None:
@@ -757,10 +757,10 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
 
     # Eq. (1) in [1], but with a possibly weighted norm.
     loss = self.loss_stochastic_interpolant(
-        v_t,
+        v_t,  # pyrefly: ignore[bad-argument-type]
         time,
-        batch["x_0"],
-        batch["x_1"],
+        batch["x_0"],  # pyrefly: ignore[bad-argument-type]
+        batch["x_1"],  # pyrefly: ignore[bad-argument-type]
         noise_flow,
         self.interpolant,
     )
@@ -847,7 +847,7 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
       # This is a wrapper to vectorize time if it is a float.
       if not jnp.shape(jnp.asarray(time)):
         time *= jnp.ones((x.shape[0],))
-      return flow_model.apply(
+      return flow_model.apply(  # pyrefly: ignore[bad-return]
           variables, x=x, sigma=time, cond=cond, is_training=False
       )
 

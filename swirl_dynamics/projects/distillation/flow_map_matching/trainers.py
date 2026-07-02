@@ -67,12 +67,12 @@ class LagrangianFlowMapTrainer(
   """Single-device trainer for stochastic interpolants models."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Std.from_output("loss")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
   @functools.cached_property
-  def EvalMetrics(self) -> Collection:
+  def EvalMetrics(self) -> Collection:  # pyrefly: ignore[bad-override]
     evaluation_metrics = {
         "eval_loss": clu_metrics.Average.from_output("eval_loss"),
         "eval_plot_data": clu_metrics.CollectingMetric.from_outputs(
@@ -114,7 +114,7 @@ class LagrangianFlowMapTrainer(
           grads, train_state.opt_state, train_state.params
       )
       new_params = optax.apply_updates(train_state.params, updates)
-      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)
+      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)  # pyrefly: ignore[bad-argument-type]
       return train_state.replace(
           step=train_state.step + 1,
           opt_state=new_opt_state,
@@ -150,16 +150,16 @@ class ConditionalLagrangianSelfDistilledFlowMapTrainer(
   """Single-device trainer for Lagrangian self-distilled flow models."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Std.from_output("loss")
-    train_loss_x: clu_metrics.Average.from_output("loss_x")
-    train_loss_x_std: clu_metrics.Std.from_output("loss_x")
-    train_loss_v: clu_metrics.Average.from_output("loss_v")
-    train_loss_v_std: clu_metrics.Std.from_output("loss_v")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_x: clu_metrics.Average.from_output("loss_x")  # pyrefly: ignore[invalid-annotation]
+    train_loss_x_std: clu_metrics.Std.from_output("loss_x")  # pyrefly: ignore[invalid-annotation]
+    train_loss_v: clu_metrics.Average.from_output("loss_v")  # pyrefly: ignore[invalid-annotation]
+    train_loss_v_std: clu_metrics.Std.from_output("loss_v")  # pyrefly: ignore[invalid-annotation]
 
   @functools.cached_property
-  def EvalMetrics(self) -> Collection:
+  def EvalMetrics(self) -> Collection:  # pyrefly: ignore[bad-override]
     evaluation_metrics = {
         "eval_loss": clu_metrics.Average.from_output("eval_loss"),
         "eval_loss_x": clu_metrics.Average.from_output("eval_loss_x"),
@@ -203,7 +203,7 @@ class ConditionalLagrangianSelfDistilledFlowMapTrainer(
           grads, train_state.opt_state, train_state.params
       )
       new_params = optax.apply_updates(train_state.params, updates)
-      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)
+      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)  # pyrefly: ignore[bad-argument-type]
       return train_state.replace(
           step=train_state.step + 1,
           opt_state=new_opt_state,

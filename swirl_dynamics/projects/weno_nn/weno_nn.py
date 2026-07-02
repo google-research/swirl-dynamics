@@ -337,7 +337,7 @@ class OmegaNN(nn.Module):
       elif self.act_fun == "unshared_rational_act_fun":
         delta = rational_networks.UnsharedRationalLayer()(delta)
       else:
-        delta = self.act_fun(delta)
+        delta = self.act_fun(delta)  # pyrefly: ignore[not-callable]
 
     # Following [1], the last layer has a different activation function.
     omega_out = self.act_fun_out(

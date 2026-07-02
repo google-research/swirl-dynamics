@@ -64,12 +64,12 @@ class StochasticInterpolantTrainer(trainers.BasicTrainer[Model, State]):
   """Single-device trainer for stochastic interpolants models."""
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Std.from_output("loss")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
 
   @functools.cached_property
-  def EvalMetrics(self) -> Collection:
+  def EvalMetrics(self) -> Collection:  # pyrefly: ignore[bad-override]
     denoising_metrics = {
         f"eval_time_lvl{i}": clu_metrics.Average.from_output(f"time_lvl{i}")
         for i in range(self.model.num_eval_time_levels)
@@ -81,7 +81,7 @@ class StochasticInterpolantTrainer(trainers.BasicTrainer[Model, State]):
     self.ema = optax.ema(ema_decay)
     super().__init__(*args, **kwargs)
 
-  def initialize_train_state(self, rng: Array) -> TrainState:
+  def initialize_train_state(self, rng: Array) -> TrainState:  # pyrefly: ignore[bad-override]
     init_vars = self.model.initialize(rng)
     mutables, params = flax.core.pop(init_vars, "params")
     return TrainState.create(
@@ -93,7 +93,7 @@ class StochasticInterpolantTrainer(trainers.BasicTrainer[Model, State]):
     )
 
   @property
-  def update_train_state(
+  def update_train_state(  # pyrefly: ignore[bad-override]
       self,
   ) -> Callable[[TrainState, VariableDict, VariableDict], TrainState]:
     """Returns function that updates the train state."""
@@ -107,7 +107,7 @@ class StochasticInterpolantTrainer(trainers.BasicTrainer[Model, State]):
           grads, train_state.opt_state, train_state.params
       )
       new_params = optax.apply_updates(train_state.params, updates)
-      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)
+      _, new_ema_state = self.ema.update(new_params, train_state.ema_state)  # pyrefly: ignore[bad-argument-type]
       return train_state.replace(
           step=train_state.step + 1,
           opt_state=new_opt_state,
@@ -143,13 +143,13 @@ class StochasticInterpolantFlowScoreTrainer(StochasticInterpolantTrainer):
   """
 
   @flax.struct.dataclass
-  class TrainMetrics(clu_metrics.Collection):
-    train_loss: clu_metrics.Average.from_output("loss")
-    train_loss_std: clu_metrics.Std.from_output("loss")
-    train_loss_flow: clu_metrics.Average.from_output("loss_flow")
-    train_loss_flow_std: clu_metrics.Std.from_output("loss_flow")
-    train_loss_score: clu_metrics.Average.from_output("loss_score")
-    train_loss_score_std: clu_metrics.Std.from_output("loss_score")
+  class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_loss_flow: clu_metrics.Average.from_output("loss_flow")  # pyrefly: ignore[invalid-annotation]
+    train_loss_flow_std: clu_metrics.Std.from_output("loss_flow")  # pyrefly: ignore[invalid-annotation]
+    train_loss_score: clu_metrics.Average.from_output("loss_score")  # pyrefly: ignore[invalid-annotation]
+    train_loss_score_std: clu_metrics.Std.from_output("loss_score")  # pyrefly: ignore[invalid-annotation]
 
 
 class DistributedStochasticInterpolantTrainer(

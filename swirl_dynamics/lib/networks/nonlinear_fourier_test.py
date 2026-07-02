@@ -121,8 +121,8 @@ class MLPTest(parameterized.TestCase):
     # Running the model through the input and checking types.
     y = mlp_small.apply({'params': params}, x)
     self.assertEqual(params['Dense_0']['kernel'].dtype, dtype)
-    self.assertEqual(y.dtype, dtype)
-    self.assertEqual(y.shape, (10,))
+    self.assertEqual(y.dtype, dtype)  # pyrefly: ignore[missing-attribute]
+    self.assertEqual(y.shape, (10,))  # pyrefly: ignore[missing-attribute]
 
 
 class NonLinearFourier2DTest(absltest.TestCase):

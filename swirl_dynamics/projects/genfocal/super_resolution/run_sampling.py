@@ -83,7 +83,7 @@ def main(argv: Sequence[str]) -> None:
       inference_cfg.total_sample_days, "D"
   )
   cond_loader = data.InputLoader(
-      date_range=(inference_cfg.start_date, end_date),
+      date_range=(inference_cfg.start_date, end_date),  # pyrefly: ignore[bad-argument-type]
       daily_dataset_path=inference_cfg.input_file_path,
       daily_variables=_to_dataset_variables(inference_cfg.input_variables),
       daily_stats_path=inference_cfg.input_stats_path,

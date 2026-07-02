@@ -150,13 +150,13 @@ class CondSamplingEvaluator(evaluate.Evaluator):
   """Evaluator for the conditional sampling benchmark."""
 
   @flax.struct.dataclass
-  class AggregatingMetrics(clu_metrics.Collection):
-    global_mean_crps: evaluate.TensorAverage(axis=None).from_output("crps")
-    local_mean_crps: evaluate.TensorAverage(axis=0).from_output("crps")
-    global_mean_threshold_brier_score: evaluate.TensorAverage(
+  class AggregatingMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
+    global_mean_crps: evaluate.TensorAverage(axis=None).from_output("crps")  # pyrefly: ignore[invalid-annotation]
+    local_mean_crps: evaluate.TensorAverage(axis=0).from_output("crps")  # pyrefly: ignore[invalid-annotation]
+    global_mean_threshold_brier_score: evaluate.TensorAverage(  # pyrefly: ignore[invalid-annotation]
         axis=(0, 1, 2, 3)  # NOTE: specific to 2d case
     ).from_output("thres_brier_scores")
-    local_mean_threshold_brier_score: evaluate.TensorAverage(
+    local_mean_threshold_brier_score: evaluate.TensorAverage(  # pyrefly: ignore[invalid-annotation]
         axis=0
     ).from_output("thres_brier_scores")
 

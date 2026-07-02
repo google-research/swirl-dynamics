@@ -229,7 +229,7 @@ def EulerMaruyama(  # pylint: disable=invalid-name
   match iter_type:
     case "scan":
       time_axis_pos = time_axis_pos or 0
-      return ScanBasedEulerMaruyama(time_axis_pos=time_axis_pos)
+      return ScanBasedEulerMaruyama(time_axis_pos=time_axis_pos)  # pyrefly: ignore[bad-return]
     case "loop":
       if time_axis_pos is not None:
         warnings.warn(

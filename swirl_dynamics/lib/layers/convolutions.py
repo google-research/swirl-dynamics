@@ -53,7 +53,7 @@ def ConvLayer(
         features,
         kernel_size,
         use_local=use_local,
-        order=padding.lower(),
+        order=padding.lower(),  # pyrefly: ignore[bad-argument-type]
         precision=precision,
         dtype=dtype,
         param_dtype=param_dtype,

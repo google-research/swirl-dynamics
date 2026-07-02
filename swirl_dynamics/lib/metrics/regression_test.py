@@ -46,8 +46,8 @@ class RegressionMetricsTest(parameterized.TestCase):
     xpred = np.ones(_TEST_INPUT_SHAPE)
     xtrue = 2 * np.ones(_TEST_INPUT_SHAPE)
     err = reg.mean_squared_error(
-        pred=xpred,
-        true=xtrue,
+        pred=xpred,  # pyrefly: ignore[bad-argument-type]
+        true=xtrue,  # pyrefly: ignore[bad-argument-type]
         sum_axes=(-1,),
         relative=relative,
         squared=squared,
@@ -59,7 +59,7 @@ class RegressionMetricsTest(parameterized.TestCase):
     xpred = np.ones(_TEST_INPUT_SHAPE)
     xtrue = 4 * np.ones(_TEST_INPUT_SHAPE)
     err = reg.mean_absolute_error(
-        pred=xpred, true=xtrue, sum_axes=(-1,), relative=relative
+        pred=xpred, true=xtrue, sum_axes=(-1,), relative=relative  # pyrefly: ignore[bad-argument-type]
     )
     self.assertAlmostEqual(err, expected, places=5)
 

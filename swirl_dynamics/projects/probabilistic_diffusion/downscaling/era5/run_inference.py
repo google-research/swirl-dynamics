@@ -221,7 +221,7 @@ def main(argv: Sequence[str]) -> None:
       config.downscale.total_sample_days, "D"
   )
   cond_loader = inference_pipeline.DefaultCondLoader(
-      date_range=(config.downscale.start_date, end_date),
+      date_range=(config.downscale.start_date, end_date),  # pyrefly: ignore[bad-argument-type]
       dataset=config.downscale.input_file,
       dataset_variables=_to_dataset_variables(config.downscale.input_variables),
       stats=config.downscale.input_stats_file,

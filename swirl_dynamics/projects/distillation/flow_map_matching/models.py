@@ -120,7 +120,7 @@ class LagrangianFlowMapModel(models.BaseModel):
         is_training=False,
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -155,7 +155,7 @@ class LagrangianFlowMapModel(models.BaseModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Partial flow map to compute the gradient vector product.
     def partial_flow_map(x_s, t, s):
@@ -187,7 +187,7 @@ class LagrangianFlowMapModel(models.BaseModel):
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -225,7 +225,7 @@ class LagrangianFlowMapModel(models.BaseModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Partial flow map to compute the gradient vector product.
     def partial_flow_map(x_s, t, s):
@@ -275,7 +275,7 @@ class LagrangianFlowMapModel(models.BaseModel):
     return eval_losses  # pytype: disable=bad-return-type
 
   @classmethod
-  def inference_fn(cls, variables: models.PyTree, flow_map_model: nn.Module):
+  def inference_fn(cls, variables: models.PyTree, flow_map_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, t: float | Array, s: float | Array) -> Array:
@@ -283,7 +283,7 @@ class LagrangianFlowMapModel(models.BaseModel):
       if not jnp.shape(jnp.asarray(t)):
         t *= jnp.ones((x.shape[0],))
         s *= jnp.ones((x.shape[0],))
-      return flow_map_model.apply(variables, x_s=x, t=t, s=s, is_training=False)
+      return flow_map_model.apply(variables, x_s=x, t=t, s=s, is_training=False)  # pyrefly: ignore[bad-return]
 
     return _flow
 
@@ -347,7 +347,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning. In this case it is just the label.
     if self.cond_shape is not None:
@@ -432,7 +432,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
 
     # Interpolation between x_0 and x_1 (check the stochastic interpolant code).
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Partial flow map to compute the gradient vector product.
     def partial_flow_map(x_s, t, s):
@@ -496,7 +496,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
       if not jnp.shape(jnp.asarray(t)):
         t *= jnp.ones((x.shape[0],))
         s *= jnp.ones((x.shape[0],))
-      return flow_map_model.apply(
+      return flow_map_model.apply(  # pyrefly: ignore[bad-return]
           variables, x_s=x, t=t, s=s, cond=cond, is_training=False
       )
 
@@ -571,7 +571,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
         is_training=False,
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -607,8 +607,8 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
     # Shall we add constraint that x_tt = x_t?
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
-    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning. In this case it is just the label.
     if self.cond_shape is not None:
@@ -620,7 +620,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     if self.weight_v > 0.0:
       # Derivative of the interpolant with respect to t.
       dinterp_dt = self.interpolant.calculate_time_derivative_interpolant(
-          time_t, batch["x_0"], batch["x_1"], noise
+          time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
 
       # Evaluating the mean flow map at x_t.
@@ -635,7 +635,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       )
 
       # This is the loss as defined in Eq. 12 in [1].
-      loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))
+      loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))  # pyrefly: ignore[unsupported-operation]
     else:
       loss_v = jnp.zeros((), dtype=x_t.dtype)
 
@@ -646,7 +646,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
         # Broadcast the delta time to the spatial dimensions.
         delta_time = t - s
         delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
-        return x_s + delta_time * self.mean_flow_model.apply(
+        return x_s + delta_time * self.mean_flow_model.apply(  # pyrefly: ignore[unsupported-operation]
             {"params": params},
             x_s,
             t,
@@ -693,7 +693,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     metric = dict(loss=loss, loss_v=loss_v, loss_x=loss_x)
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -737,15 +737,15 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
 
     # Interpolation between x_0 and x_1. See stochastic_interpolants code
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
-    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Partial flow map to compute the gradient vector product.
     def partial_flow_map(x_s: Array, t: Array, s: Array) -> Array:
       # Broadcast the delta time to the spatial dimensions.
       delta_time = t - s
       delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
-      return x_s + delta_time * self.mean_flow_model.apply(
+      return x_s + delta_time * self.mean_flow_model.apply(  # pyrefly: ignore[unsupported-operation]
           variables,
           x_s,
           t,
@@ -764,7 +764,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
 
     # Derivative of the interpolant with respect to t.
     dinterp_dt = self.interpolant.calculate_time_derivative_interpolant(
-        time_t, batch["x_0"], batch["x_1"], noise
+        time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
     )
 
     # Evaluating the mean flow map at X^{s,t}(x_s).
@@ -789,7 +789,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     )
 
     loss_x = jnp.mean(jnp.square(dt_x_st - v_tt_st))
-    loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))
+    loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))  # pyrefly: ignore[unsupported-operation]
 
     loss = self.weight_v * loss_v + (1. - self.weight_v) * loss_x
 
@@ -816,7 +816,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     return eval_losses  # pytype: disable=bad-return-type
 
   @classmethod
-  def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):
+  def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference conditional flow function."""
 
     def _flow(
@@ -836,7 +836,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       # Broadcast the delta time to the spatial dimensions.
       delta_time = t - s
       delta_time = delta_time.reshape((x.shape[0],) + (x.ndim - 1) * (1,))
-      return x + delta_time * mean_flow_model.apply(
+      return x + delta_time * mean_flow_model.apply(  # pyrefly: ignore[unsupported-operation]
           variables, x_s=x, t=t, s=s, cond=cond, is_training=False
       )
 

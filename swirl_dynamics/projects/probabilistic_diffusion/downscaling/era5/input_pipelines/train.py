@@ -79,8 +79,8 @@ class HourlyDailyPair(pygrain.RandomAccessDataSource):
     })
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
-    hourly_ds = xrts.open_zarr(hourly_dataset, context=ts_context).sel(
-        time=slice(*date_range, hourly_downsample)
+    hourly_ds = xrts.open_zarr(hourly_dataset, context=ts_context).sel(  # pyrefly: ignore[bad-argument-type]
+        time=slice(*date_range, hourly_downsample)  # pyrefly: ignore[no-matching-overload]
     )
     # Reindex and transpose the coordinates to accommodate zarr datasets written
     # in different ways. Examples yielded from this data source always have
@@ -102,7 +102,7 @@ class HourlyDailyPair(pygrain.RandomAccessDataSource):
     for v in hourly_variables:
       self._hourly_arrays[v.rename] = hourly_ds[v.name].sel(v.indexers)
 
-    daily_ds = xrts.open_zarr(daily_dataset, context=ts_context).sel(
+    daily_ds = xrts.open_zarr(daily_dataset, context=ts_context).sel(  # pyrefly: ignore[bad-argument-type]
         time=slice(*date_range)
     )
     daily_ds = daily_ds.reindex(
@@ -116,7 +116,7 @@ class HourlyDailyPair(pygrain.RandomAccessDataSource):
     )
     daily_ds = daily_ds.transpose(*daily_dims_order)
 
-    daily_variables = daily_variables or {}
+    daily_variables = daily_variables or {}  # pyrefly: ignore[bad-assignment]
     for v in daily_variables:
       self._daily_arrays[v.rename] = daily_ds[v.name].sel(v.indexers)
 
@@ -161,8 +161,8 @@ class HourlyDailyPair(pygrain.RandomAccessDataSource):
   def get(self, day: np.datetime64) -> dict[str, np.ndarray]:
     """Retrieves the data record for a given starting day."""
     day_slice = slice(
-        np.datetime64(day, "m"),
-        np.datetime64(day, "m") + DELTA_1D * self._num_days_per_example,
+        np.datetime64(day, "m"),  # pyrefly: ignore[no-matching-overload]
+        np.datetime64(day, "m") + DELTA_1D * self._num_days_per_example,  # pyrefly: ignore[no-matching-overload]
     )
     item = {}
     for v, da in self._hourly_arrays.items():
@@ -214,7 +214,7 @@ def create_dataloader(
   # by `batch_size` to get the number of prefetched batches per process.
 
   if worker_count is None:
-    worker_count = os.cpu_count() - 1
+    worker_count = os.cpu_count() - 1  # pyrefly: ignore[unsupported-operation]
   logging.info("Pygrain worker count: %s", worker_count)
 
   if not prefetch_buffer_size_per_worker:

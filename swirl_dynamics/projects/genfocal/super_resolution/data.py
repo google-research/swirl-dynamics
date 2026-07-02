@@ -143,8 +143,8 @@ class DataSource:
     """
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
-    hourly_ds = xrts.open_zarr(hourly_dataset_path).sel(
-        time=slice(*date_range, hourly_downsample)
+    hourly_ds = xrts.open_zarr(hourly_dataset_path).sel(  # pyrefly: ignore[bad-argument-type]
+        time=slice(*date_range, hourly_downsample)  # pyrefly: ignore[no-matching-overload]
     )
     # Reindex and transpose the coordinates to accommodate Zarr datasets written
     # in different ways. Examples yielded from this data source always have
@@ -161,14 +161,14 @@ class DataSource:
     for v in hourly_variables:
       self._hourly_arrays[v.rename] = hourly_ds[v.name].sel(v.indexers)
 
-    daily_ds = xrts.open_zarr(daily_dataset_path).sel(time=slice(*date_range))
+    daily_ds = xrts.open_zarr(daily_dataset_path).sel(time=slice(*date_range))  # pyrefly: ignore[bad-argument-type]
     daily_ds = daily_ds.reindex(
         latitude=np.sort(daily_ds.latitude),
         longitude=np.sort(daily_ds.longitude),
     )
     daily_ds = daily_ds.transpose(*DIMS_ORDER)
 
-    daily_variables = daily_variables or {}
+    daily_variables = daily_variables or {}  # pyrefly: ignore[bad-assignment]
     for v in daily_variables:
       self._daily_arrays[v.rename] = daily_ds[v.name].sel(v.indexers)
 
@@ -213,8 +213,8 @@ class DataSource:
   def get(self, day: np.datetime64) -> dict[str, np.ndarray]:
     """Retrieves the data record for a given starting day."""
     day_slice = slice(
-        np.datetime64(day, "m"),
-        np.datetime64(day, "m") + DELTA_1D * self._num_days_per_example,
+        np.datetime64(day, "m"),  # pyrefly: ignore[no-matching-overload]
+        np.datetime64(day, "m") + DELTA_1D * self._num_days_per_example,  # pyrefly: ignore[no-matching-overload]
     )
     item = {}
     for v, da in self._hourly_arrays.items():
@@ -455,7 +455,7 @@ def create_dataloader(
       NestCondDict(cond_fields=("daily_mean",), prefix="channel:"),
   ]
   data_loader = pygrain.load(
-      source=source,
+      source=source,  # pyrefly: ignore[bad-argument-type]
       num_epochs=num_epochs,
       shuffle=shuffle,
       seed=seed,
