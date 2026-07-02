@@ -145,7 +145,7 @@ def main(argv):
   sample_ds = eval_utils.select_time(sample_ds, years, months)
 
   ref_ds = eval_utils.get_reference_ds(
-      REFERENCE.value, SAMPLE_VARIABLES, sample_ds
+      REFERENCE.value, SAMPLE_VARIABLES, sample_ds  # pyrefly: ignore[bad-argument-type]
   )
   ref_ds = add_windchill(ref_ds)
   ref_ds = eval_utils.select_time(ref_ds, years, months)

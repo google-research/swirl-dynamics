@@ -113,18 +113,18 @@ def normalize(
 
 
 def main(argv):
-  raw_store = gfile_store.GFileStore(RAW_DATA_PATH.value)
+  raw_store = gfile_store.GFileStore(RAW_DATA_PATH.value)  # pyrefly: ignore[bad-argument-type]
   raw_ds, raw_chunks = xbeam.open_zarr(raw_store)
   raw_ds = raw_ds[VARIABLES]
 
-  stats_store = gfile_store.GFileStore(STATS_PATH.value)
+  stats_store = gfile_store.GFileStore(STATS_PATH.value)  # pyrefly: ignore[bad-argument-type]
   stats_ds = xarray.open_zarr(stats_store, chunks=None)
   stats_ds = stats_ds[VARIABLES]
 
   template = xbeam.make_template(raw_ds)
 
   output_store = OUTPUT_PATH.value
-  output_store = gfile_store.GFileStore(output_store)
+  output_store = gfile_store.GFileStore(output_store)  # pyrefly: ignore[bad-argument-type]
 
   with beam.Pipeline(runner=RUNNER.value, argv=argv) as root:
     _ = (

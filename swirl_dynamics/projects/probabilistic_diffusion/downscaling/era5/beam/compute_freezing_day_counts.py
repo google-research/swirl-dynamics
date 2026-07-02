@@ -270,7 +270,7 @@ def main(argv):
             )
         )
         | xbeam.Rechunk(
-            dim_sizes=out_sizes,
+            dim_sizes=out_sizes,  # pyrefly: ignore[bad-argument-type]
             source_chunks=working_chunks_out,
             target_chunks=target_chunks,
             itemsize=np.dtype(DTYPE).itemsize,

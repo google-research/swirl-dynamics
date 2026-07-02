@@ -181,7 +181,7 @@ def main(argv: list[str]) -> None:
 
   output_chunks = {k: v for k, v in out_coords_dataset.sizes.items()}
   for k in other_dims:
-    output_chunks[k] = source_chunks[k]
+    output_chunks[k] = source_chunks[k]  # pyrefly: ignore[bad-index]
   output_chunks['time'] = TIME_CHUNK_SIZE.value
   logging.info('output_chunks: %s', output_chunks)
 
@@ -214,11 +214,11 @@ def main(argv: list[str]) -> None:
                 source_coord_names=(lat_dim, lon_dim),
             )
         )
-        | xbeam.ConsolidateChunks(output_chunks)
+        | xbeam.ConsolidateChunks(output_chunks)  # pyrefly: ignore[bad-argument-type]
         | xbeam.ChunksToZarr(
             OUTPUT_PATH.value,
             template,
-            output_chunks,
+            output_chunks,  # pyrefly: ignore[bad-argument-type]
             num_threads=8,
         )
     )

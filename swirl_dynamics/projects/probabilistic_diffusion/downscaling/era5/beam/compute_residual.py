@@ -72,7 +72,7 @@ def subtract_dataset(
   lores_ds_lon0 = lores_ds.sel(longitude=[0.0]).assign_coords(
       longitude=np.asarray([360.0])
   )
-  lores_ds = xarray.concat([lores_ds, lores_ds_lon0], dim="longitude")
+  lores_ds = xarray.concat([lores_ds, lores_ds_lon0], dim="longitude")  # pyrefly: ignore[no-matching-overload]
 
   res = {}
   for hires_var, hires_indexer, lores_var, lores_indexer in VARIABLES:
@@ -96,7 +96,7 @@ def subtract_dataset(
 
 
 def main(argv):
-  hires_store = gfile_store.GFileStore(HIRES_INPUT_PATH.value)
+  hires_store = gfile_store.GFileStore(HIRES_INPUT_PATH.value)  # pyrefly: ignore[bad-argument-type]
   hires_ds, hires_chunks = xbeam.open_zarr(hires_store, consolidated=True)
 
   # Select variables.
@@ -109,7 +109,7 @@ def main(argv):
 
   hires_dates = hires_ds["time"].to_numpy().astype("datetime64[D]")
 
-  lores_store = gfile_store.GFileStore(LORES_INPUT_PATH.value)
+  lores_store = gfile_store.GFileStore(LORES_INPUT_PATH.value)  # pyrefly: ignore[bad-argument-type]
   lores_ds = xarray.open_zarr(lores_store, chunks=None, consolidated=True)
   lores_ds = lores_ds.sel(time=hires_dates)
   lores_ds["time"] = hires_ds["time"].to_numpy()
@@ -138,7 +138,7 @@ def main(argv):
         | beam.CoGroupByKey()
         | beam.MapTuple(subtract_dataset)
         | xbeam.Rechunk(  # pytype: disable=wrong-arg-types
-            dim_sizes=template.sizes,
+            dim_sizes=template.sizes,  # pyrefly: ignore[bad-argument-type]
             source_chunks=out_chunks,
             target_chunks=hires_chunks,
             itemsize=4,

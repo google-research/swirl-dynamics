@@ -261,7 +261,7 @@ def _bcsd_on_chunks(
 
         # Multiply the anomaly by the target climatology.
         var_bcsd = bc_mult_anom_interp * target_clim_mean[var]
-        source_bcsd = source_bcsd.drop_vars(var).assign(**{var: var_bcsd})
+        source_bcsd = source_bcsd.drop_vars(var).assign(**{var: var_bcsd})  # pyrefly: ignore[bad-argument-type]
 
     source_bcsd = source_bcsd.drop_vars('dayofyear').transpose(
         'member', 'time', 'longitude', 'latitude'
@@ -334,7 +334,7 @@ def _td_on_chunks(
 
 def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
   """Imposes time range and month selection on the input dataset."""
-  ds_sel = xr.Dataset(ds.get(list(_LENS_TO_ERA.keys()))).rename(_LENS_TO_ERA)
+  ds_sel = xr.Dataset(ds.get(list(_LENS_TO_ERA.keys()))).rename(_LENS_TO_ERA)  # pyrefly: ignore[bad-argument-type]
   if TIME_START.value is None and TIME_STOP.value is None:
     return ds_sel
 

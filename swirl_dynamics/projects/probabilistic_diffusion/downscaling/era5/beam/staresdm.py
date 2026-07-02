@@ -423,7 +423,7 @@ def _td_on_chunks(
 
 def _impose_data_selection(ds: xr.Dataset) -> xr.Dataset:
   """Imposes time range and month selection on the input dataset."""
-  ds_sel = xr.Dataset(ds.get(list(_LENS_TO_ERA.keys()))).rename(_LENS_TO_ERA)
+  ds_sel = xr.Dataset(ds.get(list(_LENS_TO_ERA.keys()))).rename(_LENS_TO_ERA)  # pyrefly: ignore[bad-argument-type]
   if TIME_START.value is None and TIME_STOP.value is None:
     return ds_sel
 
@@ -441,7 +441,7 @@ def _select_rename(
     ds: xr.Dataset, sel_vars: list[str], rename: dict[str, str]
 ) -> xr.Dataset:
   """Selects and renames variables in a dataset."""
-  return xr.Dataset(ds.get(sel_vars)).rename(rename)
+  return xr.Dataset(ds.get(sel_vars)).rename(rename)  # pyrefly: ignore[bad-argument-type]
 
 
 def main(argv: list[str]) -> None:
