@@ -15,9 +15,11 @@
 """Utility functions for evaluation."""
 
 from collections.abc import Sequence
+import logging
 from typing import Any
 
 import numpy as np
+from scipy import optimize
 from swirl_dynamics.projects.genfocal.super_resolution import data
 import xarray as xr
 
@@ -51,9 +53,17 @@ def apply_ufunc(
     ufunc: Any,
     input_vars: Sequence[str],
     output_var: str,
+    vectorize: bool = False,
 ) -> xr.Dataset:
+  """Applies a ufunc to a set of variables in a dataset."""
   inputs = [ds[var] for var in input_vars]
-  new_var = xr.apply_ufunc(ufunc, *inputs, dask="parallelized")
+  new_var = xr.apply_ufunc(
+      ufunc,
+      *inputs,
+      dask="parallelized",
+      vectorize=vectorize,
+      output_dtypes=[float],
+  )
   ds[output_var] = new_var
   return ds
 
@@ -122,41 +132,274 @@ def relative_humidity(t, q, msl, zs):
   return 100 * e / sat_vapor_pressure(t)
 
 
-def heat_index(TF, RH):  # pylint: disable=invalid-name
-  """Computes heat index (°F) using temperature (°F) and relative humidity."""
-  # https://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
-  c = [
-      -42.379,
-      2.04901523,
-      10.14333127,
-      -0.22475541,
-      -6.837e-3,
-      -5.481717e-2,
-      1.22874e-3,
-      8.5282e-4,
-      -1.99e-6,
-  ]
-  RH = np.clip(RH, 0, 100)
-  hi1 = 0.5 * (TF + 61.0 + (TF - 68.0) * 1.2 + (RH * 0.094))
-  hi2 = (
-      c[0]
-      + c[1] * TF
-      + c[2] * RH
-      + c[3] * TF * RH
-      + c[4] * TF * TF
-      + c[5] * RH * RH
-      + c[6] * TF * TF * RH
-      + c[7] * TF * RH * RH
-      + c[8] * TF * TF * RH * RH
+# pylint: disable=invalid-name
+def _find_eqvar(Ta: float, RH: float, **solve_kwargs) -> list[Any]:
+  """Returns the equivalent variables for heat index calculation.
+
+  Args:
+    Ta: Temperature, in [K].
+    RH: Relative humidity, between 0 and 1 (not enforced).
+    **solve_kwargs: Keyword arguments to pass to `optimize.brentq`.
+
+  Returns: [eqvar_name, phi, Rf, Rs, dTcdt]
+    A list of equivalent variables, formed by the name of the main equivalent
+    variable, and the values of all equivalent variables.
+  """
+
+  # Thermodynamic parameters
+  E0v = 2.3740e6  # J/kg
+  cva = 719.0  # J/kg/K
+  cvv = 1418.0  # J/kg/K
+  cvl = 4119.0  # J/kg/K
+  cpa = cva + _R_D
+
+  # The latent heat of vaporization of water
+  Le = lambda T: E0v + (cvv - cvl) * (T - _T_REF) + _R_V * T
+
+  # Thermoregulatory parameters.
+  sigma = 5.67e-8  # Stefan-Boltzmann constant [W/m^2/K^4]
+  epsilon = 0.97  # Emissivity of surface, steadman1979
+  M = 83.6  # Mass of average US adults [kg], fryar2018
+  H = 1.69  # Height of average US adults [m], fryar2018
+  A = 0.202 * (M**0.425) * (H**0.725)  # DuBois formula coefficient, parson2014
+  cpc = 3492.0  # Specific heat capacity of core [J/kg/K], gagge1972
+  C = M * cpc / A  # Heat capacity of core
+  r = 124.0  # Zf/Rf [Pa/K], steadman1979
+  Q = 180.0  # Metabolic rate per skin area [W/m^2], steadman1979
+  phi_salt = 0.9  # Saturation vapor pressure of saline solution, steadman1979
+  Tc = 310.0  # Core temperature [K], steadman1979
+  Pc = phi_salt * sat_vapor_pressure(Tc)  # Core vapor pressure
+  L = Le(310.0)  # Latent heat of vaporization at 310 K
+  p = 1.013e5  # Surface atmospheric pressure
+  eta = 1.43e-6  # inhaled mass / metabolic rate [kg/J], steadman1979
+  # Mass transfer resistance through air, exposed part of skin
+  Za = 60.6 / 17.4  # Pa m^2/W
+  # Mass transfer resistance through air, clothed part of skin
+  Za_bar = 60.6 / 11.6  # Pa m^2/W
+  # Mass transfer resistance through air, when being naked
+  Za_un = 60.6 / 12.3  # Pa m^2/W
+
+  # Thermoregulatory functions
+  def Qv(Ta: float, Pa: float) -> float:
+    """Returns the respiratory heat loss, in [W/m^2]."""
+    return eta * Q * (cpa * (Tc - Ta) + L * _R_D / (p * _R_V) * (Pc - Pa))
+
+  def Zs(Rs: float) -> float:
+    """Returns the mass transfer resistance through skin, in [Pa m^2/W]."""
+    return 52.1 if Rs == 0.0387 else 6.0e8 * Rs**5
+
+  def Ra(Ts: float, Ta: float) -> float:
+    """Returns the heat transfer resistance through air of exposed skin."""
+    hc = 17.4
+    phi_rad = 0.85
+    hr = epsilon * phi_rad * sigma * (Ts**2 + Ta**2) * (Ts + Ta)
+    return 1.0 / (hc + hr)
+
+  def Ra_bar(Tf: float, Ta: float) -> float:
+    """Returns the heat transfer resistance through air of clothed skin."""
+    hc = 11.6
+    phi_rad = 0.79
+    hr = epsilon * phi_rad * sigma * (Tf**2 + Ta**2) * (Tf + Ta)
+    return 1.0 / (hc + hr)
+
+  def Ra_un(Ts: float, Ta: float) -> float:
+    """Returns the heat transfer resistance through air of naked skin."""
+    hc = 12.3
+    phi_rad = 0.80
+    hr = epsilon * phi_rad * sigma * (Ts**2 + Ta**2) * (Ts + Ta)
+    return 1.0 / (hc + hr)
+
+  Pa = RH * sat_vapor_pressure(Ta)  # air vapor pressure
+
+  # Initialize equivalent variables.
+  Rs = 0.0387  # Heat transfer resistance through skin [m^2K/W]
+  phi = 0.84  # Covering fraction
+  dTcdt = 0.0  # Rate of change in Tc [K/s]
+  m = (Pc - Pa) / (Zs(Rs) + Za)
+  m_bar = (Pc - Pa) / (Zs(Rs) + Za_bar)
+  Ts = optimize.brentq(
+      lambda Ts: (Ts - Ta) / Ra(Ts, Ta)
+      + (Pc - Pa) / (Zs(Rs) + Za)
+      - (Tc - Ts) / Rs,
+      max(1e-2, min(Tc, Ta) - Rs * abs(m)),
+      max(Tc, Ta) + Rs * abs(m),
+      **solve_kwargs,
   )
-  adj_a = ((13.0 - RH) / 4.0) * np.sqrt((17.0 - np.abs(TF - 95.0)) / 17.0)
-  adj_a = np.nan_to_num(adj_a, nan=0.0)
-  hi2 -= np.less(RH, 13.0) * np.greater(TF, 80.0) * np.less(TF, 112.0) * adj_a
-  adj_b = ((RH - 85.0) / 10.0) * ((87.0 - TF) / 5.0)
-  hi2 += np.greater(RH, 85.0) * np.greater(TF, 80.0) * np.less(TF, 87.0) * adj_b
-  hi = (hi2 > 80.0) * hi2 + (hi2 <= 80.0) * hi1
-  hi = (hi - 32.0) * 5.0 / 9.0 + 273.15  # Convert to Kelvin
-  return hi
+
+  flux1 = (
+      Q - Qv(Ta, Pa) - (1.0 - phi) * (Tc - Ts) / Rs
+  )  # C*dTc/dt when Rf=Zf=\inf
+  # Region I
+  if flux1 <= 0.0:
+    eqvar_name = "phi"
+    phi = 1.0 - (Q - Qv(Ta, Pa)) * Rs / (Tc - Ts)
+    Rf = float("inf")
+
+  else:
+    Tf = optimize.brentq(
+        lambda Tf: (Tf - Ta) / Ra_bar(Tf, Ta)
+        + (Pc - Pa) / (Zs(Rs) + Za_bar)
+        - (Tc - Tf) / Rs,
+        max(1e-2, min(Tc, Ta) - Rs * abs(m_bar)),
+        max(Tc, Ta) + Rs * abs(m_bar),
+        **solve_kwargs,
+    )
+    flux2 = (
+        Q - Qv(Ta, Pa) - (1.0 - phi) * (Tc - Ts) / Rs - phi * (Tc - Tf) / Rs
+    )  # C*dTc/dt when Rf=Zf=0
+
+    # Regions II & III
+    if flux2 <= 0.0:
+      eqvar_name = "Rf"
+      Ts_bar = Tc - (Q - Qv(Ta, Pa)) * Rs / phi + (1.0 / phi - 1.0) * (Tc - Ts)
+      Tf = optimize.brentq(
+          lambda Tf: (Tf - Ta) / Ra_bar(Tf, Ta)
+          + (Pc - Pa)
+          * (Tf - Ta)
+          / ((Zs(Rs) + Za_bar) * (Tf - Ta) + r * Ra_bar(Tf, Ta) * (Ts_bar - Tf))
+          - (Tc - Ts_bar) / Rs,
+          Ta,
+          Ts_bar,
+          **solve_kwargs,
+      )
+      Rf = Ra_bar(Tf, Ta) * (Ts_bar - Tf) / (Tf - Ta)
+
+    else:  # region IV,V,VI
+      Rf = 0.0
+      flux3 = Q - Qv(Ta, Pa) - (Tc - Ta) / Ra_un(Tc, Ta) - (Pc - Pa) / Za_un
+      # Regions IV & V
+      if flux3 < 0.0:
+        Ts = optimize.brentq(
+            lambda Ts: (Ts - Ta) / Ra_un(Ts, Ta)
+            + (Pc - Pa) / (Zs((Tc - Ts) / (Q - Qv(Ta, Pa))) + Za_un)
+            - (Q - Qv(Ta, Pa)),
+            1e-2,
+            Tc,
+            **solve_kwargs,
+        )
+        Rs = (Tc - Ts) / (Q - Qv(Ta, Pa))
+        eqvar_name = "Rs"
+        Ps = Pc - (Pc - Pa) * Zs(Rs) / (Zs(Rs) + Za_un)
+        if Ps > phi_salt * sat_vapor_pressure(Ts):  # region V
+          Ts = optimize.brentq(
+              lambda Ts: (Ts - Ta) / Ra_un(Ts, Ta)
+              + (phi_salt * sat_vapor_pressure(Ts) - Pa) / Za_un
+              - (Q - Qv(Ta, Pa)),
+              1e-2,
+              Tc,
+              **solve_kwargs,
+          )
+          Rs = (Tc - Ts) / (Q - Qv(Ta, Pa))
+          eqvar_name = "Rs*"
+
+      # Region VI
+      else:
+        Rs = 0.0
+        eqvar_name = "dTcdt"
+        dTcdt = (1.0 / C) * flux3
+
+  return [eqvar_name, phi, Rf, Rs, dTcdt]
+
+
+def _heat_index_from_eqvar(
+    eqvar_name: str,
+    eqvar: float,
+    hi_min: float = 0.0,
+    hi_max: float = 1000.0,
+    **solve_kwargs,
+) -> float:
+  """Returns the heat index from the equivalent variables.
+
+  Args:
+    eqvar_name: Name of the main equivalent variable for the region.
+    eqvar: Value of the equivalent variable.
+    hi_min: Minimum value of the heat index considered, must be non-negative.
+    hi_max: Maximum value of the heat index considered, must be lower than 1000.
+    **solve_kwargs: Keyword arguments to pass to `optimize.brentq`.
+
+  Returns:
+    The heat index, in [K].
+  """
+  Pa0 = 1.6e3  # Reference pressure in regions III, IV, V, VI [Pa], steadman1979
+  # region I
+  if eqvar_name == "phi":
+    T = optimize.brentq(
+        lambda T: _find_eqvar(T, 1.0)[1] - eqvar, hi_min, 240.0, **solve_kwargs
+    )
+  # regions II and III
+  elif eqvar_name == "Rf":
+    T = optimize.brentq(
+        lambda T: _find_eqvar(T, min(1.0, Pa0 / sat_vapor_pressure(T)))[2]
+        - eqvar,
+        230.0,
+        300.0,
+        **solve_kwargs,
+    )
+  # regions IV and V
+  elif eqvar_name == "Rs" or eqvar_name == "Rs*":
+    T = optimize.brentq(
+        lambda T: _find_eqvar(T, Pa0 / sat_vapor_pressure(T))[3] - eqvar,
+        295.0,
+        350.0,
+        **solve_kwargs,
+    )
+  # region VI
+  else:
+    T = optimize.brentq(
+        lambda T: _find_eqvar(T, Pa0 / sat_vapor_pressure(T))[4] - eqvar,
+        340.0,
+        hi_max,
+        **solve_kwargs,
+    )
+  return T
+
+
+def heat_index(
+    Ta: float,
+    RH: float,
+    eqvar_tol: float = 1e-5,
+    t_tol: float = 1e-2,
+    hi_min: float = 173.15,
+    hi_max: float = 400.0,
+) -> float:
+  """Returns the heat index from the temperature and relative humidity.
+
+  This function is not vectorized, so it should be vectorized using
+  `numpy.vectorize`, or xarray's `xr.apply_ufunc` with `vectorize=True`.
+  The returned heat index follows the definition of Lu and Romps (2022).
+  This implementation is a faster version of the original implementation:
+  https://github.com/ankurmahesh/earth2mip-fork/blob/HENS/scripts/Calculate_Heat_Index_Lookup.ipynb.
+
+  Args:
+    Ta: Temperature, in [K].
+    RH: Relative humidity, between 0 and 1.
+    eqvar_tol: Absolute tolerance of root solves in `_find_eqvar`.
+    t_tol: Absolute tolerance of heat index.
+    hi_min: Minimum value of the heat index considered. Increase to accelerate
+      root find.
+    hi_max: Maximum value of the heat index considered. Reduce to accelerate
+      root find.
+
+  Returns:
+    The heat index, in [K].
+  """
+  dic = {"phi": 1, "Rf": 2, "Rs": 3, "Rs*": 3, "dTcdt": 4}
+  try:
+    eqvars = _find_eqvar(Ta, RH, xtol=eqvar_tol)
+    T = _heat_index_from_eqvar(
+        eqvars[0],
+        eqvars[dic[eqvars[0]]],
+        xtol=t_tol,
+        hi_min=hi_min,
+        hi_max=hi_max,
+    )
+  except ValueError as e:
+    logging.warning("Failed to compute heat index: %s", e)
+    return np.nan
+  return T
+
+
+# pylint: enable=invalid-name
 
 
 def add_zs(surf_geopotential_data_path: str):

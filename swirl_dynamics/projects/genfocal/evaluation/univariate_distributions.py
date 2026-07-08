@@ -176,9 +176,15 @@ def add_derived_variables(ds: xr.Dataset, zs_data_path: str) -> xr.Dataset:
       input_vars=["T2m", "Q1000", "MSL", "ZS"],
       output_var="RH",
   )
+  ds["RH_frac"] = ds["RH"] / 100.0
   ds = utils.apply_ufunc(
-      ds, utils.heat_index, input_vars=["T2m_F", "RH"], output_var="HI"
+      ds,
+      utils.heat_index,
+      input_vars=["T2m", "RH_frac"],
+      output_var="HI",
+      vectorize=True,
   )
+  ds = ds.drop_vars("RH_frac")
   return ds
 
 
