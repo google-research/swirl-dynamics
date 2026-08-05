@@ -210,7 +210,7 @@ class MeanFlowModel(models.BaseModel):
         is_training=False,
     )
 
-  def loss_fn(
+  def loss_fn(  # pyrefly: ignore[bad-override]
       self,
       params: models.PyTree,
       batch: models.BatchType,
@@ -245,20 +245,20 @@ class MeanFlowModel(models.BaseModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},
+          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
           x=x_t,
           sigma=time_t,
           is_training=False,
       )
     else:
       v_t = self.interpolant.calculate_time_derivative_interpolant(
-          time_t, batch["x_0"], batch["x_1"], noise
+          time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
 
     # Partial flow map to compute the gradient vector product.
@@ -291,7 +291,7 @@ class MeanFlowModel(models.BaseModel):
 
     return loss, (metric, mutables)
 
-  def eval_fn(
+  def eval_fn(  # pyrefly: ignore[bad-override]
       self,
       variables: models.PyTree,
       batch: models.BatchType,
@@ -329,20 +329,20 @@ class MeanFlowModel(models.BaseModel):
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
     # Shall we add constraint that x_tt = x_t?
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Computes the velocity at time t. If we are distilling a flow, we use
     # the flow model, otherwise we use the interpolant.
     if self.flow_model is not None:
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},
+          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
           x=x_t,
           sigma=time_t,
           is_training=False,
       )
     else:
       v_t = self.interpolant.calculate_time_derivative_interpolant(
-          time_t, batch["x_0"], batch["x_1"], noise
+          time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
 
     # Partial flow map to compute the gradient vector product.
@@ -377,7 +377,7 @@ class MeanFlowModel(models.BaseModel):
     return eval_losses  # pytype: disable=bad-return-type
 
   @classmethod
-  def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):
+  def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, t: float | Array, s: float | Array) -> Array:
@@ -385,7 +385,7 @@ class MeanFlowModel(models.BaseModel):
       if not jnp.shape(jnp.asarray(t)):
         t *= jnp.ones((x.shape[0],))
         s *= jnp.ones((x.shape[0],))
-      return mean_flow_model.apply(
+      return mean_flow_model.apply(  # pyrefly: ignore[bad-return]
           variables, x_s=x, t=t, s=s, is_training=False
       )
 
@@ -450,7 +450,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
 
     # Interpolation between x_0 and x_1.
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning.
     if self.cond_shape is not None:
@@ -462,7 +462,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},
+          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
           x=x_t,
           sigma=time_t,
           cond=cond,
@@ -470,7 +470,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
       )
     else:
       v_t = self.interpolant.calculate_time_derivative_interpolant(
-          time_t, batch["x_0"], batch["x_1"], noise
+          time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
 
     # Partial flow map to compute the gradient vector product.
@@ -540,7 +540,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning.
     if self.cond_shape is not None:
@@ -563,7 +563,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
         )
     else:
       v_t = self.interpolant.calculate_time_derivative_interpolant(
-          time_t, batch["x_0"], batch["x_1"], noise
+          time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
 
     # Partial flow map to compute the gradient vector product.
@@ -614,7 +614,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
       if not jnp.shape(jnp.asarray(t)):
         t *= jnp.ones((x.shape[0],))
         s *= jnp.ones((x.shape[0],))
-      return mean_flow_model.apply(
+      return mean_flow_model.apply(  # pyrefly: ignore[bad-return]
           variables, x_s=x, t=t, s=s, cond=cond, is_training=False
       )
 
@@ -665,7 +665,7 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
     # Shall we add constraint that x_tt = x_t?
-    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)
+    x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning.
     if self.cond_shape is not None:
@@ -677,14 +677,14 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},
+          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
           x=x_t,
           sigma=time_t,
           cond=cond,
           is_training=False,
       )
       v_s = self.flow_model.apply(
-          {"params": self.params_flow},
+          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
           x=x_t,
           sigma=time_s,
           cond=cond,
@@ -692,10 +692,10 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
       )
     else:
       v_t = self.interpolant.calculate_time_derivative_interpolant(
-          time_t, batch["x_0"], batch["x_1"], noise
+          time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
       v_s = self.interpolant.calculate_time_derivative_interpolant(
-          time_s, batch["x_0"], batch["x_1"], noise
+          time_s, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
       )
 
     # Partial flow map to compute the gradient vector product.
