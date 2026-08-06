@@ -93,7 +93,7 @@ class NetworksTest(parameterized.TestCase):
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma
     )
-    self.assertEqual(out.shape, x.shape)
+    self.assertEqual(out.shape, x.shape)  # pyrefly: ignore[missing-attribute]
 
   @parameterized.parameters(
       {"x_dims": (1, 16, 3), "c_dims": (1, 12, 5)},
@@ -134,7 +134,7 @@ class NetworksTest(parameterized.TestCase):
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma, cond
     )
-    self.assertEqual(out.shape, x.shape)
+    self.assertEqual(out.shape, x.shape)  # pyrefly: ignore[missing-attribute]
 
   def test_preconditioned_merging_functions(self):
     x_dims = (1, 16, 8, 3)
@@ -168,7 +168,7 @@ class NetworksTest(parameterized.TestCase):
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma, cond
     )
-    self.assertEqual(out.shape, x.shape)
+    self.assertEqual(out.shape, x.shape)  # pyrefly: ignore[missing-attribute]
 
   def test_preconditioned_embedding_functions(self):
     x_dims = (1, 16, 8, 3)
@@ -209,7 +209,7 @@ class NetworksTest(parameterized.TestCase):
     out = jax.jit(functools.partial(model.apply, is_training=True))(
         variables, x, sigma, cond
     )
-    self.assertEqual(out.shape, x.shape)
+    self.assertEqual(out.shape, x.shape)  # pyrefly: ignore[missing-attribute]
 
   @parameterized.parameters(
       {"input_shape": (2, 2, 2), "use_bias": True},

@@ -57,7 +57,7 @@ class FnoTest(parameterized.TestCase):
     layer_vars = layer.init(jax.random.PRNGKey(0), inputs)
     out = jax.jit(layer.apply)(layer_vars, inputs)
     out_shape = (batch_sz,) + (domain_size,) * n_dim + (out_channels,)
-    self.assertEqual(out.shape, out_shape)
+    self.assertEqual(out.shape, out_shape)  # pyrefly: ignore[missing-attribute]
 
   @parameterized.product(
       n_dim=(1, 2, 3),
@@ -82,7 +82,7 @@ class FnoTest(parameterized.TestCase):
     block_vars = block.init(jax.random.PRNGKey(0), inputs)
     out = jax.jit(block.apply)(block_vars, inputs)
     out_shape = (batch_sz,) + (spatial_dim,) * n_dim + (num_channels,)
-    self.assertEqual(out.shape, out_shape)
+    self.assertEqual(out.shape, out_shape)  # pyrefly: ignore[missing-attribute]
 
   @parameterized.product(
       n_dim=(1, 2, 3),
@@ -105,7 +105,7 @@ class FnoTest(parameterized.TestCase):
     model_vars = model.init(jax.random.PRNGKey(0), inputs)
     out = jax.jit(model.apply)(model_vars, inputs)
     out_shape = (batch_sz,) + (spatial_dim,) * n_dim + (out_channels,)
-    self.assertEqual(out.shape, out_shape)
+    self.assertEqual(out.shape, out_shape)  # pyrefly: ignore[missing-attribute]
 
   def test_fno_2d(self):
     batch_sz = 2
@@ -121,7 +121,7 @@ class FnoTest(parameterized.TestCase):
     model_vars = model.init(jax.random.PRNGKey(0), inputs)
     out = jax.jit(model.apply)(model_vars, inputs)
     out_shape = (batch_sz,) + (spatial_dim,) * 2 + (out_channels,)
-    self.assertEqual(out.shape, out_shape)
+    self.assertEqual(out.shape, out_shape)  # pyrefly: ignore[missing-attribute]
 
 
 if __name__ == "__main__":
