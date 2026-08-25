@@ -68,7 +68,7 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
     forecasts = rng.normal(size=test_shape)
     obs_shape = np.moveaxis(forecasts, axis, -1).shape[:-1]
     obs = rng.normal(size=obs_shape)
-    out = probabilistic_forecast.crps(forecasts, obs, ensemble_axis=axis)
+    out = probabilistic_forecast.crps(forecasts, obs, ensemble_axis=axis)  # pyrefly: ignore[bad-argument-type]
     self.assertEqual(out.shape, obs_shape)
 
   @parameterized.parameters(
@@ -91,7 +91,7 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
     forecasts = rng.normal(size=test_shape)
     obs = rng.normal(size=test_shape[:-1])
     out = probabilistic_forecast.threshold_brier_score(
-        forecasts, obs, threshold, ensemble_axis=-1
+        forecasts, obs, threshold, ensemble_axis=-1  # pyrefly: ignore[bad-argument-type]
     )
     expected_shape = test_shape[:-1]
     if threshold.ndim > 0:

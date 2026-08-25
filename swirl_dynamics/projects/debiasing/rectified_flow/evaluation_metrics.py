@@ -75,7 +75,7 @@ def build_vectorized_function(
 
   def sample_radspec(samples: jax.Array) -> jax.Array:
     spec = vmapped_radspec(samples)
-    return np.mean(spec, axis=0)
+    return np.mean(spec, axis=0)  # pyrefly: ignore[bad-return]
 
   return sample_radspec
 

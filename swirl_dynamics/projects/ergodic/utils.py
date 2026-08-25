@@ -288,7 +288,7 @@ def create_loader_from_hdf5_reshaped(
       worker_count=worker_count,
       worker_buffer_size=tf_lookup_batch_size,
   )
-  return loader, {"mean": mean, "std": std}
+  return loader, {"mean": mean, "std": std}  # pyrefly: ignore[bad-return]
 
 
 # TODO: Move this method to swirl_dynamics.data.utils
@@ -405,7 +405,7 @@ def create_loader_from_hdf5(
       worker_count=worker_count,
       worker_buffer_size=tf_lookup_batch_size,
   )
-  return loader, {"mean": mean, "std": std}
+  return loader, {"mean": mean, "std": std}  # pyrefly: ignore[bad-return]
 
 
 def create_loader_from_tfds(

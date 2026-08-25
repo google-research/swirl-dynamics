@@ -151,4 +151,4 @@ def create_loader_from_hdf5(
       transformations=dataset_transforms,
       batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
   )
-  return loader, {"mean": mean, "std": std}
+  return loader, {"mean": mean, "std": std}  # pyrefly: ignore[bad-return]

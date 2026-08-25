@@ -472,7 +472,7 @@ class DataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     return self._len
 
   def _compute_len(self) -> int:  # pyrefly: ignore[bad-override]
-    return len(self._indexes) * self._len_time
+    return len(self._indexes) * self._len_time  # pyrefly: ignore[bad-return]
 
   def _compute_indices(
       self, idx: int
@@ -587,14 +587,14 @@ class DataSourceEnsembleWithClimatologyInference(CommonSourceEnsemble):
     # Here the length of the time is the length of the time stamps. As the
     # output samples times do not play a role in the inference. Only the output
     # climatology is of interest.
-    self._len_time = len(self._input_time_array)
+    self._len_time = len(self._input_time_array)  # pyrefly: ignore[bad-assignment]
     self._len = self._compute_len()
 
   def __len__(self):
     return self._len
 
   def _compute_len(self) -> int:  # pyrefly: ignore[bad-override]
-    return len(self._indexes) * self._len_time
+    return len(self._indexes) * self._len_time  # pyrefly: ignore[bad-return]
 
   def _compute_indices(
       self, idx: int
@@ -724,7 +724,7 @@ class ContiguousDataSourceEnsembleWithClimatology(CommonSourceEnsemble):
     return self._len
 
   def _compute_len(self) -> int:  # pyrefly: ignore[bad-override]
-    return len(self._indexes) * self._len_time
+    return len(self._indexes) * self._len_time  # pyrefly: ignore[bad-return]
 
   def _compute_indices(
       self, idx: int
