@@ -99,7 +99,7 @@ class LatentDynamics(models.BaseModel):
     )
     reconstruction, latent_rollout = inference_fn(ambient_ic, tspan, grid)
     reencoding = jax.vmap(self.encoder)(reconstruction)
-    latent_target = jax.vmap(self.encoder)(ambient_target)
+    latent_target = jax.vmap(self.encoder)(ambient_target)  # pyrefly: ignore[bad-argument-type]
     reconstruction = jnp.reshape(reconstruction, ambient_target.shape)
 
     reconstruction_loss = jnp.mean(jnp.square(reconstruction - ambient_target))
@@ -138,7 +138,7 @@ class LatentDynamics(models.BaseModel):
     )
     reconstruction, latent_rollout = inference_fn(ambient_ic, tspan, grid)
     reencoding = jax.vmap(self.encoder)(reconstruction)
-    latent_target = jax.vmap(self.encoder)(ambient_target)
+    latent_target = jax.vmap(self.encoder)(ambient_target)  # pyrefly: ignore[bad-argument-type]
     reconstruction = jnp.reshape(reconstruction, ambient_target.shape)
     rrmse = functools.partial(
         metrics.mean_squared_error,
@@ -147,7 +147,7 @@ class LatentDynamics(models.BaseModel):
         squared=False,
     )
     return dict(
-        reconstruction_rel_l2=rrmse(pred=reconstruction, true=ambient_target),
+        reconstruction_rel_l2=rrmse(pred=reconstruction, true=ambient_target),  # pyrefly: ignore[bad-argument-type]
         latent_rel_l2=rrmse(pred=latent_rollout, true=latent_target),
         consistency_rel_l2=rrmse(pred=reencoding, true=latent_rollout),
     )
@@ -183,10 +183,10 @@ class LatentDynamics(models.BaseModel):
         optionally latent trajectores of shape ~ (nbatch, ntime, latent_dim).
       """
       v0 = encoder(u0)  # pyrefly: ignore[bad-argument-type]
-      v = jax.vmap(integrate_fn, in_axes=(0, 0))(v0, tspan)
+      v = jax.vmap(integrate_fn, in_axes=(0, 0))(v0, tspan)  # pyrefly: ignore[bad-argument-type]
       u = jax.vmap(
           jax.vmap(ansatz.batch_evaluate, in_axes=(0, None)), in_axes=(0, 0)
-      )(v, grid)
+      )(v, grid)  # pyrefly: ignore[bad-argument-type]
       return (u, v) if return_latents else u
 
     return dynamical_model

@@ -91,7 +91,7 @@ class EncodeDecode(models.BaseModel):
         encoder_var, snapshots, is_training=True, mutable=list(mutables.keys())
     )
     reconstruction = jax.vmap(self.ansatz.batch_evaluate, in_axes=(0, 0))(
-        encoding, grid
+        encoding, grid  # pyrefly: ignore[bad-argument-type]
     ).reshape(snapshots.shape)
     reencoding, mutables = self.encoder.apply(
         encoder_var,
@@ -117,7 +117,7 @@ class EncodeDecode(models.BaseModel):
     snapshots, grid = batch["u"], batch["x"]
     encoding = self.encoder.apply(variables, snapshots, is_training=False)
     reconstruction = jax.vmap(self.ansatz.batch_evaluate, in_axes=(0, 0))(
-        encoding, grid
+        encoding, grid  # pyrefly: ignore[bad-argument-type]
     ).reshape(snapshots.shape)
     reencoding = self.encoder.apply(
         variables, reconstruction, is_training=False
@@ -129,8 +129,8 @@ class EncodeDecode(models.BaseModel):
         squared=False,
     )
     return dict(
-        reconstruction_rel_l2=rrmse(pred=reconstruction, true=snapshots),
-        consistency_rel_l2=rrmse(pred=reencoding, true=encoding),
+        reconstruction_rel_l2=rrmse(pred=reconstruction, true=snapshots),  # pyrefly: ignore[bad-argument-type]
+        consistency_rel_l2=rrmse(pred=reencoding, true=encoding),  # pyrefly: ignore[bad-argument-type]
     )
 
   @staticmethod

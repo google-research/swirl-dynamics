@@ -75,7 +75,7 @@ class Ansatz:
     """Evaluates the ansatz on a batch of collocation points."""
     if isinstance(params, Array):
       params = self.unflatten_to_pytree(params)
-    return jax.vmap(self.model.apply, in_axes=(None, 0))(params, x)
+    return jax.vmap(self.model.apply, in_axes=(None, 0))(params, x)  # pyrefly: ignore[bad-return]
 
   def unflatten_to_pytree(self, params: Array) -> nn.module.FrozenVariableDict:
     """Converts flattened params to PyTree format."""

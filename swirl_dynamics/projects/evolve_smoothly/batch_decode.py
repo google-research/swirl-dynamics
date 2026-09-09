@@ -63,7 +63,7 @@ class BatchDecode(models.BaseModel):
     """Computes the l2 reconstruction loss."""
     del rng
     ypred = jax.vmap(self.ansatz.batch_evaluate, in_axes=(0, None), out_axes=1)(
-        {"params": params}, batch["x"]
+        {"params": params}, batch["x"]  # pyrefly: ignore[bad-argument-type]
     )
     loss = jnp.mean(jnp.square(batch["u"] - ypred))
     return loss, ({"loss": loss}, mutables)
@@ -74,7 +74,7 @@ class BatchDecode(models.BaseModel):
     """Evaluates mean, worst-case and std relative l2 errors."""
     del rng
     ypred = jax.vmap(self.ansatz.batch_evaluate, in_axes=(0, None), out_axes=1)(
-        variables, batch["x"]
+        variables, batch["x"]  # pyrefly: ignore[bad-argument-type]
     )
     rrmse = metrics.mean_squared_error(
         pred=ypred,
