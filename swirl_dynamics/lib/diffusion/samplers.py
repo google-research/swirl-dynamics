@@ -163,7 +163,11 @@ def uniform_time(
     )
 
   start = diffusion.MAX_DIFFUSION_TIME
-  end = end_time or scheme.sigma.inverse(end_sigma)  # pyrefly: ignore[bad-argument-type]
+  end = (
+      end_time
+      if end_time is not None
+      else scheme.sigma.inverse(end_sigma)  # pyrefly: ignore[bad-argument-type]
+  )
   return jnp.linspace(start, end, num_steps)
 
 
