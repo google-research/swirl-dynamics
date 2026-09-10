@@ -148,8 +148,8 @@ class TrainTest(parameterized.TestCase):
     )
     written = utils.load_scalars_from_tfevents(workdir)
     for step in np.arange(eval_period, train_steps, eval_period):
-      self.assertIn("loss", written[step].keys())
-      self.assertIn("accuracy", written[step].keys())
+      self.assertIn("loss", written[step].keys())  # pyrefly: ignore[bad-index]
+      self.assertIn("accuracy", written[step].keys())  # pyrefly: ignore[bad-index]
     self.assertIn("accuracy", written[train_steps].keys())
 
   def test_raises_eval_period_divisibility_error(self):

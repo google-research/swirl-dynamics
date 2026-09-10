@@ -207,7 +207,7 @@ def main(argv: list[str]) -> None:
         >> beam.MapTuple(
             functools.partial(
                 _interpolate_chunk,
-                out_spatial_shape=out_spatial_shape,
+                out_spatial_shape=out_spatial_shape,  # pyrefly: ignore[bad-argument-type]
                 source_grid=(in_lat, in_long),
                 target_grid=(out_lat, out_long),
                 method=METHOD.value,

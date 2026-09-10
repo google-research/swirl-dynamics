@@ -273,8 +273,8 @@ def main(argv: list[str]) -> None:
             functools.partial(
                 eval_upper_tail_dependence_chunk,
                 agg_dims=agg_dims,
-                k_lims=k_lims,
-                variables=variables,
+                k_lims=k_lims,  # pyrefly: ignore[bad-argument-type]
+                variables=variables,  # pyrefly: ignore[bad-argument-type]
                 sign_change=sign_change,
             )
         )

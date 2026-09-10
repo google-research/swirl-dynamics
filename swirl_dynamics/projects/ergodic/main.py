@@ -207,7 +207,7 @@ def main(argv):
   # We modify the bandwith in this case.
   if config.measure_dist_type == "MMD":
     measure_dist_fn = functools.partial(
-        measure_dist_fn_raw, bandwidth=config.mmd_bandwidth
+        measure_dist_fn_raw, bandwidth=config.mmd_bandwidth  # pyrefly: ignore[unexpected-keyword]
     )
   else:
     measure_dist_fn = measure_dist_fn_raw

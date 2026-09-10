@@ -650,7 +650,7 @@ class CycleGANModel(swirl_models.BaseModel):
     return dict(loss=loss,  # pyrefly: ignore[bad-return]
                 loss_dis_a=loss_a,
                 loss_dis_b=loss_b,
-                u_lf=real_data_a,
+                u_lf=real_data_a,  # pyrefly: ignore[bad-assignment]
                 u_hf=fake_data_b,
                 **loss_dict)
   # pytype: enable=bad-return-type

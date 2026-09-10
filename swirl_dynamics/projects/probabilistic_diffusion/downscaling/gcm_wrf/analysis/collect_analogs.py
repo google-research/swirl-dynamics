@@ -464,7 +464,7 @@ def main(argv: list[str]) -> None:
     for pool_id, _ in enumerate(analog_pool_points):
       pcoll_tmp = pcoll | f'Analog pool {pool_id}' >> beam.MapTuple(
           functools.partial(
-              collect_analogs_chunk, **collect_kwargs, pool_id=pool_id
+              collect_analogs_chunk, **collect_kwargs, pool_id=pool_id  # pyrefly: ignore[bad-argument-type]
           )
       )
       pcolls.append(pcoll_tmp)

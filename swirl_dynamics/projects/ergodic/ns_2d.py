@@ -53,7 +53,7 @@ def plot_trajectories(
     )
     ax[0, 0].set_ylabel(f"GT (Traj #: {case_id})")
     ax[1, 0].set_ylabel("Predicted")
-    for c, traj_length in enumerate(traj_lengths):  # pyrefly: ignore[bad-argument-type]
+    for c, traj_length in enumerate(traj_lengths):  # pyrefly: ignore[bad-argument-type, not-iterable]
       ax[0, c].imshow(trajs[case_id, traj_length, ...].squeeze(axis=-1))
       ax[0, c].set_title(f"Time: {traj_length*dt:0.2f}")
       ax[0, c].set_xticks([])

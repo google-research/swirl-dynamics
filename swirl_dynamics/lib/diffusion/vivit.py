@@ -725,7 +725,7 @@ class TransformerBlock(nn.Module):
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
               self.attention_config.get('attention_kernel_init_method',  # pytype: disable=attribute-error
                                         'xavier')],
-          temporal_dims=self.temporal_dims)
+          temporal_dims=self.temporal_dims)  # pyrefly: ignore[bad-argument-type]
     elif self.attention_config.type == 'factorized_3d_self_attention_block':  # pytype: disable=attribute-error
       encoder_block = functools.partial(
           Encoder3DFactorizedSelfAttentionBlock,
@@ -733,7 +733,7 @@ class TransformerBlock(nn.Module):
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
               self.attention_config.get('attention_kernel_init_method',  # pytype: disable=attribute-error
                                         'xavier')],
-          three_dim_shape=self.encoded_shape)
+          three_dim_shape=self.encoded_shape)  # pyrefly: ignore[bad-argument-type]
     else:
       raise ValueError(f'Unknown attention type {self.attention_config.type}')  # pytype: disable=attribute-error
 

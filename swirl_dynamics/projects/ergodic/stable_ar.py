@@ -160,7 +160,7 @@ class StableARModel(models.BaseModel):
           * rollout_weight
       )
       measure_dist_k = jnp.mean(
-          self.vmapped_measure_dist(pred, true[:, 1:, ...]) * rollout_weight
+          self.vmapped_measure_dist(pred, true[:, 1:, ...]) * rollout_weight  # pyrefly: ignore[bad-argument-type]
       )
 
       # Compare to full reference trajectory.

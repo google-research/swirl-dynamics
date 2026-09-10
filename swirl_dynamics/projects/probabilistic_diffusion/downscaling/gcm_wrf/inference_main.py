@@ -246,8 +246,8 @@ def main(_):
     sampling_fn = functools.partial(
         sampler.generate_denormalize_and_add_input,
         input_indices=input_indices,
-        input_mean=input_mean,
-        input_std=input_std,
+        input_mean=input_mean,  # pyrefly: ignore[bad-argument-type]
+        input_std=input_std,  # pyrefly: ignore[bad-argument-type]
     )
   else:
     sampling_fn = sampler.generate_and_denormalize

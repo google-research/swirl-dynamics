@@ -158,7 +158,7 @@ def depth_to_space(x: Array, block_shape: tuple[int, ...]) -> Array:
   # interleave old and new spatial axes
   spatial_axes = np.arange(2 * len(block_shape), dtype=np.int32) + 1
   new_axes = spatial_axes.reshape(2, -1).ravel(order="F")
-  x = jnp.transpose(x, (0,) + tuple(new_axes) + (len(new_axes) + 1,))
+  x = jnp.transpose(x, (0,) + tuple(new_axes) + (len(new_axes) + 1,))  # pyrefly: ignore[bad-argument-type]
   # collapse interleaved axes
   new_shape = np.asarray(old_shape[1:-1]) * np.asarray(block_shape)
   new_shape = (old_shape[0],) + tuple(new_shape) + (cout,)

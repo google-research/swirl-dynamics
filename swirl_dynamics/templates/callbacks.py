@@ -446,7 +446,7 @@ class LogLearningRateToTensorBoard(Callback):
   ) -> None:
     self.metric_writer.write_scalars(
         trainer.train_state.int_step,
-        {"learning_rate": self.lr_schedule(trainer.train_state.int_step)},  # pyrefly: ignore[bad-argument-type]
+        {"learning_rate": self.lr_schedule(trainer.train_state.int_step)},  # pyrefly: ignore[bad-argument-type, bad-assignment]
     )
 
 

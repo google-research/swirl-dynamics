@@ -55,8 +55,8 @@ def samples_to_dataset(
   num_samples, n_south_north, n_west_east = samples.shape[1:4]
   if spatial_coords is None:
     spatial_coords = {  # pyrefly: ignore[bad-assignment]
-        spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
-        spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
+        spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),  # pyrefly: ignore[bad-assignment]
+        spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),  # pyrefly: ignore[bad-assignment]
     }
   data_vars = {}
   for i, field_name in enumerate(field_names):
@@ -106,8 +106,8 @@ def batch_to_dataset(
   n_south_north, n_west_east = batch.shape[1:3]
   if spatial_coords is None:
     spatial_coords = {  # pyrefly: ignore[bad-assignment]
-        spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),
-        spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),
+        spatial_dims[0]: ([spatial_dims[0]], range(n_south_north)),  # pyrefly: ignore[bad-assignment]
+        spatial_dims[1]: ([spatial_dims[1]], range(n_west_east)),  # pyrefly: ignore[bad-assignment]
     }
 
   data_vars = {}

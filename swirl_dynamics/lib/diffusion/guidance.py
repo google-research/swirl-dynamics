@@ -278,7 +278,7 @@ class ClassifierFreeHybrid:
       denoised = jax.vmap(denoised_fn_partial)(stacked_conds)
       cond_denoised = denoised[0]
       uncond_denoised = denoised[1]
-      return (
+      return (  # pyrefly: ignore[bad-return]
           1 + self.guidance_strength
       ) * cond_denoised - self.guidance_strength * uncond_denoised
 

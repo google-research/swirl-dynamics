@@ -287,7 +287,7 @@ def main(argv: list[str]) -> None:
                 eval_upper_tail_dependence_chunk,
                 agg_dims=agg_dims,
                 quantiles=quantiles,
-                variables=variables,
+                variables=variables,  # pyrefly: ignore[bad-argument-type]
                 sign_change=sign_change,
             )
         )
