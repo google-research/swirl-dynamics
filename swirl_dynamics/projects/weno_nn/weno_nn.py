@@ -83,8 +83,8 @@ def _delta_layer_weno5(u_bar: Array) -> tuple[Array, ...]:
 
 def delta_layer(
     u_bar: Array,
-    global_norm: jnp.float64 | None = None,
-    eps: jnp.float64 = 1e-15,
+    global_norm: jnp.float64 | None = None,  # pyrefly: ignore[unsupported-operation]
+    eps: jnp.float64 = 1e-15,  # pyrefly: ignore[not-a-type]
 ) -> Array:
   """Implementation of Delta layer that outputs the features of the network.
 
@@ -116,7 +116,7 @@ def delta_layer(
 def weno_z_layer(
     u_bar: Array,
     q: int = 2,
-    eps: jnp.float64 = 1e-15,
+    eps: jnp.float64 = 1e-15,  # pyrefly: ignore[not-a-type]
 ) -> Array:
   """Delta layer mimimick the WENO-Z features.
 
@@ -154,8 +154,8 @@ class FeaturesRationalLayer(nn.Module):
     cutoff: Shift for the thresholding.
   """
 
-  dtype: jnp.dtype = jnp.float64
-  cutoff: Optional[jnp.float64] = None
+  dtype: jnp.dtype = jnp.float64  # pyrefly: ignore[bad-assignment]
+  cutoff: Optional[jnp.float64] = None  # pyrefly: ignore[not-a-type]
 
   @nn.compact
   def __call__(self, u_bar: Array) -> Array:
@@ -192,8 +192,8 @@ class FeaturesRationalLayerDescentered(nn.Module):
     cutoff: Shift for the thresholding.
   """
 
-  dtype: jnp.dtype = jnp.float64
-  cutoff: Optional[jnp.float64] = None
+  dtype: jnp.dtype = jnp.float64  # pyrefly: ignore[bad-assignment]
+  cutoff: Optional[jnp.float64] = None  # pyrefly: ignore[not-a-type]
 
   @nn.compact
   def __call__(self, u_bar: Array) -> Array:
@@ -225,10 +225,10 @@ class FeaturesRationalLayerDescentered(nn.Module):
 
 
 def hard_thresholding(
-    x: jnp.float64,
-    threshold_value: jnp.float64,
-    cutoff: jnp.float64 = 2e-4,
-) -> jnp.float64:
+    x: jnp.float64,  # pyrefly: ignore[not-a-type]
+    threshold_value: jnp.float64,  # pyrefly: ignore[not-a-type]
+    cutoff: jnp.float64 = 2e-4,  # pyrefly: ignore[not-a-type]
+) -> jnp.float64:  # pyrefly: ignore[not-a-type]
   """Simple implementation of hard thresholding in Eq. (16) of [1].
 
   Args:
@@ -243,7 +243,7 @@ def hard_thresholding(
   return jax.lax.cond(x < cutoff, lambda x: threshold_value, lambda x: x, x)
 
 
-def eno_layer(omega: Array, cutoff: jnp.float64 = 2e-4) -> Array:
+def eno_layer(omega: Array, cutoff: jnp.float64 = 2e-4) -> Array:  # pyrefly: ignore[not-a-type]
   """Implementation of the ENO_layer that thresholds and normalizes the weights.
 
   Args:
@@ -262,7 +262,7 @@ def eno_layer(omega: Array, cutoff: jnp.float64 = 2e-4) -> Array:
   return omega_tilde
 
 
-def gamma(u_bar: Array, epsilon_gamma: jnp.float64 = 1e-15) -> Array:
+def gamma(u_bar: Array, epsilon_gamma: jnp.float64 = 1e-15) -> Array:  # pyrefly: ignore[not-a-type]
   """Computation of gamma in Eq. (22) of [1].
 
   Args:
@@ -298,16 +298,16 @@ class OmegaNN(nn.Module):
       ENO layer should only be used during inference.
   """
 
-  features: tuple[jnp.int64, ...]
+  features: tuple[jnp.int64, ...]  # pyrefly: ignore[not-a-type]
   order: int = 3
   features_fun: Callable[[Array], Array] = functools.partial(
       delta_layer, global_norm=None, eps=1e-15
   )
   act_fun: Callable[[Array], Array] | str = nn.swish
   act_fun_out: Callable[[Array], Array] = nn.softmax
-  dtype: jnp.dtype = jnp.float64
-  global_norm: jnp.float64 | None = None
-  eno_layer_cutoff: jnp.float64 = 2e-4
+  dtype: jnp.dtype = jnp.float64  # pyrefly: ignore[bad-assignment]
+  global_norm: jnp.float64 | None = None  # pyrefly: ignore[unsupported-operation]
+  eno_layer_cutoff: jnp.float64 = 2e-4  # pyrefly: ignore[not-a-type]
 
   @nn.compact
   def __call__(self, u_bar: Array, test: bool = False) -> Array:

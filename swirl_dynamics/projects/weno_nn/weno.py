@@ -108,7 +108,7 @@ def beta(u_bar: Array, order: int = 3) -> Array:
 def omega_plus(u_bar: Array,
                order: int = 3,
                p: int = 2,
-               eps: jnp.float64 = 1e-15,
+               eps: jnp.float64 = 1e-15,  # pyrefly: ignore[not-a-type]
                ) -> Array:
   """Computes the WENO weights in the interpolation.
 
@@ -219,7 +219,7 @@ def weno_interpolation_plus(
     u_bar: Array,
     omega_fun: Callable[[Array, Optional[int]], Array],
     order: int = 3,
-) -> jnp.float64:
+) -> jnp.float64:  # pyrefly: ignore[not-a-type]
   """Interpolation to u_{i+1/2}.
 
   Args:

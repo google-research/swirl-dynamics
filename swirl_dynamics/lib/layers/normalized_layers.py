@@ -29,7 +29,7 @@ Array = jax.Array
 def compute_norm(
     x: Array,
     axis: tuple[int, ...] | int = (1, 2, 3),
-    dtype: jnp.dtype = jnp.float32,
+    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
 ) -> Array:
   """Computes the normalization of the input array along the specified axes.
 
@@ -52,7 +52,7 @@ def normalize(
     x: Array,
     axis: tuple[int, ...] | int | None = None,
     eps: float = 1e-6,
-    dtype: jnp.dtype = jnp.float32,
+    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
 ) -> Array:
   """Computes the normalization of the input array along the specified axes."""
   # If axis is not specified, normalize along all but the batch dimension.

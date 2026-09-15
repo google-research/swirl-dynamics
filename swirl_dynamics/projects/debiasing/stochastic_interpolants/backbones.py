@@ -60,8 +60,8 @@ class UNet(nn.Module):
   cond_embed_fn: type[unets.MergeEmdCond] | None = None
   cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(
@@ -203,8 +203,8 @@ class MergeCategoricalEmbCond(unets.MergeEmdCond):
   features_embedding: int = 128
   act_fun: Callable[[Array], Array] = nn.silu
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):

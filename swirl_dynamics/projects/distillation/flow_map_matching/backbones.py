@@ -60,7 +60,7 @@ def logit_normal_dist(
     shape: ArrayShape,
     mean: float = 0.0,
     std: float = 1.0,
-    dtype: jnp.dtype = jnp.float32,
+    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
 ):
   rnd_normal = jax.random.normal(rng, shape, dtype=dtype)
   return nn.sigmoid(rnd_normal * std + mean)
@@ -150,8 +150,8 @@ class FourierEmbedding(nn.Module):
   frequency_shift: float = 0.0
   precision: PrecisionLike = None
   normalization: bool = False
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -264,8 +264,8 @@ class FlowMapUNet(nn.Module):
   cond_embed_fn: type[unets.MergeEmdCond] | None = None
   cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(

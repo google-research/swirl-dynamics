@@ -64,7 +64,7 @@ _PERMUTATION = (0, 1, 4, 2, 5, 3, 6, 7)
 def get_fixed_sincos_position_embedding(
     x_shape: Shape,
     temperature: float = 10_000,
-    dtype: jnp.dtype = jnp.float32
+    dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-function-definition]
 ) -> Array:
   """Provides a fixed positional encoding for 2D and 3D coordinates.
 
@@ -131,7 +131,7 @@ class AddFixedSinCosPositionEmbedding(nn.Module):
     dtype: Data type of the positional encoding.
   """
   temperature: float = 10_000
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -171,7 +171,7 @@ class MlpBlock(nn.Module):
   bias_init: Initializer = nn.initializers.normal(stddev=1e-6)
   activation_fn: Callable[[Array], Array] = nn.gelu
   precision: Optional[jax.lax.Precision] = None
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array, *, deterministic: bool) -> Array:
@@ -408,7 +408,7 @@ class EncoderFactorizedSelfAttentionBlock(nn.Module):
   attention_dropout_rate: float = 0.1
   droplayer_p: Optional[float] = None
   attention_order: str = 'time_space'
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array, *, deterministic: bool) -> Array:
@@ -491,7 +491,7 @@ class Encoder3DFactorizedSelfAttentionBlock(nn.Module):
   attention_dropout_rate: float = 0.1
   droplayer_p: Optional[float] = None
   attention_order: str = 'time_height_width'
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array, *, deterministic: bool) -> Array:
@@ -592,7 +592,7 @@ class EncoderBlock(nn.Module):
   """
   mlp_dim: int
   num_heads: int
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   attention_kernel_initializer: Initializer = nn.initializers.xavier_uniform()
@@ -680,7 +680,7 @@ class TransformerBlock(nn.Module):
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   stochastic_droplayer_rate: float = 0.0
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   positional_embedding: str = 'sinusoidal_3d'
   normalise_output: bool = True
   encoded_shape: Optional[tuple[int, ...]] | None = None
@@ -793,7 +793,7 @@ class ViViT(nn.Module):
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   stochastic_droplayer_rate: float = 0.0
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(

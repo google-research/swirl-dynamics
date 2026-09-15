@@ -71,8 +71,8 @@ class AxialSelfAttention(nn.Module):
   deterministic: bool = True
   precision: PrecisionLike = None
   normalize_qk: bool = False
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:

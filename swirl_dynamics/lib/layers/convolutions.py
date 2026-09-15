@@ -38,8 +38,8 @@ def ConvLayer(
     padding: nn.linear.PaddingLike,
     use_local: bool = False,
     precision: PrecisionLike = None,
-    dtype: jnp.dtype = jnp.float32,
-    param_dtype: jnp.dtype = jnp.float32,
+    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
+    param_dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
     **kwargs,
 ) -> nn.Module:
   """Factory for different types of convolution layers."""
@@ -94,8 +94,8 @@ class LatLonConv(nn.Module):
   strides: tuple[int, int] = (1, 1)
   use_local: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -165,8 +165,8 @@ class DownsampleConv(nn.Module):
       scale=1.0, mode="fan_avg", distribution="uniform"
   )
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:

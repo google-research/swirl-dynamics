@@ -98,7 +98,7 @@ class ResizeUStack(nn.Module):
   use_attention: bool = False
   num_heads: int = 8
   channels_per_head: int = -1
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   resize_method: str = "bilinear"
 
   @nn.compact
