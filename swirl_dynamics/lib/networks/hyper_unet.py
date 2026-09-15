@@ -56,7 +56,7 @@ class HyperUnet(nn.Module):
   embed_dims: tuple[int, int, int]
   act_fn: Callable[[Array], Array] = nn.swish
   use_layernorm: bool = False
-  dtype: Dtype = jnp.float32
+  dtype: Dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   def slice_inputs(self, inputs: Array, axis: int = -1) -> list[Array]:
     """Slice into layers based on weight shapes.

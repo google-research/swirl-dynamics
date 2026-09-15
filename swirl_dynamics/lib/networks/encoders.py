@@ -51,7 +51,7 @@ class ResNetBlock1D(nn.Module):
   act_fn: Callable[[jax.Array], jax.Array] = nn.tanh
   downsample: bool = False
   padding: str = "CIRCULAR"
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: jax.Array, is_training: bool = True) -> jax.Array:
@@ -142,7 +142,7 @@ class EncoderResNet(nn.Module):
   kernel_size: tuple[int, ...] = (5,)
   act_fn: Callable[[jax.Array], jax.Array] = nn.tanh
   padding: str = "CIRCULAR"
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: jax.Array, is_training: bool = True) -> jax.Array:

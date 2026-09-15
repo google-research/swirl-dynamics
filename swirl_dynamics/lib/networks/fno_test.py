@@ -77,7 +77,7 @@ class FnoTest(parameterized.TestCase):
         contract_fn=fno.ContractFnType.DENSE,
         separable=False,
         skip_type=skip_type,
-        param_dtype=jnp.complex64,
+        param_dtype=jnp.complex64,  # pyrefly: ignore[bad-argument-type]
     )
     block_vars = block.init(jax.random.PRNGKey(0), inputs)
     out = jax.jit(block.apply)(block_vars, inputs)

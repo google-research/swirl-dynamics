@@ -93,7 +93,7 @@ class SpectralConv(nn.Module):
   fft_norm: Literal["backward", "ortho", "forward"] = "backward"
   contract_fn: ContractFnType = ContractFnType.DENSE
   separable: bool = False
-  weights_dtype: jnp.dtype = jnp.complex64
+  weights_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
 
   def setup(self):
     weights_shape = (
@@ -205,7 +205,7 @@ class FnoResBlock(nn.Module):
   separable: bool = False
   act_fn: Callable[[jax.Array], jax.Array] = nn.swish
   skip_type: Literal["linear", "soft-gate", "identity"] = "soft-gate"
-  param_dtype: jnp.dtype = jnp.complex64
+  param_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:
@@ -285,7 +285,7 @@ class Fno(nn.Module):
   contract_fn: ContractFnType = ContractFnType.DENSE
   separable: bool = False
   act_fn: Callable[[jax.Array], jax.Array] = nn.swish
-  param_dtype: jnp.dtype = jnp.complex64
+  param_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:
@@ -342,8 +342,8 @@ class Fno2d(nn.Module):
   domain_size: tuple[int, int] | None = None
   fft_norm: Literal["backward", "ortho", "forward"] = "ortho"
   act_fn: Callable[[jax.Array], jax.Array] = jax.nn.selu
-  param_dtype: jnp.dtype = jnp.complex64
-  grid_dtype: jnp.dtype = jnp.float32
+  param_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
+  grid_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:

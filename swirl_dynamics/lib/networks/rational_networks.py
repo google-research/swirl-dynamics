@@ -30,7 +30,7 @@ Array = Any
 ModuleDef = Any
 
 
-def zero_cutoff(x: jnp.float64, epsilon: jnp.float64) -> jnp.float64:
+def zero_cutoff(x: jnp.float64, epsilon: jnp.float64) -> jnp.float64:  # pyrefly: ignore[not-a-type]
   """Limits absolute value to always be larger than epsilon and preserves sign.
 
   Args:
@@ -74,8 +74,8 @@ class RationalLayer(nn.Module):
   """
 
   deg_pols: tuple[int, int] = (3, 2)
-  dtype: jnp.dtype = jnp.float32
-  cutoff: jnp.float32 | jnp.float64 | None = None
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  cutoff: jnp.float32 | jnp.float64 | None = None  # pyrefly: ignore[unsupported-operation]
 
   def setup(self):
     """Initializes the parameters for a type (3,2) rational activation."""
@@ -136,8 +136,8 @@ class UnsharedRationalLayer(nn.Module):
     cutoff: Shift for the thresholding.
   """
 
-  dtype: jnp.dtype = jnp.float32
-  cutoff: Optional[jnp.float32 | jnp.float64 | None] = None
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  cutoff: Optional[jnp.float32 | jnp.float64 | None] = None  # pyrefly: ignore[unsupported-operation]
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -232,7 +232,7 @@ class NonLinearFourierRational(nn.Module):
   num_freqs: int = 3
   dyadic: bool = False
   zero_freq: bool = False
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   multi_rational: bool = False
 
   @nn.compact
