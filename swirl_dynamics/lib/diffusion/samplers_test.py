@@ -44,6 +44,26 @@ class TimeStepSchedulersTest(parameterized.TestCase):
       )
       np.testing.assert_allclose(tspan, np.asarray(expected), atol=1e-6)
 
+  @parameterized.product(end_time=[0.0, 0.2], compiled=[False, True])
+  def test_uniform_time_explicit_endpoint(self, end_time, compiled):
+    sigma_schedule = diffusion.tangent_noise_schedule()
+    scheme = diffusion.Diffusion.create_variance_exploding(sigma_schedule)
+    schedule = functools.partial(samplers.uniform_time, scheme, num_steps=3)
+    if compiled:
+      schedule = jax.jit(schedule)
+    tspan = schedule(end_time=jnp.asarray(end_time))
+    np.testing.assert_allclose(
+        tspan, np.linspace(1.0, end_time, 3), atol=1e-6
+    )
+
+  @parameterized.parameters((None, None), (0.0, 0.0), (0.2, 0.1))
+  def test_uniform_time_requires_one_endpoint(self, end_time, end_sigma):
+    scheme = diffusion.Diffusion.create_variance_exploding(
+        diffusion.tangent_noise_schedule()
+    )
+    with self.assertRaisesRegex(ValueError, "Exactly one"):
+      samplers.uniform_time(scheme, end_time=end_time, end_sigma=end_sigma)
+
   def test_exponential_noise_decay(self):
     num_steps = 4
     start_sigma, end_sigma = 100, 0.1
