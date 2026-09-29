@@ -181,8 +181,8 @@ def get_coord_as_nparray(
     valid_selections = {
         dim: sel_slice
         for dim, sel_slice in desired_selections.items()
-        if dim in dataset.dims
+        if dim in dataset.dims  # pyrefly: ignore[missing-attribute]
     }
-    dataset = dataset.sel(**valid_selections)
+    dataset = dataset.sel(**valid_selections)  # pyrefly: ignore[missing-attribute]
 
-  return dataset[dim].to_numpy()
+  return dataset[dim].to_numpy()  # pyrefly: ignore[bad-index]
