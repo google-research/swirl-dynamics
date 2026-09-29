@@ -38,8 +38,8 @@ class CombineResidualWithSkip(nn.Module):
 
   project_skip: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32
-  param_dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, *, residual: Array, skip: Array) -> Array:

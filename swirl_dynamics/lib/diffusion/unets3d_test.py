@@ -99,8 +99,8 @@ class Unets3dTest(parameterized.TestCase):
         num_heads=2,
         cond_resize_method="cubic",
         cond_embed_dim=16,
-        dtype=jnp.bfloat16,
-        param_dtype=jnp.float32,
+        dtype=jnp.bfloat16,  # pyrefly: ignore[bad-argument-type]
+        param_dtype=jnp.float32,  # pyrefly: ignore[bad-argument-type]
     )
     variables = network.init(
         jax.random.PRNGKey(0), x, sigma=jnp.ones((2,)), is_training=True

@@ -51,7 +51,7 @@ class MLP(nn.Module):
 
   features: tuple[int, ...]
   act_fn: Callable[[Array], Array] = nn.relu
-  dtype: Dtype = jnp.float32
+  dtype: Dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   layer_norm: bool = False
   use_bias: bool = True
 
@@ -105,7 +105,7 @@ class NonLinearFourier(nn.Module):
   dyadic: bool = False
   zero_freq: bool = False
   train_freqs: bool = False
-  dtype: Dtype = jnp.float32
+  dtype: Dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:

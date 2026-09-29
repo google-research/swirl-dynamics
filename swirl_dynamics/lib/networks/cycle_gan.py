@@ -57,7 +57,7 @@ class FilteredInterpolation(nn.Module):
   padding: str = "CIRCULAR"
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
   use_local: bool = False
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -103,7 +103,7 @@ class ResnetBlock(nn.Module):
   padding: str = "CIRCULAR"
   kernel_size: tuple[int, int] = (3, 3)
   act_fun: Callable[[Array], Array] | Any = nn.relu
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   use_bias: bool = True
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
   normalization_layer: Callable[..., Any] = functools.partial(
@@ -201,7 +201,7 @@ class Generator(nn.Module):
   n_upsample_layers: int = 2
   use_skips: bool = True
   use_global_skip: bool = True
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   padding: str = "CIRCULAR"  # TODO: Add one adapted for ERA5.
   padding_transpose: str = "CIRCULAR"
   use_weight_global_skip: bool = False

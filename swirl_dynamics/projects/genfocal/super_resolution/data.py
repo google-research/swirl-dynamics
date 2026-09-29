@@ -174,7 +174,7 @@ class DataSource:
 
     self._date_range = date_range
     self._num_days_per_example = num_days_per_example
-    self._len = (date_range[1] - date_range[0]) // DELTA_1D - (
+    self._len = (date_range[1] - date_range[0]) // DELTA_1D - (  # pyrefly: ignore[unsupported-operation]
         self._num_days_per_example - 1
     )
     self._snapshots_per_day = 24 // hourly_downsample
@@ -190,7 +190,7 @@ class DataSource:
     if not idx < self._len:
       raise ValueError(f"Index out of range: {idx} / {self._len - 1}")
 
-    day = self._date_range[0] + idx * DELTA_1D
+    day = self._date_range[0] + idx * DELTA_1D  # pyrefly: ignore[unsupported-operation]
     for _ in range(self._max_retries):
       # Fetching may fail for specific days (a very tiny fraction). When this
       # happens, we retry fetching a different one pseudo-randomly chosen based

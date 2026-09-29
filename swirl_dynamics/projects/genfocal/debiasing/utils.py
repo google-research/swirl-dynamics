@@ -367,8 +367,8 @@ def build_model_from_config(
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
         ffn_type=config.ffn_type,  # pyrefly: ignore[bad-argument-type]
-        dtype=dtype,
-        param_dtype=dtype,
+        dtype=dtype,  # pyrefly: ignore[bad-argument-type]
+        param_dtype=dtype,  # pyrefly: ignore[bad-argument-type]
     )
   else:
     print("Using 2D U-ViT model")
@@ -386,8 +386,8 @@ def build_model_from_config(
         num_heads=config.num_heads,
         cond_embed_fn=cond_embed_fn,
         normalize_qk=config.normalize_qk,
-        dtype=dtype,
-        param_dtype=dtype,
+        dtype=dtype,  # pyrefly: ignore[bad-argument-type]
+        param_dtype=dtype,  # pyrefly: ignore[bad-argument-type]
     )
 
   # Setting up the time sampler.

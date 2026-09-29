@@ -45,7 +45,7 @@ class AttentionBlock(nn.Module):
   """Attention block."""
 
   num_heads: int = 1
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: Array, *, is_training: bool) -> Array:
@@ -227,7 +227,7 @@ class DStack(nn.Module):
   use_attention: bool = False
   num_heads: int = 8
   use_position_encoding: bool = False
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, x: Array, *, is_training: bool) -> list[Array]:
@@ -301,7 +301,7 @@ class UStack(nn.Module):
   padding: str = "CIRCULAR"
   use_attention: bool = False
   num_heads: int = 8
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(

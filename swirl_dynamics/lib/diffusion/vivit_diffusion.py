@@ -84,7 +84,7 @@ class EncoderEmbeddingBlock(nn.Module):
   """
   mlp_dim: int
   num_heads: int
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   attention_kernel_initializer: Initializer = nn.initializers.xavier_uniform()
@@ -170,7 +170,7 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
   attention_dropout_rate: float = 0.1
   droplayer_p: Optional[float] = None
   attention_order: str = 'time_space'
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(
@@ -280,7 +280,7 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
   attention_dropout_rate: float = 0.1
   droplayer_p: Optional[float] = None
   attention_order: str = 'time_height_width'
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(self, inputs: Array, emb: Array, *, deterministic: bool):
@@ -407,7 +407,7 @@ class TransformerEmbeddingBlock(nn.Module):
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   stochastic_droplayer_rate: float = 0.0
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
   positional_embedding: str = 'sinusoidal_3d'
   encoded_shape: Optional[tuple[int, ...]] | None = None
   normalise_output: bool = True
@@ -530,7 +530,7 @@ class ViViTDiffusion(nn.Module):
   cond_embed_dim: int = 128
   cond_padding: str = 'SAME'
   cond_kernel_size: Sequence[int] = (3, 3)
-  dtype: jnp.dtype = jnp.float32
+  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
 
   @nn.compact
   def __call__(

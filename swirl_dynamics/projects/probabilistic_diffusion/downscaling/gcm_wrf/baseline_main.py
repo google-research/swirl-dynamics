@@ -153,7 +153,7 @@ def input_as_output(
   """
   del rng, guidance_inputs
   cond = jax.tree.map(lambda x: jnp.stack([x] * num_samples, axis=0), cond)
-  return cond['channel:input']
+  return cond['channel:input']  # pyrefly: ignore[unsupported-operation]
 
 
 def main(_):

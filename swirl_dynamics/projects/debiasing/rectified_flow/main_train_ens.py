@@ -393,8 +393,8 @@ def main(argv):
         num_heads=config.num_heads,
         normalize_qk=config.normalize_qk,
         cond_embed_fn=cond_embed_fn,
-        dtype=dtype,
-        param_dtype=param_dtype,
+        dtype=dtype,  # pyrefly: ignore[bad-argument-type]
+        param_dtype=param_dtype,  # pyrefly: ignore[bad-argument-type]
     )
 
   if (sampler_type := config.get("time_sampler", None)) == "lognorm":
