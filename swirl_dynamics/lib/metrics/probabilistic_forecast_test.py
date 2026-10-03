@@ -14,6 +14,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib.metrics import probabilistic_forecast
@@ -115,6 +116,113 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
         forecasts, obs, threshold, ensemble_axis=-1
     )
     np.testing.assert_allclose(out, np.asarray(expected), atol=1e-5)
+
+
+class CrpsPrecisionTest(parameterized.TestCase):
+  """CRPS arithmetic must not overflow before its floating-point reductions."""
+
+  @parameterized.parameters(
+      jnp.float16, jnp.bfloat16, jnp.int16, jnp.int32, jnp.uint16
+  )
+  def test_extreme_finite_members_match_double_precision_formula(self, dtype):
+    if dtype == jnp.int32:
+      values = [-(2**30), 2**30]
+    elif dtype == jnp.int16:
+      values = [-30000, 30000]
+    elif dtype == jnp.uint16:
+      values = [0, 60000]
+    else:
+      values = [-60000, 60000]
+    forecasts = jnp.asarray([values, values[::-1]], dtype=dtype)
+    observations = jnp.asarray([100, 1000], dtype=dtype)
+    f, o = np.asarray(forecasts, np.float64), np.asarray(
+        observations, np.float64
+    )
+    expected = np.abs(f - o[:, None]).mean(-1) - 0.5 * np.abs(
+        f[:, :, None] - f[:, None, :]
+    ).mean((-1, -2))
+    for direct in (False, True):
+      for compiled in (False, True):
+        with self.subTest(direct=direct, compiled=compiled):
+
+          def score(x, y):
+            return probabilistic_forecast.crps(
+                x, y, ensemble_axis=-1, direct_broadcast=direct
+            )
+
+          actual = (jax.jit(score) if compiled else score)(
+              forecasts, observations
+          )
+          np.testing.assert_allclose(actual, expected, rtol=1e-6)
+          self.assertEqual(actual.dtype, jnp.float32)
+          self.assertTrue(np.all(np.isfinite(actual)))
+          self.assertTrue(np.all(actual >= 0))
+    np.testing.assert_array_equal(forecasts, f)
+    np.testing.assert_array_equal(observations, o)
+
+  @parameterized.parameters(0, 1, -1)
+  def test_axis_permutation_mixed_inputs_and_single_members(self, axis):
+    original = np.array(
+        [[-30000, 10000, 30000], [10000, -30000, 30000]], np.int16
+    )
+    forecasts = np.moveaxis(original, -1, axis)
+    observations = jnp.array([2.0, -4.0], dtype=jnp.float32)
+    f = original.astype(np.float64)
+    expected = np.abs(f - np.asarray(observations)[:, None]).mean(
+        -1
+    ) - 0.5 * np.abs(f[:, :, None] - f[:, None, :]).mean((-1, -2))
+    for direct in (False, True):
+      actual = probabilistic_forecast.crps(
+          forecasts, observations, ensemble_axis=axis, direct_broadcast=direct
+      )
+      np.testing.assert_allclose(actual, expected, rtol=1e-6)
+      singleton = jnp.array([[-60000.0], [60000.0]], dtype=jnp.float16)
+      target = jnp.array([60000.0, -60000.0], dtype=jnp.float16)
+      np.testing.assert_array_equal(
+          probabilistic_forecast.crps(
+              singleton, target, ensemble_axis=-1, direct_broadcast=direct
+          ),
+          [120000.0, 120000.0],
+      )
+
+  def test_float64_and_float32_preserve_precision_with_x64_enabled(self):
+    with jax.enable_x64():
+      for dtype in (jnp.float32, jnp.float64):
+        with self.subTest(dtype=dtype):
+          forecasts = jnp.array([[1.0, 3.0, 6.0]], dtype=dtype)
+          obs = jnp.array([2.0], dtype=dtype)
+          expected = (
+              np.abs(np.asarray(forecasts) - 2).mean()
+              - np.abs(
+                  np.asarray(forecasts)[:, :, None]
+                  - np.asarray(forecasts)[:, None, :]
+              ).mean()
+              / 2
+          )
+          for direct in (False, True):
+            actual = probabilistic_forecast.crps(
+                forecasts, obs, ensemble_axis=-1, direct_broadcast=direct
+            )
+            self.assertEqual(actual.dtype, dtype)
+            np.testing.assert_allclose(actual, expected, rtol=1e-6)
+
+  @parameterized.parameters(False, True)
+  def test_low_precision_gradients_match_floating_reference(self, direct):
+    forecasts = jnp.array([[-60000.0, 10000.0, 60000.0]], dtype=jnp.float16)
+    observations = jnp.array([1000.0], dtype=jnp.float16)
+
+    def loss(values):
+      return probabilistic_forecast.crps(
+          values, observations, ensemble_axis=-1, direct_broadcast=direct
+      ).sum()
+
+    value, gradient = jax.jit(jax.value_and_grad(loss))(forecasts)
+    ref_value, ref_gradient = jax.value_and_grad(loss)(
+        forecasts.astype(jnp.float32)
+    )
+    np.testing.assert_allclose(value, ref_value, rtol=1e-6)
+    np.testing.assert_allclose(gradient, ref_gradient, rtol=1e-3, atol=1e-4)
+    self.assertTrue(np.all(np.isfinite(gradient)))
 
 
 if __name__ == "__main__":

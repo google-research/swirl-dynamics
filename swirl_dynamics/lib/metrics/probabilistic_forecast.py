@@ -51,7 +51,12 @@ def _mean_abs_diff_with_loop(forecasts: Array) -> Array:
     return abs_diff + jnp.abs(forecasts[..., i, None] - forecasts).mean(axis=-1)
 
   mean_abs_diff = jax.lax.fori_loop(
-      0, forecasts.shape[-1], _sum_abs_diff, jnp.zeros(forecasts.shape[:-1])
+      0,
+      forecasts.shape[-1],
+      _sum_abs_diff,
+      jnp.zeros(
+          forecasts.shape[:-1], dtype=jnp.result_type(forecasts, jnp.float32)
+      ),
   )
   return mean_abs_diff / forecasts.shape[-1]
 
@@ -87,9 +92,15 @@ def crps(
       less memory but also slower.
 
   Returns:
-    The CRPS with same shape as the observations.
+    The CRPS with same shape as the observations, computed and returned in at
+    least float32 precision.
   """
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
+  # Promote before subtraction, abs, and accumulation to avoid integer and
+  # low-precision overflow, while retaining any requested float64 precision.
+  dtype = jnp.result_type(forecasts, observations, jnp.float32)
+  forecasts = jnp.asarray(forecasts, dtype=dtype)
+  observations = jnp.asarray(observations, dtype=dtype)
   mae = jnp.mean(jnp.abs(forecasts - observations[..., None]), axis=-1)
 
   if direct_broadcast:
