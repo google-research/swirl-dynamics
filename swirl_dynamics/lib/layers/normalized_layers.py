@@ -39,13 +39,18 @@ def compute_norm(
     dtype: The data type to cast the input to.
 
   Returns:
-    The norm of the input array along the specified axes.
+    The norm of the input array along the specified axes, with a zero
+    subgradient for zero-norm groups.
   """
 
   # The input is casted to a float32 to avoid precision loss in the
   # normalization.
   x = x.astype(dtype)
-  return jnp.sqrt(jnp.sum(jnp.square(x), axis=axis, keepdims=True))
+  squared_norm = jnp.sum(jnp.square(x), axis=axis, keepdims=True)
+  is_zero = squared_norm == 0
+  # Avoid differentiating sqrt at zero, even in the inactive where branch.
+  safe_squared_norm = jnp.where(is_zero, 1, squared_norm)
+  return jnp.where(is_zero, 0, jnp.sqrt(safe_squared_norm))
 
 
 def normalize(
