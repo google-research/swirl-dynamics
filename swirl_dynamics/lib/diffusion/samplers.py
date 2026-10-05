@@ -557,8 +557,8 @@ class ExponentialOdeSampler(Sampler):
 
     with the associated log likelihood evolving as
 
-      log p₁ = log p₀ + N (log (s₁ / s₀) + log (σ₁ / σ₀))
-               + (log (σ₀ / σ₁) Trace(∂D/∂x)(x=x₀/s₀, σ₀=σ₀))
+      log p₁ = log p₀ - N (log (s₁ / s₀) + log (σ₁ / σ₀))
+               - (log (σ₀ / σ₁) Trace(∂D/∂x)(x=x₀/s₀, σ₀=σ₀))
 
     where x₀ is the current state; s₀, σ₀ are the scale and noise levels at the
     current time; s₀, σ₀ are for the output time; N is the number of dimensions
@@ -601,9 +601,9 @@ class ExponentialOdeSampler(Sampler):
       x1 += s1 * (1 - sigma1 / sigma0) * denoised
       logp1 = (
           logp0
-          + np.prod(x1.shape[1:])
+          - np.prod(x1.shape[1:])
           * (jnp.log(s1 / s0) + jnp.log(sigma1 / sigma0))
-          + (jnp.log(sigma0 / sigma1)) * trace_jac
+          - (jnp.log(sigma0 / sigma1)) * trace_jac
       )
     return x1, logp1  # pyrefly: ignore[bad-return]
 
@@ -650,8 +650,8 @@ class ExponentialOdeSampler(Sampler):
       i, xi, logpi = loop_state
       x_next, logp_next = self.forward_step(
           x0=xi,
-          t1=self.tspan[::-1][i],
-          t0=self.tspan[::-1][i + 1],
+          t0=self.tspan[::-1][i],
+          t1=self.tspan[::-1][i + 1],
           params=params,
           logp0=logpi,
           rng=rng,
