@@ -424,7 +424,7 @@ class OdeSampler(Sampler):
     )
     x1, dlogp01 = q_paths[-1, :, :-1], q_paths[-1, :, -1]
 
-    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.sigma(self.tspan[0])
+    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
     log_p1 = (
         -dim / 2 * jnp.log(2 * jnp.pi)
         - dim * jnp.log(sigma1)
@@ -662,7 +662,7 @@ class ExponentialOdeSampler(Sampler):
         cond_fn, body_fn, (0, inputs, jnp.zeros((batch_size,)))
     )
 
-    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.sigma(self.tspan[0])
+    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
     x1_flat = x1.reshape(batch_size, -1)
     log_p1 = (
         -dim / 2 * jnp.log(2 * jnp.pi)
