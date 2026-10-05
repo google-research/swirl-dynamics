@@ -80,20 +80,20 @@ class DenoisingModel(dfn_models.DenoisingModel):
     sampling_fn = functools.partial(
         sde_sampler.generate, self.num_samples_per_condition
     )
-    samples = jax.vmap(sampling_fn, in_axes=(0, 0, 0))(  # pytype: disable=wrong-arg-types
+    samples = jax.vmap(sampling_fn, in_axes=(0, 0, 0))(
         jax.random.split(rng, batch["x"].shape[0]),
         batch["cond"],  # pyrefly: ignore[bad-argument-type]
         batch.get("guidance_inputs", {}),  # pyrefly: ignore[bad-argument-type]
     )  # ~ (batch, samples, *sample_dims)
     crps = jnp.mean(metric_lib.crps(forecasts=samples, observations=batch["x"]))  # pyrefly: ignore[bad-argument-type]
-    return {  # pyrefly: ignore[bad-return]
+    return {
         # Take first batch element and one sample only. The batch axis is kept
         # to work with `CollectingMetric` in clu.
         "example_sample": jnp.asarray(samples)[:1, 0],
         "example_input": batch["cond"]["channel:daily_mean"][:1],  # pyrefly: ignore[bad-assignment]
         "example_obs": batch["x"][:1],  # pyrefly: ignore[bad-assignment]
         "mean_crps": crps,
-    }  # pytype: disable=bad-return-type
+    }
 
   def likelihood_eval(
       self, variables: PyTree, batch: BatchType, rng: Array

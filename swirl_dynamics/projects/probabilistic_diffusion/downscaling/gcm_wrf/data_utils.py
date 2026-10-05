@@ -69,7 +69,7 @@ def align_datasets(
   """Returns input datasets aligned in time."""
   ds2_times = pd.to_datetime([pd.Timestamp(date) for date in ds2.time.values])
   common_times = get_common_times(ds1, ds2_times)
-  return ds1.sel(time=common_times), ds2.sel(time=common_times)  # pytype: disable=bad-return-type
+  return ds1.sel(time=common_times), ds2.sel(time=common_times)
 
 
 def get_common_times_dataset(

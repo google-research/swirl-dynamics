@@ -357,7 +357,7 @@ class TrajectorySamplerParallel:
 
     # Interp low-resolution dataset.
     lowres_ds = (
-        self.lowres_ds.interp(  # pytype: disable=wrong-arg-types
+        self.lowres_ds.interp(
             coords={
                 "longitude": self.lon_coords,
                 "latitude": self.lat_coords,

@@ -126,7 +126,7 @@ class DenoisingModel(dfn_models.DenoisingModel):
         "mean_crps": crps,
         "rmse_ens_mean": rmse,
         "unreliability": unreliability,
-    }  # pytype: disable=bad-return-type
+    }
 
   def likelihood_eval(
       self, variables: PyTree, batch: BatchType, rng: Array

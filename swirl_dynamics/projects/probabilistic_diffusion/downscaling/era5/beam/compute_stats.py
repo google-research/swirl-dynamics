@@ -253,7 +253,7 @@ def main(argv):
         | "Reshuffle1" >> beam.Reshuffle()
         | "Rechunk input"
         >> xbeam.Rechunk(
-            source_dataset.sizes,  # pytype: disable=wrong-arg-types
+            source_dataset.sizes,  # pyrefly: ignore[bad-argument-type]
             source_chunks,
             WORKING_CHUNKS,
             itemsize=4,
@@ -269,7 +269,7 @@ def main(argv):
         | "Reshuffle2" >> beam.Reshuffle()
         | "Rechunk output"
         >> xbeam.Rechunk(
-            template.sizes,  # pytype: disable=wrong-arg-types
+            template.sizes,  # pyrefly: ignore[bad-argument-type]
             stats_working_chunks,
             output_chunks,
             itemsize=4,

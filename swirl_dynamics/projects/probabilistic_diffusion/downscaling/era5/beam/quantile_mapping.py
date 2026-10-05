@@ -129,7 +129,7 @@ def _get_climatology_std(
   Returns:
     The climatological standard deviation of the given variables.
   """
-  clim_std_dict = {key + '_std': key for key in variables}  # pytype: disable=unsupported-operands
+  clim_std_dict = {key + '_std': key for key in variables}
   # try:
   climatology_std = climatology[list(clim_std_dict.keys())].rename(
       clim_std_dict

@@ -484,7 +484,7 @@ class Evaluator:
 
 PYGRAIN_CHECKPOINTER = checkpoint.Checkpointer(
     pygrain.PyGrainCheckpointHandler()  # pyrefly: ignore[bad-argument-type]
-)  # pytype:disable=wrong-arg-types
+)
 
 
 def run(
@@ -583,9 +583,9 @@ def run(
   cur_step = 0
 
   # restore checkpoint state if applicable
-  if enable_checkpoints and ckpt_manager.latest_step():  # pytype: disable=attribute-error
-    ckpt = ckpt_manager.restore(  # pytype: disable=attribute-error
-        ckpt_manager.latest_step(),  # pytype: disable=attribute-error
+  if enable_checkpoints and ckpt_manager.latest_step():  # pyrefly: ignore[missing-attribute]
+    ckpt = ckpt_manager.restore(  # pyrefly: ignore[missing-attribute]
+        ckpt_manager.latest_step(),  # pyrefly: ignore[missing-attribute]
         items=dict(iterator=iterator, eval_state=evaluator.state),
     )
     evaluator.state = ckpt["eval_state"]

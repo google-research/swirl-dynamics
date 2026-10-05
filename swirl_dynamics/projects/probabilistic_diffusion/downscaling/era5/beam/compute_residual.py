@@ -137,7 +137,7 @@ def main(argv):
         {"hires": hires_pcolls, "lores": lores_pcolls}
         | beam.CoGroupByKey()
         | beam.MapTuple(subtract_dataset)
-        | xbeam.Rechunk(  # pytype: disable=wrong-arg-types
+        | xbeam.Rechunk(
             dim_sizes=template.sizes,  # pyrefly: ignore[bad-argument-type]
             source_chunks=out_chunks,
             target_chunks=hires_chunks,

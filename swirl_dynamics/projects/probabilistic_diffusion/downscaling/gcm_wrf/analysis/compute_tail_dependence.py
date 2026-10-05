@@ -262,7 +262,7 @@ def main(argv: list[str]) -> None:
         root
         | xbeam.DatasetToChunks(inference_ds, input_chunks, split_vars=False)
         | 'RechunkIn'
-        >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
+        >> xbeam.Rechunk(
             inference_ds.sizes,  # pyrefly: ignore[bad-argument-type]
             input_chunks,
             in_working_chunks,
@@ -279,7 +279,7 @@ def main(argv: list[str]) -> None:
             )
         )
         | 'RechunkOut'
-        >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
+        >> xbeam.Rechunk(
             out_working_sizes,
             out_working_chunks,
             out_chunks,

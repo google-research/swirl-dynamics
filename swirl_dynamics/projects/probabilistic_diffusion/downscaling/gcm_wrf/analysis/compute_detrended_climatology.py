@@ -134,7 +134,7 @@ class Quantile:
       weights: Optional[xr.Dataset] = None,
   ):
     if weights is not None:
-      ds = ds.weighted(weights)  # pytype: disable=wrong-arg-types
+      ds = ds.weighted(weights)  # pyrefly: ignore[bad-argument-type, bad-assignment]
     return ds.quantile(self.quantiles, dim=dim)
 
 
@@ -307,7 +307,7 @@ def main(argv: list[str]) -> None:
             num_threads=NUM_THREADS.value,
         )
         | 'RechunkIn'
-        >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
+        >> xbeam.Rechunk(
             obs.sizes,  # pyrefly: ignore[bad-argument-type]
             input_chunks,
             in_working_chunks,
@@ -345,7 +345,7 @@ def main(argv: list[str]) -> None:
         pcolls
         | beam.Flatten()
         | 'RechunkOut'
-        >> xbeam.Rechunk(  # pytype: disable=wrong-arg-types
+        >> xbeam.Rechunk(
             clim_template.sizes,  # pyrefly: ignore[bad-argument-type]
             out_working_chunks,
             output_chunks,

@@ -232,7 +232,7 @@ class AccumulateStatistics(beam.CombineFn):
         mixed_second_moment=new_mixed_second_moment,
         count=new_count,
     )
-    return new_accumulator.compute()  # pytype: disable=bad-return-type
+    return new_accumulator.compute()
 
   def merge_accumulators(self, accumulators: Iterable[Dataset]) -> Dataset:
     means, second_moments, mixed_second_moments, counts = zip(

@@ -197,7 +197,7 @@ def main(argv: list[str]) -> None:
         root
         | xbeam.DatasetToChunks(source_dataset, source_chunks, split_vars=True)
         | xbeam.Rechunk(
-            source_dataset.sizes,  # pytype: disable=wrong-arg-types
+            source_dataset.sizes,  # pyrefly: ignore[bad-argument-type]
             source_chunks,
             in_working_chunks,
             itemsize=4,
