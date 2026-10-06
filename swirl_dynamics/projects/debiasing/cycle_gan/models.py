@@ -461,7 +461,7 @@ class CycleGANModel(swirl_models.BaseModel):
       mutables: PyTree,
   ) -> tuple[
       jax.Array, tuple[swirl_models.ArrayDict, PyTree, tuple[Array, ...]]
-  ]:  # pytype: disable=signature-mismatch
+  ]:
     """Loss function for the generator.
 
     Args:
@@ -647,10 +647,9 @@ class CycleGANModel(swirl_models.BaseModel):
         params_dis_b, real_data_b, fake_data_b  # pyrefly: ignore[bad-argument-type]
     )
 
-    return dict(loss=loss,  # pyrefly: ignore[bad-return]
+    return dict(loss=loss,
                 loss_dis_a=loss_a,
                 loss_dis_b=loss_b,
                 u_lf=real_data_a,  # pyrefly: ignore[bad-assignment]
                 u_hf=fake_data_b,
                 **loss_dict)
-  # pytype: enable=bad-return-type

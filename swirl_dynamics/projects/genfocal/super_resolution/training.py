@@ -260,7 +260,7 @@ class DenoisingModel(templates.BaseModel):
         "example_input": batch["cond"]["channel:daily_mean"][:1],
         "example_obs": batch["x"][:1],
         "mean_crps": crps,
-    }  # pytype: disable=bad-return-type
+    }
 
   def likelihood_eval(
       self, variables: PyTree, batch: BatchType, rng: Array

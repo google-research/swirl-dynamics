@@ -201,11 +201,11 @@ class DataSource:
     """Returns the data record for a given index."""
     item = {}
     item["input"] = np.stack(
-        [xrts.read(arr.isel(time=idx)).data for arr in self._input_arrays],  # pytype: disable=attribute-error
+        [xrts.read(arr.isel(time=idx)).data for arr in self._input_arrays],
         axis=-1,
     )
     item["output"] = np.stack(
-        [xrts.read(arr.isel(time=idx)).data for arr in self._output_arrays],  # pytype: disable=attribute-error
+        [xrts.read(arr.isel(time=idx)).data for arr in self._output_arrays],
         axis=-1,
     )
     item["static_features"] = self._static_features

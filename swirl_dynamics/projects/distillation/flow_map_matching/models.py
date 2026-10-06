@@ -272,7 +272,7 @@ class LagrangianFlowMapModel(models.BaseModel):
 
     eval_losses = {"eval_loss": loss, **eval_samples}
 
-    return eval_losses  # pytype: disable=bad-return-type
+    return eval_losses
 
   @classmethod
   def inference_fn(cls, variables: models.PyTree, flow_map_model: nn.Module):  # pyrefly: ignore[bad-override]
@@ -480,7 +480,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
 
     eval_losses = {"eval_loss": loss, **eval_samples}
 
-    return eval_losses  # pytype: disable=bad-return-type
+    return eval_losses
 
   @classmethod
   def inference_fn(cls, variables: models.PyTree, flow_map_model: nn.Module):
@@ -813,7 +813,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
                    "eval_loss_x": loss_x,
                    **eval_samples}
 
-    return eval_losses  # pytype: disable=bad-return-type
+    return eval_losses
 
   @classmethod
   def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):  # pyrefly: ignore[bad-override]

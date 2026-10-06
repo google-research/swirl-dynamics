@@ -112,7 +112,7 @@ def create_loader_from_hdf5(
   else:
     mean, std = None, None
   source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({  # pyrefly: ignore[bad-argument-type]
+      tf.data.Dataset.from_tensor_slices({
           "u": snapshots,  # states
       })
   )
@@ -151,4 +151,4 @@ def create_loader_from_hdf5(
       transformations=dataset_transforms,
       batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
   )
-  return loader, {"mean": mean, "std": std}  # pyrefly: ignore[bad-assignment, bad-return]
+  return loader, {"mean": mean, "std": std}  # pyrefly: ignore[bad-assignment]

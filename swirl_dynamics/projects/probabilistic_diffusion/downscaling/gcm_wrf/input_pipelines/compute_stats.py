@@ -118,7 +118,7 @@ class MeanAndVariance(beam.CombineFn):
         + mean_increment**2 * count * element_count / new_count**2
     )
     new_accumulator = _combine_stats(new_mean, new_var, new_count)
-    return new_accumulator.compute()  # pytype: disable=bad-return-type
+    return new_accumulator.compute()
 
   def merge_accumulators(
       self, accumulators: Iterable[xarray.Dataset | xarray.DataArray]

@@ -161,12 +161,10 @@ def make_spatial_corr_plot(
   lats = corr.latitude.to_numpy()
   xx, yy = np.meshgrid(lons, lats, indexing="ij")
 
-  # pytype: disable=attribute-error
   ax.add_feature(cfeature.OCEAN, color="white")
   ax.add_feature(cfeature.LAND, color="lightgray")
   ax.add_feature(cfeature.LAKES, alpha=0.75)
   ax.coastlines(resolution="50m", linewidth=0.4, color="black")
-  # pytype: enable=attribute-error
 
   sc = ax.scatter(
       xx.flatten(),

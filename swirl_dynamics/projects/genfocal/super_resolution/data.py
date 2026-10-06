@@ -144,7 +144,7 @@ class DataSource:
     date_range = jax.tree.map(lambda x: np.datetime64(x, "D"), date_range)
 
     hourly_ds = xrts.open_zarr(hourly_dataset_path).sel(  # pyrefly: ignore[bad-argument-type]
-        time=slice(*date_range, hourly_downsample)  # pyrefly: ignore[no-matching-overload]
+        time=slice(*date_range, hourly_downsample)
     )
     # Reindex and transpose the coordinates to accommodate Zarr datasets written
     # in different ways. Examples yielded from this data source always have
@@ -213,8 +213,8 @@ class DataSource:
   def get(self, day: np.datetime64) -> dict[str, np.ndarray]:
     """Retrieves the data record for a given starting day."""
     day_slice = slice(
-        np.datetime64(day, "m"),  # pyrefly: ignore[no-matching-overload]
-        np.datetime64(day, "m") + DELTA_1D * self._num_days_per_example,  # pyrefly: ignore[no-matching-overload]
+        np.datetime64(day, "m"),
+        np.datetime64(day, "m") + DELTA_1D * self._num_days_per_example,
     )
     item = {}
     for v, da in self._hourly_arrays.items():

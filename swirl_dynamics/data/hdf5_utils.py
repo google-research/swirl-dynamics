@@ -54,7 +54,7 @@ def _read_group(
     if isinstance(group[key], h5py.Group):
       out[key] = _read_group(group[key])
     elif isinstance(group[key], h5py.Dataset):
-      if group[key].shape:  # pytype: disable=attribute-error
+      if group[key].shape:
         out[key] = np.asarray(group[key], dtype=array_dtype)
       else:
         out[key] = group[key][()]

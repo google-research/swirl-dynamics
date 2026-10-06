@@ -66,7 +66,7 @@ def upwind_weights(order: int = 3) -> tuple[Array, Array]:
     d_minus = 0.1 * jnp.array([3.0, 6.0, 1.0], dtype=jnp.float64)
     d_plus = 0.1 * jnp.array([1.0, 6.0, 3.0], dtype=jnp.float64)
 
-  return (d_minus, d_plus)  # pytype: disable=bad-return-type  # jnp-type
+  return (d_minus, d_plus)
 
 
 def beta(u_bar: Array, order: int = 3) -> Array:

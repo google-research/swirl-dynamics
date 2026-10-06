@@ -197,7 +197,6 @@ class StableARModel(models.BaseModel):
 
     return loss, (metric, mutables)
 
-  # pytype: disable=bad-return-type
   def eval_fn(
       self,
       variables: PyTree,
@@ -236,17 +235,15 @@ class StableARModel(models.BaseModel):
 
     # TODO: This only computes the local sinkhorn distance.
     sd = measure_distances.sinkhorn_div(
-        pred_trajs[:, -1, ...], trajs[:, -1, ...]
+        pred_trajs[:, -1, ...], trajs[:, -1, ...]  # pyrefly: ignore[bad-argument-type]
     )
     dt = tspan[1] - tspan[0]
     return dict(
         sd=sd,
         dt=dt,
-        trajs=trajs,
+        trajs=trajs,  # pyrefly: ignore[bad-assignment]
         pred_trajs=pred_trajs,
     )
-
-  # pytype: enable=bad-return-type
 
 
 @dataclasses.dataclass
@@ -375,12 +372,11 @@ class StableARTrainer(trainers.BasicTrainer):
       num_time_steps = jax.random.randint(
           rng, (1,), minval=2, maxval=num_time_steps + 1
       )[0]
-    # pytype: disable=attribute-error
-    assert num_time_steps <= batch_data["u"].shape[1], (
+    assert num_time_steps <= batch_data["u"].shape[1], (  # pyrefly: ignore[missing-attribute]
+        # pyrefly: ignore[missing-attribute]
         f"Not enough time steps in data ({batch_data['u'].shape[1]}) for"
         f" desired steps ({num_time_steps})."
     )
-    # pytype: enable=attribute-error
     return self._preprocess_train_batch(batch_data, num_time_steps)  # pyrefly: ignore[bad-argument-type]
 
   def preprocess_eval_batch(
@@ -392,7 +388,7 @@ class StableARTrainer(trainers.BasicTrainer):
     else:
       ic = batch_data["u"][:, 0, ...]  # pyrefly: ignore[bad-index]
     dt = jnp.mean(jnp.diff(batch_data["t"], axis=1))
-    tspan = jnp.arange(batch_data["t"].shape[1]) * dt  # pytype: disable=attribute-error
+    tspan = jnp.arange(batch_data["t"].shape[1]) * dt  # pyrefly: ignore[missing-attribute]
     return dict(
         ic=ic,
         true=batch_data["u"],
@@ -510,7 +506,7 @@ class DistributedStableARTrainer(trainers.BasicDistributedTrainer):
     else:
       ic = batch_data["u"][:, 0, ...]  # pyrefly: ignore[bad-index]
     dt = jnp.mean(jnp.diff(batch_data["t"], axis=1))
-    tspan = jnp.arange(batch_data["t"].shape[1]) * dt  # pytype: disable=attribute-error
+    tspan = jnp.arange(batch_data["t"].shape[1]) * dt  # pyrefly: ignore[missing-attribute]
 
     batch_dict = dict(
         ic=ic,

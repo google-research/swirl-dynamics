@@ -714,28 +714,28 @@ class TransformerBlock(nn.Module):
           f'Unknown positional embedding {self.positional_embedding}')
 
     # Choose the type of attention.
-    if self.attention_config is None or self.attention_config.type in [  # pytype: disable=attribute-error
+    if self.attention_config is None or self.attention_config.type in [
         'spacetime', 'factorized_encoder'
     ]:
       encoder_block = EncoderBlock
-    elif self.attention_config.type == 'factorized_self_attention_block':  # pytype: disable=attribute-error
+    elif self.attention_config.type == 'factorized_self_attention_block':
       encoder_block = functools.partial(
           EncoderFactorizedSelfAttentionBlock,
-          attention_order=self.attention_config.attention_order,  # pytype: disable=attribute-error
+          attention_order=self.attention_config.attention_order,
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
-              self.attention_config.get('attention_kernel_init_method',  # pytype: disable=attribute-error
+              self.attention_config.get('attention_kernel_init_method',
                                         'xavier')],
           temporal_dims=self.temporal_dims)  # pyrefly: ignore[bad-argument-type]
-    elif self.attention_config.type == 'factorized_3d_self_attention_block':  # pytype: disable=attribute-error
+    elif self.attention_config.type == 'factorized_3d_self_attention_block':
       encoder_block = functools.partial(
           Encoder3DFactorizedSelfAttentionBlock,
-          attention_order=self.attention_config.attention_order,  # pytype: disable=attribute-error
+          attention_order=self.attention_config.attention_order,
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
-              self.attention_config.get('attention_kernel_init_method',  # pytype: disable=attribute-error
+              self.attention_config.get('attention_kernel_init_method',
                                         'xavier')],
           three_dim_shape=self.encoded_shape)  # pyrefly: ignore[bad-argument-type]
     else:
-      raise ValueError(f'Unknown attention type {self.attention_config.type}')  # pytype: disable=attribute-error
+      raise ValueError(f'Unknown attention type {self.attention_config.type}')
 
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=not train)
 
