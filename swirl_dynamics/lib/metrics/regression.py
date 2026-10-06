@@ -32,7 +32,8 @@ def mean_squared_error(
   """Computes the mean squared error (MSE).
 
   The squared errors are first summed over a specified set of axes and then
-  averaged over another set of axes.
+  averaged over another set of axes. Inputs are promoted to at least float32
+  before error arithmetic, and the result uses that promoted dtype.
 
   Args:
     pred: The array representing the predictions.
@@ -54,6 +55,12 @@ def mean_squared_error(
     raise ValueError(
         f"`pred` {pred.shape} and `true` {true.shape} must have the same shape."
     )
+
+  # Convert before subtraction, squaring and summation to avoid integer
+  # wraparound and low-precision overflow before the mean is computed.
+  dtype = jnp.result_type(pred, true, jnp.float32)
+  pred = jnp.asarray(pred, dtype=dtype)
+  true = jnp.asarray(true, dtype=dtype)
 
   if mean_axes is not None:
     mean_axes = tuple(sum_axes) + tuple(mean_axes)
@@ -84,7 +91,8 @@ def mean_absolute_error(
   """Computes the mean absolute error (MAE).
 
   The absolute errors are first summed over a specified set of axes and then
-  averaged over another set of axes.
+  averaged over another set of axes. Inputs are promoted to at least float32
+  before error arithmetic, and the result uses that promoted dtype.
 
   Args:
     pred: The array representing the predictions.
@@ -104,6 +112,12 @@ def mean_absolute_error(
     raise ValueError(
         f"`pred` {pred.shape} and `true` {true.shape} must have the same shape."
     )
+
+  # Convert before subtraction, squaring and summation to avoid integer
+  # wraparound and low-precision overflow before the mean is computed.
+  dtype = jnp.result_type(pred, true, jnp.float32)
+  pred = jnp.asarray(pred, dtype=dtype)
+  true = jnp.asarray(true, dtype=dtype)
 
   if mean_axes is not None:
     mean_axes = tuple(sum_axes) + tuple(mean_axes)
