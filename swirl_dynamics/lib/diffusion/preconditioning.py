@@ -50,10 +50,10 @@ def compute_denoising_preconditioners(
         f" ({x_shape[0]})!"
     )
 
-  total_var = sigma_data**2 + sigma**2
-  c_skip = sigma_data**2 / total_var
-  c_out = sigma * sigma_data / jnp.sqrt(total_var)
-  c_in = 1 / jnp.sqrt(total_var)
+  total_std = jnp.hypot(sigma_data, sigma)
+  c_skip = (sigma_data / total_std) ** 2
+  c_out = sigma_data * (sigma / total_std)
+  c_in = 1 / total_std
   c_noise = 0.25 * jnp.log(sigma)
 
   def expand_dims(c: Array) -> Array:

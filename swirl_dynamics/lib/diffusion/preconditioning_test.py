@@ -88,11 +88,14 @@ class SimpleNetworkWithDecorator(nn.Module):
 
 def _expected_output(x: Array, sigma: Array, sigma_data: float) -> Array:
   """Returns the expected output of the preconditioned network."""
+  # Evaluate the reference in float64, independently of JAX's float32 algebra.
+  x = np.asarray(x, dtype=np.float64)
+  sigma = np.asarray(sigma, dtype=np.float64)
   total_var = sigma_data**2 + sigma**2
   c_skip = sigma_data**2 / total_var
-  c_out = sigma * sigma_data / jnp.sqrt(total_var)
-  c_in = 1 / jnp.sqrt(total_var)
-  c_noise = 0.25 * jnp.log(sigma)
+  c_out = sigma * sigma_data / np.sqrt(total_var)
+  c_in = 1 / np.sqrt(total_var)
+  c_noise = 0.25 * np.log(sigma)
   expected_f_x = 2.0 * c_in * x * c_noise
   expected_output = c_skip * x + c_out * expected_f_x
   return expected_output
@@ -144,7 +147,7 @@ class PreconditioningTest(parameterized.TestCase):
     # Verification.
     sigma_b = _broadcastable(sigma, x.shape)  # pyrefly: ignore[bad-argument-type]
     expected_output = _expected_output(x, sigma_b, sigma_data)
-    np.testing.assert_allclose(output, expected_output)
+    np.testing.assert_allclose(output, expected_output, rtol=5e-7, atol=1e-7)
 
   @parameterized.parameters(
       {"sigma": 0.1},
@@ -161,7 +164,7 @@ class PreconditioningTest(parameterized.TestCase):
     # Verification.
     sigma_b = _broadcastable(sigma, x.shape)  # pyrefly: ignore[bad-argument-type]
     expected_output = _expected_output(x, sigma_b, sigma_data)
-    np.testing.assert_allclose(output, expected_output)
+    np.testing.assert_allclose(output, expected_output, rtol=5e-7, atol=1e-7)
 
 
 if __name__ == "__main__":
