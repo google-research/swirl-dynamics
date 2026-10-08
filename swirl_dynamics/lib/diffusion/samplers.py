@@ -151,8 +151,8 @@ class TimeStepScheduler(Protocol):
 def uniform_time(
     scheme: diffusion.Diffusion,
     num_steps: int = 256,
-    end_time: float | None = 1e-3,
-    end_sigma: float | None = None,
+    end_time: float | Array | None = 1e-3,
+    end_sigma: float | Array | None = None,
 ) -> Array:
   """Time steps uniform in [t_min, t_max]."""
   if (end_time is None and end_sigma is None) or (
@@ -163,7 +163,11 @@ def uniform_time(
     )
 
   start = diffusion.MAX_DIFFUSION_TIME
-  end = end_time or scheme.sigma.inverse(end_sigma)  # pyrefly: ignore[bad-argument-type]
+  end = (
+      end_time
+      if end_time is not None
+      else scheme.sigma.inverse(end_sigma)  # pyrefly: ignore[bad-argument-type]
+  )
   return jnp.linspace(start, end, num_steps)
 
 
