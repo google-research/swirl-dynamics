@@ -15,9 +15,25 @@
 """Commonly-used metrics for regression tasks."""
 
 from collections.abc import Sequence
+import operator
 
 import jax
 import jax.numpy as jnp
+
+
+def _union_axes(
+    sum_axes: Sequence[int], mean_axes: Sequence[int], ndim: int
+) -> tuple[int, ...]:
+  """Returns distinct reduction axes without hiding out-of-bounds axes."""
+  axes = []
+  for axis in (*sum_axes, *mean_axes):
+    axis = operator.index(axis)
+    if not -ndim <= axis < ndim:
+      raise ValueError(
+          f"axis {axis} is out of bounds for array of dimension {ndim}"
+      )
+    axes.append(axis % ndim)
+  return tuple(dict.fromkeys(axes))
 
 
 def mean_squared_error(
@@ -56,7 +72,7 @@ def mean_squared_error(
     )
 
   if mean_axes is not None:
-    mean_axes = tuple(sum_axes) + tuple(mean_axes)
+    mean_axes = _union_axes(sum_axes, mean_axes, pred.ndim)
 
   squared_errors = jnp.sum(
       jnp.square(pred - true), axis=sum_axes, keepdims=True
@@ -106,7 +122,7 @@ def mean_absolute_error(
     )
 
   if mean_axes is not None:
-    mean_axes = tuple(sum_axes) + tuple(mean_axes)
+    mean_axes = _union_axes(sum_axes, mean_axes, pred.ndim)
 
   absolute_errors = jnp.sum(jnp.abs(pred - true), axis=sum_axes, keepdims=True)
   if relative:
