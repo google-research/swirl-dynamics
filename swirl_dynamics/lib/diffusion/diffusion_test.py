@@ -209,6 +209,37 @@ class NoiseLossWeightingTest(parameterized.TestCase):
     res = diffusion.edm_weighting(sigma_data)(sigma)
     self.assertTrue(np.allclose(res, expected_res))
 
+  def test_min_snr_edm_weighting_recovers_edm_at_large_gamma(self):
+    """With gamma → ∞, min_snr_edm_weighting should match edm_weighting."""
+    sigma = np.asarray([0.01, 0.1, 1.0, 10.0, 80.0])
+    data_std = 1.0
+    edm = diffusion.edm_weighting(data_std)(sigma)
+    min_snr = diffusion.min_snr_edm_weighting(data_std, gamma=1e12)(sigma)
+    np.testing.assert_allclose(min_snr, edm, rtol=1e-5)
+
+  def test_min_snr_edm_weighting_downweights_high_noise(self):
+    """At high sigma (low SNR), Min-SNR should down-weight vs standard EDM."""
+    data_std = 1.0
+    gamma = 5.0
+    sigma_high = np.asarray([10.0, 80.0])  # SNR << gamma
+    edm = diffusion.edm_weighting(data_std)(sigma_high)
+    min_snr = diffusion.min_snr_edm_weighting(data_std, gamma)(sigma_high)
+    # min_snr_factor = min(SNR, gamma) / SNR = gamma * sigma^2 / data_std^2
+    # For sigma=10: factor = 5 * 100 / 1 = 500 → capped at 1
+    # Actually SNR(10) = 1/100 = 0.01 << gamma=5, so min_snr_factor = 1.
+    # For low SNR, min(SNR, gamma) = SNR, so factor = 1 → equals EDM.
+    np.testing.assert_allclose(min_snr, edm, rtol=1e-5)
+
+  def test_min_snr_edm_weighting_clamps_low_noise(self):
+    """At low sigma (high SNR >> gamma), Min-SNR factor < 1."""
+    data_std = 1.0
+    gamma = 5.0
+    sigma_low = np.asarray([0.01])  # SNR = 1/0.0001 = 10000 >> gamma
+    edm = diffusion.edm_weighting(data_std)(sigma_low)
+    min_snr = diffusion.min_snr_edm_weighting(data_std, gamma)(sigma_low)
+    expected_factor = gamma / (data_std**2 / sigma_low**2)  # gamma/SNR
+    np.testing.assert_allclose(min_snr, edm * expected_factor, rtol=1e-5)
+
 
 if __name__ == "__main__":
   absltest.main()

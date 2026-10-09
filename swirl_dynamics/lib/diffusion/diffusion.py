@@ -445,3 +445,38 @@ def t_edm_weighting(df: int, data_std: float = 1.0) -> NoiseLossWeighting:
     return num / den
 
   return _weight_fn  # pyrefly: ignore[bad-return]
+
+
+def min_snr_edm_weighting(
+    data_std: float = 1.0, gamma: float = 5.0
+) -> NoiseLossWeighting:
+  """EDM weighting with Min-SNR-γ clamping (Hang et al., https://arxiv.org/abs/2303.09556).
+
+  Applies the standard EDM loss weighting from Karras et al. but multiplies
+  by a Min-SNR factor that down-weights high-noise levels (large σ, low SNR).
+  This prevents high-noise timesteps from producing conflicting gradients
+  that slow convergence, particularly in early training.
+
+  For variance-exploding diffusion with noise level σ:
+    SNR(σ) = σ_data² / σ²
+    min_snr_factor = min(SNR(σ), γ) / SNR(σ) = min(1, γ · σ² / σ_data²)
+
+  The combined weight is: w_EDM(σ) · min_snr_factor(σ).
+
+  Args:
+    data_std: The standard deviation of the data (σ_data).
+    gamma: The Min-SNR clamping threshold.  Default 5.0 per the original paper.
+
+  Returns:
+    The weighting function.
+  """
+
+  def _weight_fn(sigma: Array) -> Array:
+    edm_weight = (jnp.square(data_std) + jnp.square(sigma)) / jnp.square(
+        data_std * sigma
+    )
+    snr = jnp.square(data_std) / jnp.square(sigma)
+    min_snr_factor = jnp.minimum(snr, gamma) / snr
+    return edm_weight * min_snr_factor
+
+  return _weight_fn  # pyrefly: ignore[bad-return]

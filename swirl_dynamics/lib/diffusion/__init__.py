@@ -29,6 +29,7 @@ from swirl_dynamics.lib.diffusion.diffusion import (
     inverse_squared_weighting,
     log_normal_sampling,
     log_uniform_sampling,
+    min_snr_edm_weighting,
     power_noise_schedule,
     t_edm_weighting,
     tangent_noise_schedule,
