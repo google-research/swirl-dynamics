@@ -34,7 +34,6 @@ VariableDict: TypeAlias = train_states.FrozenVariableDict
 
 M = TypeVar("M")  # Model
 S = TypeVar("S", bound=train_states.TrainState)  # Train state
-MetricsT = TypeVar("MetricsT", bound=Metrics)  # Metrics
 
 PMAP_AXIS_NAME = "batch"
 
@@ -168,13 +167,12 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
   @property
   def _train_inner_loop(
       self,
-  ) -> Callable[[Array, S, MetricsT, BatchType], tuple[S, Metrics, Array]]:
+  ) -> Callable[[Array, S, BatchType], tuple[S, Metrics, Array]]:
     """Returns a function that runs a few training steps in a compiled loop."""
 
     def fn(
         train_rng: Array,
         train_state: S,
-        train_metrics: MetricsT,
         batches: BatchType,
     ) -> tuple[S, Metrics, Array]:
       train_rng, out_rng = jax.random.split(train_rng, 2)
@@ -193,7 +191,7 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
       )
       # Use metrics from the last step.
       out_state, metrics_update = self.train_step(state, batch(-1), rng)
-      return out_state, train_metrics.merge(metrics_update), out_rng  # pyrefly: ignore[bad-argument-type]
+      return out_state, metrics_update, out_rng
 
     return fn
 
@@ -248,20 +246,25 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
     stacked_batches_iter = self._prepare_iterator_for_inner_loop(
         batch_iter, step0, preproc_rng
     )
-    train_metrics = self._maybe_replicate(self.TrainMetrics.empty())
+    train_metrics = self.TrainMetrics.empty()
 
     for cur_step in range(step0, step0 + num_steps, self._num_steps_to_compile):
       with jax.profiler.StepTraceAnnotation("train", step_num=cur_step):
         stacked_batches = next(stacked_batches_iter)
-        self.train_state, train_metrics, train_rng = (
+        self.train_state, metrics_update, train_rng = (
             self._compiled_train_inner_loop(
                 train_rng,
                 self.train_state,
-                train_metrics,
                 stacked_batches,
             )
         )
-    return train_metrics.reduce() if self.is_distributed else train_metrics
+        # Unreplicate and merge on host, consistent with
+        # _train_without_unrolling.  In a distributed setting, the
+        # metrics are already gathered inside train_step (via
+        # gather_from_model_output), so a single unreplicate suffices.
+        metrics_update = self._maybe_unreplicate(metrics_update)
+        train_metrics = train_metrics.merge(metrics_update)
+    return train_metrics
 
   def _train_without_unrolling(
       self, batch_iter: Iterator[BatchType], step0: int, num_steps: int
