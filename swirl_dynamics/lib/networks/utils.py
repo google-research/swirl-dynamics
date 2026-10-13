@@ -19,6 +19,7 @@ from trees to vectors and vice versa. They are thoroughly used for
 hypernetworks.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 import jax
@@ -62,12 +63,13 @@ def flatten_params(
 
 
 def unflatten_params(
-    flattened: Array, shapes: list[Array], tree_def: PyTreeDef
+    flattened: Array, shapes: Sequence[Any], tree_def: PyTreeDef
 ) -> PyTree:
   """Function to unflatten the parameters contained in an Array to a Dict.
 
   Args:
-    flattened: array containing the parameters of the network.
+    flattened: array containing the parameters of the network, with any
+      preserved batch dimensions preceding the final parameter axis.
     shapes: shapes of the different Arrays within the dictionary.
     tree_def: the definition of the fields within the dictionary (PyTreeDef).
 
@@ -78,8 +80,9 @@ def unflatten_params(
     flatten_params, and it is used to recover the original Pytree from
     its internal representation and data.
   """
-  sections = np.cumsum([np.prod(s) for s in shapes])
-  segments = jnp.split(flattened, sections)[:-1]
+  from_axis = flattened.ndim - 1
+  sections = np.cumsum([np.prod(s[from_axis:], dtype=int) for s in shapes])
+  segments = jnp.split(flattened, sections, axis=-1)[:-1]
   flat_params = [x.reshape(shape) for x, shape in zip(segments, shapes)]
 
   return jax.tree_util.tree_unflatten(tree_def, flat_params)
