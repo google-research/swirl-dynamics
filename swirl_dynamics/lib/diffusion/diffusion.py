@@ -96,7 +96,7 @@ class Diffusion:
 
   @property
   def logsnr(self) -> InvertibleSchedule:
-    return logsnr2sigma(self.sigma)
+    return sigma2logsnr(self.sigma)
 
   @property
   def sigma_max(self) -> chex.Numeric:

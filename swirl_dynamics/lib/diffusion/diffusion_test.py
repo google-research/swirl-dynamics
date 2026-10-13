@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib.diffusion import diffusion
+from swirl_dynamics.lib.diffusion import samplers
 
 jax.config.update("jax_threefry_partitionable", False)
 
@@ -127,6 +128,85 @@ class DiffusionTest(parameterized.TestCase):
     # verify the inverse is correct
     np.testing.assert_allclose(
         scheme.sigma.inverse(scheme.sigma(test_points)), test_points, rtol=1e-5
+    )
+
+
+class DiffusionLogSnrPropertyTest(parameterized.TestCase):
+  """The public log-SNR schedule corresponds to its scheme's noise schedule."""
+
+  @parameterized.product(
+      schedule=(
+          diffusion.power_noise_schedule,
+          diffusion.tangent_noise_schedule,
+          diffusion.exponential_noise_schedule,
+      ),
+      constructor=(
+          diffusion.Diffusion.create_variance_preserving,
+          diffusion.Diffusion.create_variance_exploding,
+      ),
+      data_std=(1.0, 2.0),
+  )
+  def test_property_matches_noise_ratio_and_its_inverse(
+      self, schedule, constructor, data_std
+  ):
+    scheme = constructor(schedule(clip_max=4.0), data_std=data_std)
+    times = jnp.array([[0.025, 0.125, 0.5], [0.7, 0.9, 1.0]])
+    sigma_before = scheme.sigma(times)
+    scale_before = scheme.scale(times)
+    logsnr = scheme.logsnr
+    expected = -2 * np.log(np.asarray(sigma_before, dtype=np.float64))
+    np.testing.assert_allclose(
+        jax.jit(logsnr)(times), expected, rtol=2e-6, atol=2e-6
+    )
+    np.testing.assert_allclose(
+        jax.jit(logsnr.inverse)(jnp.asarray(expected)),
+        times,
+        rtol=2e-5,
+        atol=2e-6,
+    )
+    np.testing.assert_array_equal(scheme.sigma(times), sigma_before)
+    np.testing.assert_array_equal(scheme.scale(times), scale_before)
+    self.assertLess(float(logsnr(1.0)), 0.0)
+
+  def test_zero_noise_limit_and_compiled_derivative(self):
+    scheme = diffusion.Diffusion.create_variance_exploding(
+        diffusion.power_noise_schedule(clip_max=2.0)
+    )
+    self.assertTrue(jnp.isposinf(scheme.logsnr(0.0)))
+    self.assertEqual(float(scheme.logsnr.inverse(jnp.inf)), 0.0)
+    times = jnp.array([0.125, 0.5, 1.0])
+    derivative = jax.jit(jax.vmap(jax.grad(scheme.logsnr.forward)))(times)
+    np.testing.assert_allclose(derivative, -2 / times, rtol=1e-6)
+
+  def test_rebuilding_a_scheme_from_logsnr_preserves_real_sampling(self):
+    scheme = diffusion.Diffusion.create_variance_exploding(
+        diffusion.power_noise_schedule(clip_max=4.0)
+    )
+    recovered_sigma = diffusion.logsnr2sigma(scheme.logsnr)
+    reconstructed = diffusion.Diffusion(
+        scale=scheme.scale, sigma=recovered_sigma
+    )
+    time_span = jnp.array([1.0, 0.7, 0.3, 0.1])
+
+    def denoise(x, sigma, cond):
+      del sigma, cond
+      return jnp.zeros_like(x)
+
+    def generate(s):
+      sampler = samplers.ExponentialOdeSampler(
+          input_shape=(2,),
+          scheme=s,
+          denoise_fn=denoise,
+          tspan=time_span,
+          apply_denoise_at_end=False,
+      )
+      return sampler.generate(3, jax.random.PRNGKey(51))
+
+    np.testing.assert_allclose(
+        generate(reconstructed), generate(scheme), rtol=2e-6, atol=1e-7
+    )
+    np.testing.assert_allclose(
+        recovered_sigma(time_span), scheme.sigma(time_span), rtol=1e-6
     )
 
 
