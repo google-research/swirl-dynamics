@@ -136,16 +136,19 @@ def aggregated_metrics_to_ds(
           'Reverting to generic dimension labels.',
           {dims.values()},
       )
-    if 'time' in coords:
+    if 'time' in coords and coords['time'].size:
       start_time = str(coords['time'].values[0].astype('<M8[h]'))
-      end_time = str(coords['time'].values[-1].astype('<M8[h]'))
-      delta = (coords['time'][1] - coords['time'][0]).values
-      delta_in_hours = delta / np.timedelta64(1, 'h')
+      if coords['time'].size == 1:
+        desc = f'Aggregated metrics at {start_time}.'
+      else:
+        end_time = str(coords['time'].values[-1].astype('<M8[h]'))
+        delta = (coords['time'][1] - coords['time'][0]).values
+        delta_in_hours = delta / np.timedelta64(1, 'h')
 
-      desc = (
-          f'Aggregated metrics from {start_time} to {end_time} with'
-          f' {delta_in_hours:g}-hourly frequency.'
-      )
+        desc = (
+            f'Aggregated metrics from {start_time} to {end_time} with'
+            f' {delta_in_hours:g}-hourly frequency.'
+        )
 
   data_vars = {}
   for key, value in data.items():
