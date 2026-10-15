@@ -52,7 +52,7 @@ def _read_group(
   out = {}
   for key in group.keys():
     if isinstance(group[key], h5py.Group):
-      out[key] = _read_group(group[key])
+      out[key] = _read_group(group[key], array_dtype)
     elif isinstance(group[key], h5py.Dataset):
       if group[key].shape:
         out[key] = np.asarray(group[key], dtype=array_dtype)
@@ -66,7 +66,11 @@ def _read_group(
 def read_all_arrays_as_dict(
     file_path: epath.PathLike, array_dtype: Any = np.float32
 ) -> Mapping[str, Any]:
-  """Reads the entire contents of a file as a (possibly nested) dictionary."""
+  """Reads a file as a dictionary, applying array_dtype at every group depth.
+
+  Non-scalar datasets are converted to array_dtype; None preserves their
+  stored dtype. Scalar datasets retain their stored type.
+  """
   if not filesys.exists(file_path):
     raise FileNotFoundError(f"No data file found at {file_path}")
 

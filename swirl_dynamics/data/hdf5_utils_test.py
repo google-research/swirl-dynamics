@@ -24,6 +24,65 @@ from swirl_dynamics.data import hdf5_utils
 
 class Hdf5UtilsTest(parameterized.TestCase):
 
+  @parameterized.named_parameters(
+      ("float64", np.float64, np.float64),
+      ("int64", np.int64, np.int64),
+      ("preserve_float64", np.float64, None),
+      ("preserve_int64", np.int64, None),
+  )
+  def test_requested_dtype_is_preserved_in_nested_groups(
+      self, stored_dtype, requested_dtype
+  ):
+    if np.issubdtype(stored_dtype, np.integer):
+      values = np.array([2**40 + 1, 2**40 + 3], dtype=stored_dtype)
+    else:
+      values = np.array([1.0 + 2**-40, 2.0 + 2**-40], dtype=stored_dtype)
+    save_path = os.path.join(self.create_tempdir().full_path, "nested.hdf5")
+    hdf5_utils.save_array_dict(
+        save_path,
+        {
+            "root": values,
+            "group": {"values": values, "nested": {"values": values}},
+        },
+    )
+
+    restored = hdf5_utils.read_all_arrays_as_dict(
+        save_path, array_dtype=requested_dtype
+    )
+    for actual in (
+        restored["root"],
+        restored["group"]["values"],
+        restored["group"]["nested"]["values"],
+    ):
+      self.assertEqual(actual.dtype, stored_dtype)
+      np.testing.assert_array_equal(actual, values)
+
+  def test_nested_empty_array_uses_requested_dtype(self):
+    save_path = os.path.join(self.create_tempdir().full_path, "empty.hdf5")
+    hdf5_utils.save_array_dict(
+        save_path, {"group": {"empty": np.empty((0, 2), dtype=np.float32)}}
+    )
+    restored = hdf5_utils.read_all_arrays_as_dict(
+        save_path, array_dtype=np.float64
+    )
+    self.assertEqual(restored["group"]["empty"].dtype, np.float64)
+    self.assertEqual(restored["group"]["empty"].shape, (0, 2))
+
+  def test_default_array_dtype_and_scalar_values_are_unchanged(self):
+    save_path = os.path.join(self.create_tempdir().full_path, "default.hdf5")
+    hdf5_utils.save_array_dict(
+        save_path,
+        {
+            "group": {
+                "values": np.ones(2, dtype=np.float64),
+                "scalar": 2**40 + 1,
+            }
+        },
+    )
+    restored = hdf5_utils.read_all_arrays_as_dict(save_path)
+    self.assertEqual(restored["group"]["values"].dtype, np.float32)
+    self.assertEqual(restored["group"]["scalar"], 2**40 + 1)
+
   @parameterized.parameters(
       ({"a": 0, "b": 1},),
       ({"a": {"b": np.ones((10,)), "c": 2}},),
