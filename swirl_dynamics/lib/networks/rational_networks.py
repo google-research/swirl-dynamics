@@ -38,15 +38,12 @@ def zero_cutoff(x: jnp.float64, epsilon: jnp.float64) -> jnp.float64:  # pyrefly
     epsilon: Small positive number to avoid the output being close to zero.
 
   Returns:
-    x if abs(x) > epsilon, epsilon*sign(x) otherwise. It is assumed that the
-    input x is a scalar.
+    Elementwise x where abs(x) >= epsilon, or epsilon with the sign of x
+    otherwise. Zero is assigned the positive sign. Works with scalars and
+    arrays of any rank.
   """
-  sign_x = jax.lax.cond(x >= 0.0, lambda x: 1.0, lambda x: -1.0, x)
-  return jax.lax.cond(
-      jnp.abs(x) < epsilon,
-      lambda x: epsilon * sign_x,
-      lambda x: x,
-      x,
+  return jnp.where(
+      jnp.abs(x) < epsilon, jnp.where(x >= 0.0, epsilon, -epsilon), x
   )
 
 
@@ -117,7 +114,7 @@ class RationalLayer(nn.Module):
     q = jnp.polyval(self.q_params, x)
 
     if self.cutoff:
-      q = jax.vmap(zero_cutoff, in_axes=(0, None))(q, self.cutoff)
+      q = zero_cutoff(q, self.cutoff)
 
     return p / q
 
@@ -172,7 +169,7 @@ class UnsharedRationalLayer(nn.Module):
     q = pol_fun(q_params, x_i)
 
     if self.cutoff:
-      q = jax.vmap(zero_cutoff, in_axes=(0, None))(q, self.cutoff)
+      q = zero_cutoff(q, self.cutoff)
 
     return p / q
 
