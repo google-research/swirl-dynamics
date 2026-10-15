@@ -191,7 +191,9 @@ def unreliability_score(
     ensemble_axis: The axis of forecasts corresponding to the ensemble members.
 
   Returns:
-    The unreliability score with same shape as the observations.
+    The scalar unreliability score. When observations equal one or more
+    ensemble members, their rank weight is divided equally among the
+    eligible rank bins, avoiding a systematic bias toward the upper bin.
   """
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
   observations = jnp.asarray(observations)
@@ -200,11 +202,16 @@ def unreliability_score(
   num_ensemble_members = forecasts.shape[-1]
   obs_expanded = observations[..., jnp.newaxis]
 
-  # We use 0-based ranks for 0-based indexing in one_hot encoding.
-  ranks = jnp.sum(forecasts <= obs_expanded, axis=-1)
-  one_hot_ranks = jax.nn.one_hot(ranks, num_classes=num_ensemble_members + 1)
+  # Uniformly distribute tied observations across all eligible rank bins.
+  # Untied observations retain their original one-hot rank contribution.
+  rank_lower = jnp.sum(forecasts < obs_expanded, axis=-1)
+  rank_upper = jnp.sum(forecasts <= obs_expanded, axis=-1)
+  bins = jnp.arange(num_ensemble_members + 1)
+  rank_weights = (
+      (bins >= rank_lower[..., None]) & (bins <= rank_upper[..., None])
+  ).astype(jnp.float32) / (rank_upper - rank_lower + 1)[..., None]
   # Sum over all axes except the number of classes to get the rank counts.
-  rank_counts = jnp.sum(one_hot_ranks, axis=tuple(range(ranks.ndim)))
+  rank_counts = jnp.sum(rank_weights, axis=tuple(range(observations.ndim)))
   unreliability = jnp.sum(
       jnp.square(rank_counts - num_observations / (1 + num_ensemble_members))
   )
