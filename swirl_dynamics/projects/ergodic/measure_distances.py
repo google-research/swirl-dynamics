@@ -30,9 +30,6 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from ott.geometry import pointcloud
-from ott.tools import sinkhorn_divergence
-
 
 Array = jax.Array
 MeasureDistFn = Callable[[Array, Array], Array]
@@ -65,32 +62,32 @@ def mmd(
   # `h x w x 1`.
   # These arrays are then reshaped to be order two with shape
   # `batch_size x state_space_dim_flattened`.
-  x = x.reshape((
-      x.shape[0],
-      -1,
-  ))
-  y = y.reshape((
-      y.shape[0],
-      -1,
-  ))
-  xx, yy, zz = jnp.matmul(x, x.T), jnp.matmul(y, y.T), jnp.matmul(x, y.T)
-  rx = jnp.broadcast_to(jnp.expand_dims(jnp.diag(xx), axis=0), xx.shape)
-  ry = jnp.broadcast_to(jnp.expand_dims(jnp.diag(yy), axis=0), yy.shape)
+  x = x.reshape(
+      (
+          x.shape[0],
+          -1,
+      )
+  )
+  y = y.reshape(
+      (
+          y.shape[0],
+          -1,
+      )
+  )
+  xx, yy, xy = jnp.matmul(x, x.T), jnp.matmul(y, y.T), jnp.matmul(x, y.T)
+  x_norms, y_norms = jnp.diag(xx), jnp.diag(yy)
+  dxx = x_norms[:, None] + x_norms[None, :] - 2.0 * xx
+  dyy = y_norms[:, None] + y_norms[None, :] - 2.0 * yy
+  dxy = x_norms[:, None] + y_norms[None, :] - 2.0 * xy
 
-  dxx = rx.T + rx - 2.0 * xx
-  dyy = ry.T + ry - 2.0 * yy
-  dxy = rx.T + ry - 2.0 * zz
-
-  xx, yy, xy = (jnp.zeros_like(xx), jnp.zeros_like(xx), jnp.zeros_like(xx))
-
-  # Multiscale bandwisth.
+  kxx, kyy, kxy = jnp.zeros_like(xx), jnp.zeros_like(yy), jnp.zeros_like(xy)
   for a in bandwidth:
-    xx += a**2 * (a**2 + dxx) ** -1
-    yy += a**2 * (a**2 + dyy) ** -1
-    xy += a**2 * (a**2 + dxy) ** -1
+    kxx += a**2 * (a**2 + dxx) ** -1
+    kyy += a**2 * (a**2 + dyy) ** -1
+    kxy += a**2 * (a**2 + dxy) ** -1
 
-  # TODO: We may want to use jnp.sqrt here; see [2].
-  return jnp.mean(xx + yy - 2.0 * xy)
+  # Each expectation is normalized by its own number of sample pairs.
+  return jnp.mean(kxx) + jnp.mean(kyy) - 2.0 * jnp.mean(kxy)
 
 
 def mmd_distributed(x: Array, y: Array) -> Array:
@@ -144,16 +141,24 @@ def sinkhorn_div(x: Array, y: Array) -> Array:
   # `h x w x 1`.
   # These arrays are then reshaped to be order two with shape
   # `batch_size x state_space_dim_flattened`.
+  # OTT is only required by Sinkhorn divergence, not by MMD.
+  from ott.geometry import pointcloud  # pylint: disable=import-outside-toplevel
+  from ott.tools import sinkhorn_divergence  # pylint: disable=import-outside-toplevel
+
   ot = sinkhorn_divergence.sinkhorn_divergence(
       pointcloud.PointCloud,  # geom,
-      x.reshape((
-          x.shape[0],
-          -1,
-      )),  # geom.x,
-      y.reshape((
-          y.shape[0],
-          -1,
-      )),  # geom.y,
+      x.reshape(
+          (
+              x.shape[0],
+              -1,
+          )
+      ),  # geom.x,
+      y.reshape(
+          (
+              y.shape[0],
+              -1,
+          )
+      ),  # geom.y,
       static_b=False,
   )
   return jnp.array(ot.divergence)
