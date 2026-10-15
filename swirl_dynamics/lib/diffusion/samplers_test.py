@@ -330,6 +330,201 @@ class SamplersTest(parameterized.TestCase):
     )
     self.assertEqual(is_normal, sampler.noise_dist is jax.random.normal)
 
+  @staticmethod
+  def _make_prior_sampler(sampler_type, scale, sigma_max, input_shape, times):
+    sigma = diffusion.InvertibleSchedule(
+        forward=lambda t: 1.0 + (sigma_max - 1.0) * t,
+        inverse=lambda value: (value - 1.0) / (sigma_max - 1.0),
+    )
+    scheme = diffusion.Diffusion(scale=scale, sigma=sigma)
+    return sampler_type(
+        input_shape=input_shape,
+        scheme=scheme,
+        tspan=jnp.asarray(times),
+        denoise_fn=lambda x, unused_sigma, unused_cond: jnp.zeros_like(x),
+        apply_denoise_at_end=False,
+    )
+
+  @staticmethod
+  def _normal_log_density(x, std):
+    return (
+        jax.scipy.stats.norm.logpdf(jnp.asarray(x), scale=std)
+        .reshape(x.shape[0], -1)
+        .sum(axis=-1)
+    )
+
+  @staticmethod
+  def _make_exponential_likelihood_sampler(
+      times, varying_scale=False, num_probes=None
+  ):
+    sigma = diffusion.InvertibleSchedule(
+        lambda t: 0.5 + 0.5 * t, lambda y: 2 * y - 1
+    )
+    scale = (lambda t: 0.75 + 0.25 * t) if varying_scale else jnp.ones_like
+
+    def denoise_fn(x, sigma, cond):
+      del sigma
+      assert cond is not None
+      return jnp.broadcast_to(cond["center"], x.shape)
+
+    return samplers.ExponentialOdeSampler(
+        input_shape=(2,),
+        scheme=diffusion.Diffusion(scale=scale, sigma=sigma),
+        tspan=jnp.asarray(times),
+        num_probes=num_probes,
+        denoise_fn=denoise_fn,
+    )
+
+  @staticmethod
+  def _log_normal(x, mean, std):
+    return jax.scipy.stats.norm.logpdf(
+        jnp.asarray(x), loc=jnp.asarray(mean), scale=std
+    ).sum(axis=-1)
+
+  @parameterized.parameters(
+      (samplers.OdeSampler, 0.25, 4.0),
+      (samplers.OdeSampler, 1.0, 2.0),
+      (samplers.OdeSampler, 2.0, 2.0),
+      (samplers.ExponentialOdeSampler, 0.25, 4.0),
+      (samplers.ExponentialOdeSampler, 1.0, 2.0),
+      (samplers.ExponentialOdeSampler, 2.0, 2.0),
+  )
+  def test_terminal_only_density_matches_the_generation_prior(
+      self, cls, scale, sigma
+  ):
+    sampler = self._make_prior_sampler(
+        cls, lambda t: jnp.ones_like(t) * scale, sigma, (2, 3), [1.0]
+    )
+    rng = jax.random.key(19)
+    generated = sampler.generate(3, rng)
+    init_rng, _ = jax.random.split(rng)
+    std = scale * sigma
+    expected_samples = std * jax.random.normal(init_rng, (3, 2, 3))
+    np.testing.assert_allclose(
+        generated, expected_samples, rtol=2e-6, atol=1e-6
+    )
+    fn = lambda x: sampler.compute_log_likelihood(x, rng=rng)
+    expected = self._normal_log_density(generated, std)
+    for evaluation in (fn, jax.jit(fn)):
+      np.testing.assert_allclose(
+          evaluation(generated), expected, rtol=3e-6, atol=1e-6
+      )
+
+  @parameterized.parameters(
+      (samplers.OdeSampler, 0.5),
+      (samplers.OdeSampler, 2.0),
+      (samplers.OdeSampler, 16.0),
+      (samplers.ExponentialOdeSampler, 0.5),
+      (samplers.ExponentialOdeSampler, 2.0),
+      (samplers.ExponentialOdeSampler, 16.0),
+  )
+  def test_constant_noise_amplitude_retains_the_same_density_through_flow(
+      self, cls, std
+  ):
+    sampler = self._make_prior_sampler(
+        cls, lambda t: std / (1.0 + 3.0 * t), 4.0, (2,), [1.0, 0.75, 0.5, 0.25]
+    )
+    x = jnp.array([[-0.5, 0.2], [0.3, 0.1], [1.0, -1.0]]) * std
+    rng = jax.random.key(21)
+    fn = lambda values: sampler.compute_log_likelihood(values, rng=rng)
+    for evaluation in (fn, jax.jit(fn)):
+      np.testing.assert_allclose(
+          evaluation(x), self._normal_log_density(x, std), rtol=3e-6, atol=1e-6
+      )
+    _, derivative = jax.jvp(fn, (x,), (jnp.ones_like(x),))
+    np.testing.assert_allclose(
+        derivative, -np.asarray(x).sum(axis=-1) / std**2, rtol=1e-5, atol=1e-6
+    )
+
+  @parameterized.product(varying_scale=(False, True), center=(0.0, 0.3))
+  def test_forward_density_obeys_change_of_variables(
+      self, varying_scale, center
+  ):
+    sampler = self._make_exponential_likelihood_sampler(
+        [1.0, 0.0], varying_scale
+    )
+    x = jnp.array([[0.1, 0.2], [1.0, -1.0]])
+    c = jnp.array([center, -center])
+    params = dict(cond={"center": c}, guidance_inputs=None)
+    initial_std = sampler.scheme.scale(0.0) * sampler.scheme.sigma(0.0)
+    initial_mean = sampler.scheme.scale(0.0) * 0.5 * c
+    initial_logp = self._log_normal(x, initial_mean, initial_std)
+    y, logp = sampler.forward_step(
+        x,
+        jnp.array(0.0),
+        jnp.array(1.0),
+        params,
+        logp0=initial_logp,
+        rng=jax.random.key(0),
+    )
+    expected_y = (x - initial_mean) / initial_std
+    np.testing.assert_allclose(y, expected_y, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(
+        logp, self._log_normal(expected_y, 0.0, 1.0), rtol=2e-6, atol=2e-6
+    )
+    y_without_density, empty = sampler.forward_step(
+        x, jnp.array(0.0), jnp.array(1.0), params
+    )
+    np.testing.assert_array_equal(y, y_without_density)
+    self.assertIsNone(empty)
+
+  @parameterized.product(
+      varying_scale=(False, True), steps=(2, 5), probes=(None, 4)
+  )
+  def test_complete_likelihood_matches_analytic_pullback(
+      self, varying_scale, steps, probes
+  ):
+    sampler = self._make_exponential_likelihood_sampler(
+        jnp.linspace(1.0, 0.2, steps), varying_scale, probes
+    )
+    x = jnp.array([[0.1, 0.2], [0.5, -0.25], [1.0, -1.0]])
+    c = jnp.array([0.3, -0.2])
+    start = sampler.tspan[-1]
+    scale = sampler.scheme.scale(start)
+    sigma = sampler.scheme.sigma(start)
+    mean, std = scale * (1 - sigma) * c, scale * sigma
+    expected = self._log_normal(x, mean, std)
+    fn = lambda data: sampler.compute_log_likelihood(
+        data, cond={"center": c}, rng=jax.random.key(7)
+    )
+    for run in (fn, jax.jit(fn)):
+      np.testing.assert_allclose(run(x), expected, rtol=3e-6, atol=2e-6)
+    _, derivative = jax.jvp(fn, (x,), (jnp.ones_like(x),))
+    np.testing.assert_allclose(
+        derivative,
+        -np.sum(np.asarray(x - mean), axis=-1) / float(std) ** 2,
+        rtol=1e-5,
+        atol=2e-6,
+    )
+
+  def test_identity_denoiser_keeps_density_unchanged(self):
+    sampler = self._make_exponential_likelihood_sampler(
+        [1.0, 0.5, 0.0]
+    ).replace(denoise_fn=lambda x, sigma, cond: x)
+    x = jnp.array([[0.1, 0.2], [1.0, -1.0]])
+    params = dict(cond=None, guidance_inputs=None)
+    logp = jnp.array([-1.0, -2.0])
+    y, result = sampler.forward_step(
+        x,
+        jnp.array(0.0),
+        jnp.array(1.0),
+        params,
+        logp0=logp,
+        rng=jax.random.key(3),
+    )
+    np.testing.assert_allclose(y, x, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(result, logp, rtol=1e-6, atol=1e-6)
+
+  def test_terminal_only_likelihood_is_unchanged(self):
+    sampler = self._make_exponential_likelihood_sampler([1.0])
+    x = jnp.array([[0.1, 0.2], [1.0, -1.0]])
+    result = sampler.compute_log_likelihood(
+        x, cond={"center": jnp.zeros(2)}, rng=jax.random.key(4)
+    )
+    np.testing.assert_allclose(
+        result, self._log_normal(x, 0.0, 1.0), rtol=1e-6
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

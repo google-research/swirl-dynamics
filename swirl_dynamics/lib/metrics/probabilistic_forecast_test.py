@@ -31,7 +31,7 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
   ):
     with self.assertRaisesRegex(ValueError, "matching shapes"):
       probabilistic_forecast._process_forecasts(
-          np.ones(forecasts_shape), np.ones(observations_shape), ensemble_axis  # pyrefly: ignore[bad-argument-type]
+          np.ones(forecasts_shape), np.ones(observations_shape), ensemble_axis
       )
 
   @parameterized.parameters(
@@ -39,7 +39,7 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
   )
   def test_mad_with_broadcast_output_shape(self, test_shape):
     out = probabilistic_forecast._mean_abs_diff_with_broadcast(
-        np.ones(test_shape)  # pyrefly: ignore[bad-argument-type]
+        np.ones(test_shape)
     )
     self.assertEqual(out.shape, test_shape[:-1])
 
@@ -117,10 +117,6 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
     )
     np.testing.assert_allclose(out, np.asarray(expected), atol=1e-5)
 
-
-class CrpsPrecisionTest(parameterized.TestCase):
-  """CRPS arithmetic must not overflow before its floating-point reductions."""
-
   @parameterized.parameters(
       jnp.float16, jnp.bfloat16, jnp.int16, jnp.int32, jnp.uint16
   )
@@ -176,14 +172,17 @@ class CrpsPrecisionTest(parameterized.TestCase):
           forecasts, observations, ensemble_axis=axis, direct_broadcast=direct
       )
       np.testing.assert_allclose(actual, expected, rtol=1e-6)
-      singleton = jnp.array([[-60000.0], [60000.0]], dtype=jnp.float16)
-      target = jnp.array([60000.0, -60000.0], dtype=jnp.float16)
-      np.testing.assert_array_equal(
-          probabilistic_forecast.crps(
-              singleton, target, ensemble_axis=-1, direct_broadcast=direct
-          ),
-          [120000.0, 120000.0],
-      )
+
+  @parameterized.parameters(False, True)
+  def test_singleton_low_precision_ensemble(self, direct):
+    singleton = jnp.array([[-60000.0], [60000.0]], dtype=jnp.float16)
+    target = jnp.array([60000.0, -60000.0], dtype=jnp.float16)
+    np.testing.assert_array_equal(
+        probabilistic_forecast.crps(
+            singleton, target, ensemble_axis=-1, direct_broadcast=direct
+        ),
+        [120000.0, 120000.0],
+    )
 
   def test_float64_and_float32_preserve_precision_with_x64_enabled(self):
     with jax.enable_x64():

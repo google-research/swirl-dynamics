@@ -20,6 +20,10 @@ import operator
 import jax
 import jax.numpy as jnp
 
+Array = jax.Array
+ArrayLike = jax.typing.ArrayLike
+DTypeLike = jax.typing.DTypeLike
+
 
 def _union_axes(
     sum_axes: Sequence[int], mean_axes: Sequence[int], ndim: int
@@ -37,18 +41,19 @@ def _union_axes(
 
 
 def mean_squared_error(
-    pred: jax.Array,
-    true: jax.Array,
+    pred: ArrayLike,
+    true: ArrayLike,
     *,
     sum_axes: Sequence[int] = (),
     mean_axes: Sequence[int] | None = None,
     relative: bool = False,
     squared: bool = True,
-) -> jax.Array:
+    dtype: DTypeLike = jnp.float32,
+) -> Array:
   """Computes the mean squared error (MSE).
 
   The squared errors are first summed over a specified set of axes and then
-  averaged over another set of axes. Inputs are promoted to at least float32
+  averaged over another set of axes. Inputs are promoted to at least `dtype`
   before error arithmetic, and the result uses that promoted dtype.
 
   Args:
@@ -58,25 +63,25 @@ def mean_squared_error(
       taking the average.
     mean_axes: The axes over which the average will be taken. If `None`, average
       is taken over all axes. If some elements are common between `sum_axes` and
-      `mean_axes`, the the former takes priority.
+      `mean_axes`, the former takes priority.
     relative: Whether to compute the relative MSE. If `True`, the errors are
       normalized by the squared norm of `true`.
     squared: Whether to keep the returned error squared. If `False`, returns the
       square-rooted error, i.e. the root mean squared error.
+    dtype: Minimum floating-point dtype to promote `pred` and `true` to before
+      error computation.
 
   Returns:
     The computed MSE array.
   """
+  promoted_dtype = jnp.result_type(pred, true, dtype)
+  pred = jnp.asarray(pred, dtype=promoted_dtype)
+  true = jnp.asarray(true, dtype=promoted_dtype)
+
   if pred.shape != true.shape:
     raise ValueError(
         f"`pred` {pred.shape} and `true` {true.shape} must have the same shape."
     )
-
-  # Convert before subtraction, squaring and summation to avoid integer
-  # wraparound and low-precision overflow before the mean is computed.
-  dtype = jnp.result_type(pred, true, jnp.float32)
-  pred = jnp.asarray(pred, dtype=dtype)
-  true = jnp.asarray(true, dtype=dtype)
 
   if mean_axes is not None:
     mean_axes = _union_axes(sum_axes, mean_axes, pred.ndim)
@@ -97,17 +102,18 @@ def mean_squared_error(
 
 
 def mean_absolute_error(
-    pred: jax.Array,
-    true: jax.Array,
+    pred: ArrayLike,
+    true: ArrayLike,
     *,
     sum_axes: Sequence[int] = (),
     mean_axes: Sequence[int] | None = None,
     relative: bool = True,
-) -> jax.Array:
+    dtype: DTypeLike = jnp.float32,
+) -> Array:
   """Computes the mean absolute error (MAE).
 
   The absolute errors are first summed over a specified set of axes and then
-  averaged over another set of axes. Inputs are promoted to at least float32
+  averaged over another set of axes. Inputs are promoted to at least `dtype`
   before error arithmetic, and the result uses that promoted dtype.
 
   Args:
@@ -117,23 +123,23 @@ def mean_absolute_error(
       taking the average.
     mean_axes: The axes over which the average will be taken. If `None`, average
       is taken over all axes. If some elements are common between `sum_axes` and
-      `mean_axes`, the the former takes priority.
-    relative: Whether to compute the relative MSE. If `True`, the errors are
+      `mean_axes`, the former takes priority.
+    relative: Whether to compute the relative MAE. If `True`, the errors are
       normalized by the L1 norm of `true`.
+    dtype: Minimum floating-point dtype to promote `pred` and `true` to before
+      error computation.
 
   Returns:
     The computed MAE array.
   """
+  promoted_dtype = jnp.result_type(pred, true, dtype)
+  pred = jnp.asarray(pred, dtype=promoted_dtype)
+  true = jnp.asarray(true, dtype=promoted_dtype)
+
   if pred.shape != true.shape:
     raise ValueError(
         f"`pred` {pred.shape} and `true` {true.shape} must have the same shape."
     )
-
-  # Convert before subtraction, squaring and summation to avoid integer
-  # wraparound and low-precision overflow before the mean is computed.
-  dtype = jnp.result_type(pred, true, jnp.float32)
-  pred = jnp.asarray(pred, dtype=dtype)
-  true = jnp.asarray(true, dtype=dtype)
 
   if mean_axes is not None:
     mean_axes = _union_axes(sum_axes, mean_axes, pred.ndim)

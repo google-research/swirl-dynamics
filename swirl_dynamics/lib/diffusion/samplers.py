@@ -565,7 +565,7 @@ class ExponentialOdeSampler(Sampler):
                - (log (σ₀ / σ₁) Trace(∂D/∂x)(x=x₀/s₀, σ₀=σ₀))
 
     where x₀ is the current state; s₀, σ₀ are the scale and noise levels at the
-    current time; s₀, σ₀ are for the output time; N is the number of dimensions
+    current time; s₁, σ₁ are for the output time; N is the number of dimensions
     in x. t1 > t0.
 
     Args:
@@ -652,13 +652,14 @@ class ExponentialOdeSampler(Sampler):
         loop_state: tuple[int, Array, Array],
     ) -> tuple[int, Array, Array]:
       i, xi, logpi = loop_state
+      step_rng = jax.random.fold_in(rng, i) if rng is not None else None
       x_next, logp_next = self.forward_step(
           x0=xi,
           t0=self.tspan[::-1][i],
           t1=self.tspan[::-1][i + 1],
           params=params,
           logp0=logpi,
-          rng=rng,
+          rng=step_rng,
       )
       return i + 1, x_next, logp_next
 

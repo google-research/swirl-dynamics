@@ -26,44 +26,46 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-Array = Any
+Array = jax.Array
 PyTreeDef = jax.tree_util.PyTreeDef
 PyTree = Any
 
 
 def flatten_params(
     params: PyTree, from_axis: int = 0
-) -> tuple[Array, list[Array], PyTreeDef]:
+) -> tuple[Array, list[tuple[int, ...]], PyTreeDef]:
   """Function to flatten the dictionary containing the parameters.
 
   Args:
     params: pytree containing the parameters of the network.
-    from_axis: axis from which the flatten is applied. All dimensions before
-      axis, will be kept. Thus, the shape of the leaves of the PyTree need to be
-      the same.
+    from_axis: non-negative axis from which the flatten is applied. All
+      dimensions before `from_axis` are preserved across leaves.
 
   Returns:
     Tuple containing:
     i) Array with all the data in the leaves of the Pytree concatenated, where
-       we preserve the original dimensions, and we flatten everything after
-       from_axis. By default (from_axis=0) everything is flattened to a vector.
-    ii) List of arrays with the shapes of the leaves in the Pytree.
-    iii) PyTreeDef, containing the names and labes of the nodes in the Pytree.
+       we preserve the leading batch dimensions before `from_axis` and flatten
+       everything from `from_axis` onward.
+    ii) List of shape tuples of the leaves in the Pytree.
+    iii) PyTreeDef containing the names and labels of the nodes in the Pytree.
   """
+  if from_axis < 0:
+    raise ValueError(f"`from_axis` must be non-negative, got {from_axis}.")
+
   flat_params, tree_def = jax.tree_util.tree_flatten(params)
   shapes = [p.shape for p in flat_params]
 
   flattened = []
 
   for p in flat_params:
-    d = np.int64(p.size // (np.prod(p.shape[:from_axis])))
+    d = np.prod(p.shape[from_axis:], dtype=int)
     flattened.append(jnp.reshape(p, p.shape[:from_axis] + (d,)))
 
   return jnp.concatenate(flattened, axis=-1), shapes, tree_def
 
 
 def unflatten_params(
-    flattened: Array, shapes: Sequence[Any], tree_def: PyTreeDef
+    flattened: Array, shapes: Sequence[Sequence[int]], tree_def: PyTreeDef
 ) -> PyTree:
   """Function to unflatten the parameters contained in an Array to a Dict.
 

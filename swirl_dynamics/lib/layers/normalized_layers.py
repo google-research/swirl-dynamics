@@ -49,8 +49,8 @@ def compute_norm(
   squared_norm = jnp.sum(jnp.square(x), axis=axis, keepdims=True)
   is_zero = squared_norm == 0
   # Avoid differentiating sqrt at zero, even in the inactive where branch.
-  safe_squared_norm = jnp.where(is_zero, 1, squared_norm)
-  return jnp.where(is_zero, 0, jnp.sqrt(safe_squared_norm))
+  safe_squared_norm = jnp.where(is_zero, 1.0, squared_norm)
+  return jnp.where(is_zero, 0.0, jnp.sqrt(safe_squared_norm))
 
 
 def normalize(

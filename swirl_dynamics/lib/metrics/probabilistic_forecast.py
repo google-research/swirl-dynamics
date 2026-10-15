@@ -22,9 +22,11 @@ ArrayLike = jax.typing.ArrayLike
 
 
 def _process_forecasts(
-    forecasts: Array, observations: Array, ensemble_axis: int
+    forecasts: ArrayLike, observations: ArrayLike, ensemble_axis: int
 ) -> Array:
   """Processes the forecast array and validates its shape."""
+  forecasts = jnp.asarray(forecasts)
+  observations = jnp.asarray(observations)
   # move ensemble axis to last so that shape checking and broadcasting is easier
   if ensemble_axis != -1:
     forecasts = jnp.moveaxis(forecasts, ensemble_axis, -1)
@@ -37,16 +39,20 @@ def _process_forecasts(
   return forecasts
 
 
-def _mean_abs_diff_with_broadcast(forecasts: Array) -> Array:
+def _mean_abs_diff_with_broadcast(forecasts: ArrayLike) -> Array:
   """Computes the mean absolute difference of ensembles with broadcasting."""
+  dtype = jnp.result_type(forecasts, jnp.float32)
+  forecasts = jnp.asarray(forecasts, dtype=dtype)
   return jnp.mean(
       jnp.abs(jnp.expand_dims(forecasts, -1) - jnp.expand_dims(forecasts, -2)),
       axis=(-2, -1),
   )
 
 
-def _mean_abs_diff_with_loop(forecasts: Array) -> Array:
+def _mean_abs_diff_with_loop(forecasts: ArrayLike) -> Array:
   """Computes the mean absolute difference of ensembles with `lax.fori_loop`."""
+  dtype = jnp.result_type(forecasts, jnp.float32)
+  forecasts = jnp.asarray(forecasts, dtype=dtype)
 
   def _sum_abs_diff(i, abs_diff):
     return abs_diff + jnp.abs(forecasts[..., i, None] - forecasts).mean(axis=-1)
@@ -55,9 +61,7 @@ def _mean_abs_diff_with_loop(forecasts: Array) -> Array:
       0,
       forecasts.shape[-1],
       _sum_abs_diff,
-      jnp.zeros(
-          forecasts.shape[:-1], dtype=jnp.result_type(forecasts, jnp.float32)
-      ),
+      jnp.zeros(forecasts.shape[:-1], dtype=dtype),
   )
   return mean_abs_diff / forecasts.shape[-1]
 
@@ -113,12 +117,12 @@ def crps(
 
 
 def threshold_brier_score(
-    forecasts: Array,
-    observations: Array,
-    thresholds: Array | int | float,
+    forecasts: ArrayLike,
+    observations: ArrayLike,
+    thresholds: ArrayLike,
     *,
     ensemble_axis: int = 1,
-):
+) -> Array:
   """Calculates the Brier scores of an ensemble exceeding given thresholds.
 
   The Brier score (BS) scores binary forecasts k = 0 or 1:
@@ -150,6 +154,7 @@ def threshold_brier_score(
     raise ValueError("`thresholds` must be 0- or 1-dimensional.")
 
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
+  observations = jnp.asarray(observations)
   binary_obs = jnp.greater(
       observations[..., None],
       thresholds.reshape((1,) * observations.ndim + (-1,)),
@@ -167,8 +172,8 @@ def threshold_brier_score(
 
 
 def unreliability_score(
-    forecasts: Array,
-    observations: Array,
+    forecasts: ArrayLike,
+    observations: ArrayLike,
     *,
     ensemble_axis: int = 1,
 ) -> Array:
@@ -189,6 +194,7 @@ def unreliability_score(
     The unreliability score with same shape as the observations.
   """
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
+  observations = jnp.asarray(observations)
 
   num_observations = jnp.size(observations)
   num_ensemble_members = forecasts.shape[-1]
