@@ -50,7 +50,7 @@ def flatten_params(
     iii) PyTreeDef containing the names and labels of the nodes in the Pytree.
   """
   if from_axis < 0:
-    raise ValueError(f"`from_axis` must be non-negative, got {from_axis}.")
+    raise ValueError(f'`from_axis` must be non-negative, got {from_axis}.')
 
   flat_params, tree_def = jax.tree_util.tree_flatten(params)
   shapes = [p.shape for p in flat_params]
@@ -83,8 +83,14 @@ def unflatten_params(
     its internal representation and data.
   """
   from_axis = flattened.ndim - 1
-  sections = np.cumsum([np.prod(s[from_axis:], dtype=int) for s in shapes])
-  segments = jnp.split(flattened, sections, axis=-1)[:-1]
+  widths = [int(np.prod(shape[from_axis:], dtype=int)) for shape in shapes]
+  expected_width = sum(widths)
+  if flattened.shape[-1] != expected_width:
+    raise ValueError(
+        f'flattened vector length must be {expected_width}, '
+        f'got {flattened.shape[-1]}.'
+    )
+  segments = jnp.split(flattened, np.cumsum(widths[:-1]), axis=-1)
   flat_params = [x.reshape(shape) for x, shape in zip(segments, shapes)]
 
   return jax.tree_util.tree_unflatten(tree_def, flat_params)

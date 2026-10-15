@@ -164,6 +164,55 @@ class UtilsTest(parameterized.TestCase):
     ):
       np.testing.assert_array_equal(actual, expected)
 
+  @parameterized.named_parameters(
+      ('extra_value', 1),
+      ('missing_value', -1),
+  )
+  def test_unflatten_rejects_incorrect_unbatched_width(self, delta):
+    original = {
+        'weight': jnp.array([1.0, 2.0, 3.0]),
+        'bias': jnp.array([4.0, 5.0]),
+    }
+    vector, shapes, tree_def = utils.flatten_params(original)
+    malformed = jnp.arange(vector.shape[-1] + delta, dtype=vector.dtype)
+    for restore in (
+        utils.unflatten_params,
+        jax.jit(utils.unflatten_params, static_argnums=(1, 2)),
+    ):
+      with self.assertRaisesRegex(ValueError, 'flattened.*length'):
+        restore(malformed, tuple(shapes), tree_def)
+
+  @parameterized.named_parameters(
+      ('extra_value', 2),
+      ('missing_value', -1),
+  )
+  def test_unflatten_rejects_incorrect_batched_width(self, delta):
+    params = {
+        'weight': jnp.arange(6.0, dtype=jnp.float32).reshape((2, 3)),
+        'bias': jnp.arange(4.0, dtype=jnp.float32).reshape((2, 2)),
+    }
+    vector, shapes, tree_def = utils.flatten_params(params, from_axis=1)
+    bad_width = vector.shape[-1] + delta
+    malformed = jnp.arange(2 * bad_width, dtype=jnp.float32).reshape(
+        2, bad_width
+    )
+    for restore in (
+        utils.unflatten_params,
+        jax.jit(utils.unflatten_params, static_argnums=(1, 2)),
+    ):
+      with self.assertRaisesRegex(ValueError, 'flattened.*length'):
+        restore(malformed, tuple(shapes), tree_def)
+
+  def test_unflatten_exact_length_preserves_all_elements(self):
+    original = {
+        'weight': jnp.array([1.0, 2.0, 3.0]),
+        'bias': jnp.array([4.0, 5.0]),
+    }
+    vector, shapes, tree_def = utils.flatten_params(original)
+    restored = utils.unflatten_params(vector, shapes, tree_def)
+    for name, value in original.items():
+      np.testing.assert_array_equal(restored[name], value)
+
   def test_vmean_toy_example(self):
     """Test the vmean function with a random toy example."""
     rngs = jax.random.split(jax.random.PRNGKey(0), (10))
