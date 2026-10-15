@@ -453,30 +453,49 @@ def min_snr_edm_weighting(
   """EDM weighting with Min-SNR-γ clamping (Hang et al., https://arxiv.org/abs/2303.09556).
 
   Applies the standard EDM loss weighting from Karras et al. but multiplies
-  by a Min-SNR factor that down-weights high-noise levels (large σ, low SNR).
-  This prevents high-noise timesteps from producing conflicting gradients
-  that slow convergence, particularly in early training.
+  by a Min-SNR factor that clamps large signal-to-noise ratios (small σ).
+  This reduces the weight on low-noise training steps.
 
   For variance-exploding diffusion with noise level σ:
     SNR(σ) = σ_data² / σ²
     min_snr_factor = min(SNR(σ), γ) / SNR(σ) = min(1, γ · σ² / σ_data²)
 
-  The combined weight is: w_EDM(σ) · min_snr_factor(σ).
+  The combined weight is: w_EDM(σ) · min_snr_factor(σ). Its analytic
+  limit at zero noise is γ / σ_data², which remains finite. Arithmetic is
+  performed at no less than float32 precision for numerical stability.
 
   Args:
-    data_std: The standard deviation of the data (σ_data).
-    gamma: The Min-SNR clamping threshold.  Default 5.0 per the original paper.
+    data_std: Positive standard deviation of the data (σ_data).
+    gamma: Non-negative Min-SNR clamping threshold. Defaults to 5.0.
 
   Returns:
     The weighting function.
   """
 
+  if data_std <= 0:
+    raise ValueError(f"`data_std` must be positive, got {data_std}.")
+  if gamma < 0:
+    raise ValueError(f"`gamma` must be non-negative, got {gamma}.")
+
   def _weight_fn(sigma: Array) -> Array:
-    edm_weight = (jnp.square(data_std) + jnp.square(sigma)) / jnp.square(
-        data_std * sigma
+    dtype = jnp.result_type(sigma, jnp.float32)
+    sigma = jnp.asarray(sigma, dtype=dtype)
+    if gamma == 0:
+      return jnp.zeros_like(sigma)
+
+    data_std_array = jnp.asarray(data_std, dtype=dtype)
+    data_var = jnp.square(data_std_array)
+    cutoff = data_std_array / jnp.sqrt(jnp.asarray(gamma, dtype=dtype))
+    low_noise = jnp.abs(sigma) <= cutoff
+
+    # The clamped branch cancels sigma**2 analytically, avoiding inf * 0 at
+    # zero noise. Mask both branches before division for finite gradients.
+    low_sigma = jnp.where(low_noise, sigma, 0.0)
+    high_sigma = jnp.where(low_noise, 1.0, sigma)
+    clamped_weight = (gamma / data_var) * (
+        1.0 + jnp.square(low_sigma / data_std_array)
     )
-    snr = jnp.square(data_std) / jnp.square(sigma)
-    min_snr_factor = jnp.minimum(snr, gamma) / snr
-    return edm_weight * min_snr_factor
+    unclamped_weight = 1.0 / data_var + jnp.square(1.0 / high_sigma)
+    return jnp.where(low_noise, clamped_weight, unclamped_weight)
 
   return _weight_fn  # pyrefly: ignore[bad-return]
