@@ -324,7 +324,9 @@ class ClassifierFreeContrastive:
     cond_key: The key in the conditions dictionary that is contrasted, i.e. the
       corresponding key will be used as the positive condition.
     contrast_cond_key: The key in the guidance inputs dictionary whose value
-      will be used as the negative condition.
+      will be used as the negative condition. The value may be a shared
+      scalar/feature condition or a batch-specific condition; it must be
+      broadcastable to the shape of `cond[cond_key]`.
   """
 
   guidance_strength: chex.Numeric = 0.0
@@ -337,14 +339,15 @@ class ClassifierFreeContrastive:
     """Constructs denoise function with classifier free guidance."""
 
     def _guided_denoise(x: Array, sigma: Array, cond: ArrayMapping) -> Array:
-      contrast_cond_value = jnp.stack(
-          [guidance_inputs[self.contrast_cond_key]] * x.shape[0], axis=0
-      )
-      if contrast_cond_value.shape != cond[self.cond_key].shape:
+      negative_cond = jnp.asarray(guidance_inputs[self.contrast_cond_key])
+      target_shape = cond[self.cond_key].shape
+      try:
+        contrast_cond_value = jnp.broadcast_to(negative_cond, target_shape)
+      except ValueError as error:
         raise ValueError(
-            f'Contrast cond value shape {contrast_cond_value.shape} does not'
-            f' match cond key shape {cond[self.cond_key].shape}.'
-        )
+            f'Contrast condition shape {negative_cond.shape} cannot be'
+            f' broadcast to cond key shape {target_shape}.'
+        ) from error
       contrastive_cond = {
           k: v if k != self.cond_key else contrast_cond_value
           for k, v in cond.items()
