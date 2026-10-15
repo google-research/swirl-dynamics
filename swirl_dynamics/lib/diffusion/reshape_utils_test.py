@@ -13,14 +13,63 @@
 # limitations under the License.
 
 """Tests for the reshape utilities used in the ViViT-based models."""
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
+import jax.numpy as jnp
 
 from swirl_dynamics.lib.diffusion import reshape_utils
 
 
 class ReshapeTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('batch_axis', 0),
+      ('channel_axis', 3),
+      ('negative_axis', -1),
+  )
+  def test_inverse_2d_rejects_invalid_axis(self, axis):
+    shape = (2, 3, 4, 2)
+    valid_flattened = jnp.zeros((8, 3, 2))
+    with self.assertRaisesRegex(ValueError, 'axis'):
+      reshape_utils.reshape_to_2d_factorized(
+          valid_flattened, axis=axis, two_d_shape=shape
+      )
+
+  @parameterized.named_parameters(
+      ('batch_axis', 0),
+      ('channel_axis', 4),
+      ('negative_axis', -1),
+  )
+  def test_inverse_3d_rejects_invalid_axis(self, axis):
+    shape = (2, 5, 3, 4, 2)
+    valid_flattened = jnp.zeros((24, 5, 2))
+    with self.assertRaisesRegex(ValueError, 'axis'):
+      reshape_utils.reshape_to_3d_factorized(
+          valid_flattened, axis=axis, three_d_shape=shape
+      )
+
+  @parameterized.parameters(1, 2)
+  def test_inverse_2d_rejects_incorrect_token_channel_shape(self, axis):
+    shape = (2, 3, 4, 2)
+    expected = (8, 3, 2) if axis == 1 else (6, 4, 2)
+    # Same total number of elements, but the token/channel axes are wrong.
+    wrong = jnp.zeros((expected[0], 2 * expected[1], 1))
+    with self.assertRaisesRegex(ValueError, 'shape'):
+      reshape_utils.reshape_to_2d_factorized(
+          wrong, axis=axis, two_d_shape=shape
+      )
+
+  @parameterized.parameters(1, 2, 3)
+  def test_inverse_3d_rejects_incorrect_token_channel_shape(self, axis):
+    shape = (2, 5, 3, 4, 2)
+    expected = {1: (24, 5, 2), 2: (40, 3, 2), 3: (30, 4, 2)}[axis]
+    wrong = jnp.zeros((expected[0], 2 * expected[1], 1))
+    with self.assertRaisesRegex(ValueError, 'shape'):
+      reshape_utils.reshape_to_3d_factorized(
+          wrong, axis=axis, three_d_shape=shape
+      )
 
   @parameterized.parameters(
       ((2, 4, 8, 3), 1),
@@ -51,12 +100,12 @@ class ReshapeTest(parameterized.TestCase):
 
     x = jax.random.normal(jax.random.PRNGKey(0), shape)
 
-    new_batch = {'1': batch_size * height * width,
-                 '2': batch_size * time * width,
-                 '3': batch_size * time * height}
-    new_token = {'1': time,
-                 '2': height,
-                 '3': width}
+    new_batch = {
+        '1': batch_size * height * width,
+        '2': batch_size * time * width,
+        '3': batch_size * time * height,
+    }
+    new_token = {'1': time, '2': height, '3': width}
 
     out = reshape_utils.reshape_3d_to_1d_factorized(x, axis=axis)
 
