@@ -53,9 +53,11 @@ def reshape_3d_to_1d_factorized(x: Array, axis: int) -> Array:
   """Converts 2d inputs to 1d for axial attention."""
 
   if x.ndim != 5:
-    raise ValueError('The input should a 5-tensor with dimensions following '
-                     '[batch_size, time, height, width, channel], instead '
-                     f'the input shape is {x.shape}')
+    raise ValueError(
+        'The input should a 5-tensor with dimensions following '
+        '[batch_size, time, height, width, channel], instead '
+        f'the input shape is {x.shape}'
+    )
   if axis not in [1, 2, 3]:
     raise ValueError(
         'The input axis should be either 1 (time), 2 (height), or 3 (width), ',
@@ -76,8 +78,7 @@ def reshape_3d_to_1d_factorized(x: Array, axis: int) -> Array:
   return x
 
 
-def reshape_to_2d_factorized(x: Array, axis: int,
-                             two_d_shape: Shape) -> Array:
+def reshape_to_2d_factorized(x: Array, axis: int, two_d_shape: Shape) -> Array:
   """Converts 1D inputs back to 2D after axial attention.
 
   Args:
@@ -106,28 +107,27 @@ def reshape_to_2d_factorized(x: Array, axis: int,
 
   batch_size, height, width, channel = two_d_shape
   if axis == 1:
-    if x.shape[0] != batch_size * width:
-      raise ValueError(
-          f'The modified batch size of the input ({x.shape[0]}) should match ',
-          f'with the product batch_size ({batch_size}) x width ({width})',
-      )
-    x = x.reshape((batch_size, width, height, channel)).transpose(
+    expected_shape = (batch_size * width, height, channel)
+  elif axis == 2:
+    expected_shape = (batch_size * height, width, channel)
+  else:
+    raise ValueError(f'axis must be 1 or 2, got {axis}.')
+
+  if x.shape != expected_shape:
+    raise ValueError(
+        f'Expected factorized shape {expected_shape} for axis {axis}, '
+        f'got shape {x.shape}.'
+    )
+
+  if axis == 1:
+    return x.reshape((batch_size, width, height, channel)).transpose(
         (0, 2, 1, 3)
     )
-  elif axis == 2:
-    if x.shape[0] != batch_size * height:
-      raise ValueError(
-          f'The modified batch size of the input ({x.shape[0]}) should match ',
-          f'with the product batch_size ({batch_size}) x height ({height})',
-      )
-    x = x.reshape(two_d_shape)
-
-  return x
+  return x.reshape(two_d_shape)
 
 
 def reshape_to_3d_factorized(
-    x: Array, axis: int,
-    three_d_shape: Shape
+    x: Array, axis: int, three_d_shape: Shape
 ) -> Array:
   """Converts 1D inputs back to 3D after axial attention.
 
@@ -156,38 +156,33 @@ def reshape_to_3d_factorized(
     )
 
   batch_size, time, height, width, channel = three_d_shape
+  if axis == 1:
+    expected_shape = (batch_size * height * width, time, channel)
+  elif axis == 2:
+    expected_shape = (batch_size * time * width, height, channel)
+  elif axis == 3:
+    expected_shape = (batch_size * time * height, width, channel)
+  else:
+    raise ValueError(f'axis must be 1, 2, or 3, got {axis}.')
+
+  if x.shape != expected_shape:
+    raise ValueError(
+        f'Expected factorized shape {expected_shape} for axis {axis}, '
+        f'got shape {x.shape}.'
+    )
 
   if axis == 1:
-    if x.shape[0] != batch_size * height * width:
-      raise ValueError(
-          f'The modified batch size of the input ({x.shape[0]}) should match ',
-          f'with the product batch_size ({batch_size}) x width ({width}) x ',
-          f'height ({height}) when axis = {axis}'
-      )
-    x = x.reshape((batch_size, height, width, time, channel)).transpose(
-        (0, 3, 1, 2, 4))
-  elif axis == 2:
-    if x.shape[0] != batch_size * time * width:
-      raise ValueError(
-          f'The modified batch size of the input ({x.shape[0]}) should match ',
-          f'with the product batch_size ({batch_size}) x time ({time}) x ',
-          f'width ({width}) when axis = {axis}'
-      )
-    x = x.reshape((batch_size, time, width, height, channel)).transpose(
-        (0, 1, 3, 2, 4))
-  elif axis == 3:
-    if x.shape[0] != batch_size * time * height:
-      raise ValueError(
-          f'The modified batch size of the input ({x.shape[0]}) should match ',
-          f'with the product batch_size ({batch_size}) x time ({time}) x ',
-          f'width ({height}) when axis = {axis}',
-      )
-    x = x.reshape(three_d_shape)
-
-  return x
+    return x.reshape((batch_size, height, width, time, channel)).transpose(
+        (0, 3, 1, 2, 4)
+    )
+  if axis == 2:
+    return x.reshape((batch_size, time, width, height, channel)).transpose(
+        (0, 1, 3, 2, 4)
+    )
+  return x.reshape(three_d_shape)
 
 
-def reshape_to_time_space(x: Array, temporal_dims: int)-> Array:
+def reshape_to_time_space(x: Array, temporal_dims: int) -> Array:
   """Reshape the input tensor from tokens to time-space.
 
   Args:
@@ -201,7 +196,8 @@ def reshape_to_time_space(x: Array, temporal_dims: int)-> Array:
   if x.ndim != 3:
     raise ValueError(
         'The input tensor should be 3-dimensional (including batch dimension)',
-        f'instead the shape of the input tensor if {x.shape}')
+        f'instead the shape of the input tensor if {x.shape}',
+    )
 
   elif x.ndim == 3:
     batch_size, num_tokens, emb_dim = x.shape
@@ -209,7 +205,8 @@ def reshape_to_time_space(x: Array, temporal_dims: int)-> Array:
       raise ValueError(
           'The number of tokens should be divisible by the number of',
           f'encoded frames, instead we have number of tokens {num_tokens}',
-          f' and number of frames {temporal_dims}')
+          f' and number of frames {temporal_dims}',
+      )
 
     hw = num_tokens // temporal_dims
     x = jnp.reshape(x, [batch_size, temporal_dims, hw, emb_dim])
@@ -218,6 +215,7 @@ def reshape_to_time_space(x: Array, temporal_dims: int)-> Array:
   if x.ndim != 4:
     raise ValueError(
         'The output should be a 4-tensor, instead the output has shape'
-        f' {x.shape}.')
+        f' {x.shape}.'
+    )
 
   return x
