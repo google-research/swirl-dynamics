@@ -59,7 +59,9 @@ def collected_metrics_to_ds(
   if coords is not None:
     for cur_size in fixed_shape:
       dims.append(
-          list(coords.dims.keys())[list(coords.dims.values()).index(cur_size)]  # pyrefly: ignore[bad-argument-type]
+          list(coords.dims.keys())[
+              list(coords.dims.values()).index(cur_size)
+          ]  # pyrefly: ignore[bad-argument-type]
       )
     if len(dims) == len(set(dims)):
       coord_dict = {
@@ -76,7 +78,9 @@ def collected_metrics_to_ds(
   data_vars = {}
   for key, value in data.items():
     if coord_dict is None:
-      dims.extend([f'dim_{i}' for i in range(value.ndim - 1)])
+      # Build a fresh list instead of mutating dimensions shared by variables
+      # or retaining names from an ambiguous coordinate inference.
+      dims = [append_dim] + [f'dim_{i}' for i in range(value.ndim - 1)]
     data_vars[key] = (dims, value)
 
   return xr.Dataset(

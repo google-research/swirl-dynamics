@@ -25,6 +25,61 @@ import xarray as xr
 
 class ZarrUtilsTest(parameterized.TestCase):
 
+  @parameterized.named_parameters(
+      ("single_without_coords", False, 1),
+      ("multiple_without_coords", False, 3),
+      ("single_ambiguous_coords", True, 1),
+      ("multiple_ambiguous_coords", True, 3),
+  )
+  def test_collected_metrics_use_independent_generic_dimensions(
+      self, ambiguous_coords, num_metrics
+  ):
+    shape = (2, 3, 3)
+    data = {
+        f"metric_{i}": np.arange(np.prod(shape)).reshape(shape) + i
+        for i in range(num_metrics)
+    }
+    coords = (
+        xr.Dataset(
+            coords={"time": range(4), "lat": range(3), "lon": range(3)}
+        ).coords
+        if ambiguous_coords
+        else None
+    )
+    ds = zarr_utils.collected_metrics_to_ds(data, "time", slice(0, 2), coords)
+
+    self.assertEqual(dict(ds.sizes), {"time": 2, "dim_0": 3, "dim_1": 3})
+    self.assertEmpty(ds.coords)
+    for name, expected in data.items():
+      self.assertEqual(ds[name].dims, ("time", "dim_0", "dim_1"))
+      np.testing.assert_array_equal(ds[name].values, expected)
+
+  def test_collected_scalar_metrics_only_use_append_dimension(self):
+    data = {"foo": np.arange(2), "bar": np.arange(2) + 10}
+    ds = zarr_utils.collected_metrics_to_ds(data, "time", slice(0, 2))
+    for name, values in data.items():
+      self.assertEqual(ds[name].dims, ("time",))
+      np.testing.assert_array_equal(ds[name].values, values)
+
+  def test_generic_collected_metrics_can_be_written_and_appended(self):
+    data = {"foo": np.arange(12).reshape(2, 3, 2), "bar": np.ones((2, 3, 2))}
+    outdir = self.create_tempdir().full_path
+    for start in (0, 2):
+      zarr_utils.collected_metrics_to_zarr(
+          data,
+          out_dir=outdir,
+          basename="generic_metrics",
+          append_dim="time",
+          append_slice=slice(start, start + 2),
+          coords=None,
+      )
+    with xr.open_zarr(os.path.join(outdir, "generic_metrics.zarr")) as ds:
+      self.assertEqual(dict(ds.sizes), {"time": 4, "dim_0": 3, "dim_1": 2})
+      for name, values in data.items():
+        np.testing.assert_array_equal(
+            ds[name].values, np.concatenate([values, values])
+        )
+
   def test_collected_metrics_to_ds(self):
 
     shape = (2, 10, 5, 3)
