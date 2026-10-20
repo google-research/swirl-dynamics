@@ -6,7 +6,7 @@ well as additional datasets that may be useful for future work. Colabs in the
 Google Colab.
 
 All data files are housed in Google Cloud Storage (GCS) within the
-`gs://genfocal` bucket and can be accessed directly in Colabs or via `gsutil`.
+`gs://genfocal` bucket and can be accessed directly in Colabs or via `gcloud storage`.
 
 ## GCS Bucket Structure
 

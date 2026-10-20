@@ -62,17 +62,17 @@ First, we download the data necessary for training the models. One can read the
 data on-demand from the Google Cloud [bucket](https://console.cloud.google.com/storage/browser/genfocal);
 however, for simplicity, we will download the data directly.
 
-Since the data is located in a bucket, we use `gsutil` to download it.
+Since the data is located in a bucket, we use `gcloud storage` to download it.
 
 We will download all the data from LENS2, which has already been regridded.
 Here, we download the climatologies and the data.
 
 ```bash
 mkdir -p data/lens2/
-gsutil -m -q cp -R gs://genfocal/data/lens2/lens2_240x121_lonlat_1960-2020_10_vars_4_train_members.zarr data/lens2/
-gsutil -m -q cp -R gs://genfocal/debiasing/climatology/lens2_240x121_10_vars_4_members_lonlat_clim_daily_1961_to_2000_31_dw.zarr data/lens2/
-gsutil -m -q cp -R gs://genfocal/debiasing/climatology/mean_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr data/lens2/
-gsutil -m -q cp -R gs://genfocal/debiasing/climatology/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr data/lens2/
+gcloud storage cp --recursive gs://genfocal/data/lens2/lens2_240x121_lonlat_1960-2020_10_vars_4_train_members.zarr data/lens2/
+gcloud storage cp --recursive gs://genfocal/debiasing/climatology/lens2_240x121_10_vars_4_members_lonlat_clim_daily_1961_to_2000_31_dw.zarr data/lens2/
+gcloud storage cp --recursive gs://genfocal/debiasing/climatology/mean_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr data/lens2/
+gcloud storage cp --recursive gs://genfocal/debiasing/climatology/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr data/lens2/
 ```
 
 The first dataset contains the data from LENS2, from which we have extracted
@@ -85,8 +85,8 @@ daily-averaged.
 
 ```bash
 mkdir -p data/era5/
-gsutil -m -q cp -R gs://genfocal/data/era5/era5_240x121_lonlat_1980-2020_10_vars.zarr data/era5/
-gsutil -m -q cp -R gs://genfocal/debiasing/climatology/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr data/era5/
+gcloud storage cp --recursive gs://genfocal/data/era5/era5_240x121_lonlat_1980-2020_10_vars.zarr data/era5/
+gcloud storage cp --recursive gs://genfocal/debiasing/climatology/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr data/era5/
 ```
 
 The total storage footprint should be around `80 GB`.
@@ -172,7 +172,7 @@ If you want to look at the already debiased dataset, you can download it using:
 
 ```bash
 mkdir -p data/lens_debiased/
-gsutil -m -q cp -R gs://genfocal/data/lens_debiased/xm_151818801_1_100_members_1960_2100_gen_154117335.zarr data/lens_debiased/
+gcloud storage cp --recursive gs://genfocal/data/lens_debiased/xm_151818801_1_100_members_1960_2100_gen_154117335.zarr data/lens_debiased/
 ```
 
 This file contains the 100 LENS2 members, debiased from 1960 to 2099. This is a

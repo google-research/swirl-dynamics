@@ -11,7 +11,7 @@ The datasets used for this work are simulated using `jax-cfd` ([github](https://
 To download the datasets, first follow the [instructions](https://cloud.google.com/storage/docs/gsutil_install) to install the `gsutil` tool. Then simply run the following command (see [here](https://cloud.google.com/storage/docs/gsutil/commands/cp) for more CLI options) to copy the dataset to a local directory
 
 ```.bash
-gsutil cp gs://gresearch/swirl_dynamics/hdf5/pde/1d/{dataset_path}
+gcloud storage cp gs://gresearch/swirl_dynamics/hdf5/pde/1d/{dataset_path}
 ```
 where `{dataset_path}` is one of the paths listed in the table below. The dataset will be downloaded to your current directory.
 
