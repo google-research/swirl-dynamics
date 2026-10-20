@@ -39,8 +39,8 @@ For the Lorenz 63 system we generate data 'on-the-fly', and hence there is no ne
 The dataset used for KS experiments are simulated using `jax-cfd` ([github](https://github.com/google/jax-cfd)).
 We have made the generated datasets available to download (in `hdf5` format) on google cloud.
 
-To download the datasets, first follow the [instructions](https://cloud.google.com/storage/docs/gsutil_install) to install the `gcloud storage` tool.
-Then simply run the following command (see [here](https://cloud.google.com/storage/docs/gsutil/commands/cp) for more CLI options) to copy the dataset to a local directory
+To download the datasets, first follow the [instructions](https://docs.cloud.google.com/sdk/docs/install-sdk) to install the `gcloud storage` tool.
+Then simply run the following command (see [here](https://docs.cloud.google.com/sdk/gcloud/reference/storage/cp) for more CLI options) to copy the dataset to a local directory
 
 ```.bash
 gcloud storage cp gs://gresearch/swirl_dynamics/hdf5/pde/1d/`ks_trajectories.hdf5`
