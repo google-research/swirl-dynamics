@@ -99,6 +99,19 @@ class TimeStepSchedulersTest(parameterized.TestCase):
     )
     np.testing.assert_allclose(tspan, np.asarray(expected_tspan), atol=1e-6)
 
+  @parameterized.named_parameters(
+      ("exponential", samplers.exponential_noise_decay),
+      ("edm", samplers.edm_noise_decay),
+  )
+  def test_noise_decay_single_step(self, decay_fn):
+    scheme = diffusion.Diffusion.create_variance_exploding(
+        diffusion.tangent_noise_schedule(clip_max=100)
+    )
+    tspan = decay_fn(scheme, num_steps=1, end_sigma=0.1)
+    np.testing.assert_allclose(
+        tspan, [diffusion.MAX_DIFFUSION_TIME], atol=1e-6
+    )
+
 
 class TestTransform:
 
