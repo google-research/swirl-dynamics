@@ -14,6 +14,8 @@
 
 import itertools
 import os
+from unittest import mock
+import zlib
 
 from absl import flags
 from absl.testing import absltest
@@ -249,6 +251,56 @@ class EvaluatorTest(parameterized.TestCase):
       )
       np.testing.assert_allclose(aggregated[m]["tensor_mean"], np.ones((1, 2)))
       self.assertEqual(aggregated[m]["mean"], 1.0)
+
+
+class ModelSeedDeterminismTest(parameterized.TestCase):
+
+  def test_seed_is_stable_under_hash_salts(self):
+    # `hash()` of a `str` is salted per process (PYTHONHASHSEED), so
+    # deriving seeds from it makes benchmark results differ across runs.
+    expected = zlib.crc32(b"model0")
+    self.assertEqual(evaluate.model_hash_seed("model0"), expected)
+    with mock.patch("builtins.hash", return_value=987654321):
+      self.assertEqual(evaluate.model_hash_seed("model0"), expected)
+
+  def test_distinct_models_get_distinct_seeds(self):
+    self.assertNotEqual(
+        evaluate.model_hash_seed("model0"), evaluate.model_hash_seed("model1")
+    )
+
+
+class RngDependentBenchmark:
+
+  def run_batch_inference(self, inference_fn, batch, rng):
+    del batch
+    return inference_fn(rng)
+
+  def compute_batch_metrics(self, pred, batch):
+    return {"collect0": batch}, {"abc": pred}
+
+
+class EvaluatorReproducibilityTest(parameterized.TestCase):
+
+  def _aggregate(self):
+    model = lambda rng: jax.random.normal(rng, (1, 2, 3))
+    evaluator = DummyEvaluator(
+        models={"model0": model, "model1": model},
+        benchmark=RngDependentBenchmark(),
+        rng=jax.random.PRNGKey(10),
+    )
+    evaluator.evaluate(
+        iterator=itertools.repeat(np.ones((1, 2))), num_batches=3
+    )
+    return evaluator.state.compute_aggregated_metrics()
+
+  def test_results_identical_under_different_hash_salt(self):
+    before = self._aggregate()
+    with mock.patch("builtins.hash", return_value=987654321):
+      after = self._aggregate()
+    for m in ("model0", "model1"):
+      np.testing.assert_array_equal(
+          before[m]["tensor_mean"], after[m]["tensor_mean"]
+      )
 
 
 class EvaluateRunTest(parameterized.TestCase):
