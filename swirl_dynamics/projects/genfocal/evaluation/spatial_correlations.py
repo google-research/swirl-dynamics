@@ -129,7 +129,7 @@ def get_pixel_time_series_and_neighbors(
 
 def compute_err(corr1: np.ndarray, corr2: np.ndarray) -> np.ndarray:
   """Calculates the MAE of correlation coefficients."""
-  return np.mean(np.abs(corr1 - corr2))
+  return np.mean(np.abs(corr1 - corr2))  # pyrefly: ignore[bad-return]
 
 
 def spatial_corr(city: xr.DataArray, neighbors: xr.DataArray) -> xr.DataArray:

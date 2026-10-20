@@ -253,7 +253,7 @@ def evaluation_pipeline(
       time_chunk=128,
   )
 
-  return err_dict
+  return err_dict  # pyrefly: ignore[bad-return]
 
 
 def parse_experiment_dirs(exp_dir):

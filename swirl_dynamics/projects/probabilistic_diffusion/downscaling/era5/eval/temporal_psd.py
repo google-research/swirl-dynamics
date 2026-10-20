@@ -45,7 +45,7 @@ def _calculate_melr(
       pred_freq, pred_psd, kind="cubic", bounds_error=False, fill_value=np.nan
   )
   pred_psd = pred_interp(ref_freq)
-  return np.nanmean(np.abs(np.log(ref_psd) - np.log(pred_psd)))
+  return np.nanmean(np.abs(np.log(ref_psd) - np.log(pred_psd)))  # pyrefly: ignore[bad-return]
 
 
 def compute_temporal_psd(data_array: xr.DataArray, samples_per_year: int = 100):
