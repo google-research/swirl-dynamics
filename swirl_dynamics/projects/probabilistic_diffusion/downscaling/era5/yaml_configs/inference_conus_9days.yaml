@@ -63,7 +63,7 @@ model:
   normalize_qk: true
   cond_resize_method: "nearest"
   cond_embedding_dim: 128
-  checkpoint: "/wanzy/data/genbcsr_release_staging/inference/checkpoints/sr_conus_t2m_w10m_q1000_msl"
+  checkpoint: "/data/genbcsr_release_staging/inference/checkpoints/sr_conus_t2m_w10m_q1000_msl"
 
 sampler:
   num_overlap_days: 1

@@ -93,9 +93,7 @@ class RegressionMetricsTest(parameterized.TestCase):
       expected = expected / normalizer.sum(axis=sum_axes, keepdims=True)
     reduced_axes = tuple(sorted({a % truth.ndim for a in sum_axes + mean_axes}))
     expected = expected.mean(axis=reduced_axes)
-    metric = (
-        reg.mean_absolute_error if absolute else reg.mean_squared_error
-    )
+    metric = reg.mean_absolute_error if absolute else reg.mean_squared_error
 
     def compute(values):
       return metric(
@@ -229,6 +227,15 @@ class RegressionMetricsTest(parameterized.TestCase):
         jax.jit(jax.grad(lambda p: reg.mean_squared_error(p, target))),
     ):
       np.testing.assert_allclose(derivative(x), 2 * x / x.size)
+
+  @parameterized.product(
+      metric=(reg.mean_squared_error, reg.mean_absolute_error),
+      axis=(3, -4),
+  )
+  def test_invalid_sum_axes_when_mean_axes_is_none(self, metric, axis):
+    values = jnp.ones((2, 3, 4))
+    with self.assertRaisesRegex(ValueError, "out of bounds"):
+      metric(values, values, sum_axes=axis, mean_axes=None)
 
 
 if __name__ == "__main__":

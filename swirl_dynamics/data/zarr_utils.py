@@ -26,11 +26,14 @@ import xarray as xr
 filesys = epath.backend.tf_backend
 
 
+CoordinateType = xr.Dataset | xr.core.coordinates.DatasetCoordinates
+
+
 def collected_metrics_to_ds(
     data: Mapping[str, Any],
     append_dim: str,
     append_slice: slice,
-    coords: xr.core.coordinates.DatasetCoordinates | None = None,
+    coords: CoordinateType | None = None,
 ) -> xr.Dataset:
   """Packages collected metrics as an xarray.Dataset.
 
@@ -57,10 +60,11 @@ def collected_metrics_to_ds(
   coord_dict = None
   dims = [append_dim]
   if coords is not None:
+    dim_sizes = dict(coords.dims)
+    dim_names = list(dim_sizes.keys())
+    dim_lengths = list(dim_sizes.values())
     for cur_size in fixed_shape:
-      dims.append(
-          list(coords.dims.keys())[list(coords.dims.values()).index(cur_size)]  # pyrefly: ignore[bad-argument-type]
-      )
+      dims.append(str(dim_names[dim_lengths.index(cur_size)]))
     if len(dims) == len(set(dims)):
       coord_dict = {
           elem: coords[elem].data for elem in dims if elem != append_dim
@@ -75,9 +79,12 @@ def collected_metrics_to_ds(
 
   data_vars = {}
   for key, value in data.items():
-    if coord_dict is None:
-      dims.extend([f'dim_{i}' for i in range(value.ndim - 1)])
-    data_vars[key] = (dims, value)
+    var_dims = (
+        dims
+        if coord_dict is not None
+        else [append_dim, *[f'dim_{i}' for i in range(value.ndim - 1)]]
+    )
+    data_vars[key] = (var_dims, value)
 
   return xr.Dataset(
       data_vars=data_vars,
@@ -92,7 +99,7 @@ def collected_metrics_to_zarr(
     out_dir: epath.PathLike,
     basename: str,
     append_dim: str,
-    coords: xr.core.coordinates.DatasetCoordinates | None = None,
+    coords: CoordinateType | None = None,
     append_slice: slice,
 ) -> None:
   """Writes collected metrics to zarr."""
@@ -107,7 +114,7 @@ def collected_metrics_to_zarr(
 
 def aggregated_metrics_to_ds(
     data: Mapping[str, Any],
-    coords: xr.core.coordinates.DatasetCoordinates | None = None,
+    coords: CoordinateType | None = None,
 ) -> xr.Dataset:
   """Packages aggregated metrics as an xarray.Dataset.
 
@@ -136,7 +143,7 @@ def aggregated_metrics_to_ds(
           'Reverting to generic dimension labels.',
           {dims.values()},
       )
-    if 'time' in coords:
+    if 'time' in coords and np.issubdtype(coords['time'].dtype, np.datetime64):
       start_time = str(coords['time'].values[0].astype('<M8[h]'))
       end_time = str(coords['time'].values[-1].astype('<M8[h]'))
       delta = (coords['time'][1] - coords['time'][0]).values
@@ -167,7 +174,7 @@ def aggregated_metrics_to_zarr(
     *,
     out_dir: epath.PathLike,
     basename: str,
-    coords: xr.core.coordinates.DatasetCoordinates | None = None,
+    coords: CoordinateType | None = None,
 ) -> None:
   """Writes aggregated metrics to zarr."""
   ds = aggregated_metrics_to_ds(data, coords)
