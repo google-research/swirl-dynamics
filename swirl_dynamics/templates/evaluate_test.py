@@ -198,12 +198,10 @@ class EvalStateTest(parameterized.TestCase):
     model_keys = ["model0"]
     state = evaluate.EvalState.create(model_keys, TestAggMetrics)
     for _ in range(num_batches):
-      state = state.aggregate_batch_result(
-          {
-              m: TestAggMetrics.single_from_model_output(**eval_output)
-              for m in model_keys
-          }
-      )
+      state = state.aggregate_batch_result({
+          m: TestAggMetrics.single_from_model_output(**eval_output)
+          for m in model_keys
+      })
 
     aggregated = state.compute_aggregated_metrics()
     for m in model_keys:
@@ -432,6 +430,47 @@ class EvaluateRunTest(parameterized.TestCase):
     np.testing.assert_allclose(
         collected["model0"]["collect0"], np.arange(20, 30)
     )
+
+  def test_eval_run_divisible_batches_with_collected_dump(self):
+    work_dir = self.create_tempdir().full_path
+    coords = xr.Dataset(
+        coords={"time": np.arange(20), "b": np.arange(1), "x": np.arange(2)}
+    ).coords
+    evaluate.run(
+        evaluator=self.evaluator,
+        dataloader=itertools.repeat(np.ones(self.collect_shape), 15),
+        workdir=work_dir,
+        dump_collected_every_n_groups=1,
+        num_aggregation_batches=10,
+        max_eval_batches=100,
+        enable_checkpoints=False,
+        results_format="zarr",
+        datacoords=coords,
+    )
+    collected_ds = xr.open_zarr(
+        epath.Path(work_dir) / "results/model0_collected_metrics.zarr"
+    )
+    self.assertEqual(collected_ds["collect0"].shape, (15, 2))
+    np.testing.assert_array_equal(
+        collected_ds.coords["time"].values, np.arange(15)
+    )
+
+    work_dir_div = self.create_tempdir().full_path
+    evaluate.run(
+        evaluator=self.evaluator,
+        dataloader=itertools.repeat(np.ones(self.collect_shape), 20),
+        workdir=work_dir_div,
+        dump_collected_every_n_groups=1,
+        num_aggregation_batches=10,
+        max_eval_batches=100,
+        enable_checkpoints=False,
+        results_format="zarr",
+        datacoords=coords,
+    )
+    collected_div = xr.open_zarr(
+        epath.Path(work_dir_div) / "results/model0_collected_metrics.zarr"
+    )
+    self.assertEqual(collected_div["collect0"].shape, (20, 2))
 
 
 if __name__ == "__main__":

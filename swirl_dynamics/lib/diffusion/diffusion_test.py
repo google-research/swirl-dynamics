@@ -281,6 +281,30 @@ class NoiseLossWeightingTest(parameterized.TestCase):
     expected_factor = gamma / (data_std**2 / sigma_low**2)  # gamma/SNR
     np.testing.assert_allclose(min_snr, edm * expected_factor, rtol=1e-5)
 
+  def test_min_snr_edm_weighting_zero_and_extreme_sigma_grad(self):
+    weight_fn = diffusion.min_snr_edm_weighting(data_std=1.0, gamma=5.0)
+    sigma = jnp.asarray([0.0, 0.01, 1.0, 65504.0], dtype=jnp.float32)
+    weights = jax.jit(weight_fn)(sigma)
+    grads = jax.jit(jax.grad(lambda s: jnp.sum(weight_fn(s))))(sigma)
+    self.assertTrue(bool(jnp.all(jnp.isfinite(weights))))
+    self.assertTrue(bool(jnp.all(jnp.isfinite(grads))))
+    self.assertAlmostEqual(float(weights[0]), 5.0, places=5)
+
+    with self.assertRaisesRegex(ValueError, "`data_std` must be positive"):
+      diffusion.min_snr_edm_weighting(data_std=0.0)
+    with self.assertRaisesRegex(ValueError, "`gamma` must be positive"):
+      diffusion.min_snr_edm_weighting(data_std=1.0, gamma=0.0)
+
+  def test_t_edm_weighting_validation_and_values(self):
+    weight_fn = diffusion.t_edm_weighting(df=3, data_std=2.0)
+    sigma = jnp.asarray([1.0, 2.0], dtype=jnp.float32)
+    weights = weight_fn(sigma)
+    expected = (3.0 * np.square(sigma) + 4.0) / (3.0 * 4.0 * np.square(sigma))
+    np.testing.assert_allclose(weights, expected, rtol=1e-6)
+
+    with self.assertRaisesRegex(ValueError, "`df` must be greater than 2"):
+      diffusion.t_edm_weighting(df=2)
+
 
 if __name__ == "__main__":
   absltest.main()

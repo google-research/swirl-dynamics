@@ -65,6 +65,13 @@ class AxialAttentionLayersTest(parameterized.TestCase):
     self.assertEqual(out.dtype, dtype)  # pyrefly: ignore[missing-attribute]
     self.assertEqual(out.shape, input_shape)  # pyrefly: ignore[missing-attribute]
 
+  @parameterized.parameters(3, -1, -4)
+  def test_pos_embedding_invalid_axis_raises_value_error(self, axis):
+    inputs = jnp.ones((2, 4, 8))
+    model = axial_attention.AddAxialPositionEmbedding(position_axis=axis)
+    with self.assertRaises(ValueError):
+      model.init_with_output(jax.random.PRNGKey(0), inputs=inputs)
+
 
 if __name__ == "__main__":
   absltest.main()
