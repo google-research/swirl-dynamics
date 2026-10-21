@@ -117,6 +117,41 @@ class GuidanceTransformsTest(parameterized.TestCase):
 
     self.assertEqual(denoised.shape, test_dim)
 
+  def test_classifier_free_cond_none_and_zero_strength(self):
+    calls = []
+
+    def _counting_denoiser(x, sigma, cond=None):
+      del sigma
+      calls.append(cond)
+      return x + (0.0 if cond is None else cond["a"])
+
+    hybrid_zero = guidance.ClassifierFreeHybrid(guidance_strength=0.0)(
+        _counting_denoiser, {}
+    )
+    out = hybrid_zero(
+        jnp.array([1.0]), jnp.array([0.1]), {"a": jnp.array([2.0])}
+    )
+    np.testing.assert_allclose(out, jnp.array([3.0]))
+    self.assertLen(calls, 1)
+
+    calls.clear()
+    hybrid_none = guidance.ClassifierFreeHybrid(guidance_strength=0.5)(
+        _counting_denoiser, {}
+    )
+    out_none = hybrid_none(jnp.array([1.0]), jnp.array([0.1]), None)
+    np.testing.assert_allclose(out_none, jnp.array([1.0]))
+    self.assertLen(calls, 1)
+
+    calls.clear()
+    contrast_zero = guidance.ClassifierFreeContrastive(
+        guidance_strength=0.0, cond_key="a", contrast_cond_key="neg_a"
+    )(_counting_denoiser, {"neg_a": jnp.array(0.0)})
+    out_cz = contrast_zero(
+        jnp.array([1.0]), jnp.array([0.1]), {"a": jnp.array([2.0])}
+    )
+    np.testing.assert_allclose(out_cz, jnp.array([3.0]))
+    self.assertLen(calls, 1)
+
 
 if __name__ == "__main__":
   absltest.main()
