@@ -20,17 +20,19 @@ resolution, an axial attention block (involving space and/or time) is applied.
 """
 
 from collections.abc import MutableSequence, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
+from swirl_dynamics.lib.diffusion import preconditioning
 from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.lib.networks import rational_networks
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 PrecisionLike = (
     None
     | str
@@ -61,8 +63,8 @@ class AxialSelfAttentionBlock(nn.Module):
   precision: PrecisionLike = None
   normalize_qk: bool = False
   ffn_type: Literal["dense", "swiglu", "geglu", "rational_glu"] = "dense"
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -170,8 +172,8 @@ class DStack(nn.Module):
   num_heads: int = 8
   normalize_qk: bool = False
   ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, is_training: bool) -> list[Array]:
@@ -296,8 +298,8 @@ class UStack(nn.Module):
   precision: PrecisionLike = None
   normalize_qk: bool = False
   ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -476,8 +478,8 @@ class UNet3d(nn.Module):
   cond_embed_dim: int = 128
   ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -660,39 +662,16 @@ class PreconditionedDenoiser3d(UNet3d):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
     orig_dtype = x.dtype
-    # Here sigma can have a different type than x, as it may require more
-    # accuracy.
-
-    total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
-    # TODO Use jax.lax.rsqrt here.
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    # All these coefficients are computed in the input dtype.
-    c_in = c_in.astype(orig_dtype)
-    c_out = c_out.astype(orig_dtype)
-    c_skip = c_skip.astype(orig_dtype)
-    c_noise = c_noise.astype(orig_dtype)
-
-    x_in = jnp.multiply(c_in, x).astype(self.dtype)
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype), self.sigma_data, x.shape
+        )
+    )
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(self.dtype)
     f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
-    f_x = f_x.astype(orig_dtype)
-    out = jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
-
-    return out
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
