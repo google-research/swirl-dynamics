@@ -15,15 +15,18 @@
 """Backbone architectures for conditional downscaling modeling."""
 
 from collections.abc import Sequence
+from typing import TypeAlias
 
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
+from swirl_dynamics.lib.diffusion import preconditioning
 from swirl_dynamics.lib.diffusion import unets
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 
 
@@ -98,7 +101,7 @@ class ResizeUStack(nn.Module):
   use_attention: bool = False
   num_heads: int = 8
   channels_per_head: int = -1
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
   resize_method: str = "bilinear"
 
   @nn.compact
@@ -209,7 +212,7 @@ class GlobalSkipUNet(nn.Module):
       self,
       x: Array,
       sigma: Array,
-      cond: dict[str, Array],
+      cond: dict[str, Array] | None = None,
       *,
       is_training: bool,
   ) -> Array:
@@ -245,9 +248,9 @@ class GlobalSkipUNet(nn.Module):
           for res_s, inp_s in zip(self.resize_to_shape, input_size)
       ]):
         raise ValueError(
-            f"resize_to_shape {self.resize_to_shape} must be at",
-            f" least as large as input_size {input_size} to avoid",
-            " grid artifacts.",
+            f"resize_to_shape {self.resize_to_shape} must be at"
+            f" least as large as input_size {input_size} to avoid"
+            " grid artifacts."
         )
       x = layers.FilteredResize(
           output_size=self.resize_to_shape,
@@ -256,6 +259,7 @@ class GlobalSkipUNet(nn.Module):
       )(x)
 
     kernel_dim = x.ndim - 2
+    cond = {} if cond is None else cond
 
     # Interpolate conditioning inputs to latent spatial shape
     global_skip = InterpConvConcat(
@@ -294,7 +298,7 @@ class GlobalSkipUNet(nn.Module):
         resize_method=self.cond_resize_method,
     )(skips[-1], emb, skips, is_training=is_training)
 
-    h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
+    h = nn.swish(nn.GroupNorm(unets._safe_num_groups(h.shape[-1]))(h))
     h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=kernel_dim * (3,),
@@ -333,29 +337,20 @@ class GlobalSkipUNetDenoiser(GlobalSkipUNet):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training  # pyrefly: ignore[bad-argument-type]
+    orig_dtype = x.dtype
+    net_dtype = getattr(self, "dtype", orig_dtype)
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype), self.sigma_data, x.shape
+        )
     )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(net_dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
 
 
 class ResConvNet(nn.Module):
@@ -393,7 +388,7 @@ class ResConvNet(nn.Module):
       self,
       x: Array,
       sigma: Array,
-      cond: dict[str, Array],
+      cond: dict[str, Array] | None = None,
       *,
       is_training: bool,
   ) -> Array:
@@ -431,9 +426,9 @@ class ResConvNet(nn.Module):
           for res_s, inp_s in zip(self.resize_to_shape, input_size)
       ]):
         raise ValueError(
-            f"resize_to_shape {self.resize_to_shape} must be at",
-            f" least as large as input_size {input_size} to avoid",
-            " grid artifacts.",
+            f"resize_to_shape {self.resize_to_shape} must be at"
+            f" least as large as input_size {input_size} to avoid"
+            " grid artifacts."
         )
       x = layers.FilteredResize(
           output_size=self.resize_to_shape,
@@ -441,6 +436,7 @@ class ResConvNet(nn.Module):
           padding=self.padding,
       )(x)
     kernel_dim = x.ndim - 2
+    cond = {} if cond is None else cond
     x = layers.ConvLayer(
         features=self.noise_embed_dim,
         kernel_size=(3,) * kernel_dim,
@@ -475,7 +471,7 @@ class ResConvNet(nn.Module):
           name=f"ConvBlock_{block_id}",
       )(h, emb, is_training=is_training)
 
-    h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
+    h = nn.swish(nn.GroupNorm(unets._safe_num_groups(h.shape[-1]))(h))
     # Combine deterministic skip conditioning with ConvBlocks output
     h = layers.CombineResidualWithSkip(
         project_skip=h.shape[-1] != global_skip.shape[-1]
@@ -515,26 +511,17 @@ class ResConvNetDenoiser(ResConvNet):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training  # pyrefly: ignore[bad-argument-type]
+    orig_dtype = x.dtype
+    net_dtype = getattr(self, "dtype", orig_dtype)
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype), self.sigma_data, x.shape
+        )
     )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(net_dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
