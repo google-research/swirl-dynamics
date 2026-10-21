@@ -135,6 +135,10 @@ class TrajectorySamplerParallel:
           f" * (num_model_days ({self.num_model_days}) - num_overlap_days"
           f" ({self.num_overlap_days})) + num_overlap_days"
       )
+    if len(self.tspan) < 2:
+      raise ValueError(
+          f"`tspan` must contain at least 2 time steps, got {len(self.tspan)}."
+      )
     if not str(self.store_path).endswith(".zarr"):
       self.store_path = epath.Path(self.store_path) / "samples.zarr"
 
@@ -455,6 +459,10 @@ class TrajectorySamplerParallel:
 
   def generate_and_save(self, seed: int, num_samples: int) -> None:
     """Generate samples."""
+    if len(self.tspan) < 2:
+      raise ValueError(
+          f"`tspan` must contain at least 2 time steps, got {len(self.tspan)}."
+      )
     if num_samples % self.batch_size != 0:
       raise ValueError(
           f"Number of samples ({num_samples}) must be a multiple of batch size"
@@ -476,7 +484,7 @@ class TrajectorySamplerParallel:
       logging.info("Sampling batch %d / %d", batch_idx + 1, num_batches)
 
       init_rng, *denoise_rng, rng = jax.random.split(
-          rng, num=len(self.tspan) + 2
+          rng, num=len(self.tspan) + 1
       )
       # ~ (num_segments, samples, time, lon, lat, variables)
       x = self.initialize_state(
@@ -484,8 +492,8 @@ class TrajectorySamplerParallel:
       )
 
       step = 0
-      while step < len(self.tspan):
-        logging.info("Denoising step %d / %d", step + 1, len(self.tspan))
+      while step < len(self.tspan) - 1:
+        logging.info("Denoising step %d / %d", step + 1, len(self.tspan) - 1)
         x = self.one_step_denoise(
             x,
             self.tspan[step],
