@@ -18,10 +18,12 @@ from flax import linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 import swirl_dynamics.lib.layers.convolutions as conv_lib
+import swirl_dynamics.lib.layers.residual as residual_lib
+import swirl_dynamics.lib.layers.upsample as upsample_lib
 
 Array = jax.Array
+DTypeLike = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 
 
@@ -31,21 +33,15 @@ def default_init(scale: float = 1e-10) -> Initializer:
   )
 
 
-class CombineResidualSkip(nn.Module):
-  project_skip: bool = False
-
-  @nn.compact
-  def __call__(self, *, residual: Array, skip: Array) -> Array:
-    if self.project_skip:
-      skip = nn.Dense(residual.shape[-1], kernel_init=default_init(1.0))(skip)
-    return (skip + residual) / np.sqrt(2.0)
+class CombineResidualSkip(residual_lib.CombineResidualWithSkip):
+  """Combine residual and skip connections (preserves Flax scope name)."""
 
 
 class AttentionBlock(nn.Module):
   """Attention block."""
 
   num_heads: int = 1
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, *, is_training: bool) -> Array:
@@ -146,23 +142,7 @@ def depth_to_space(x: Array, block_shape: tuple[int, ...]) -> Array:
         " minus 2."
     )
 
-  if x.shape[-1] % np.prod(block_shape):
-    raise ValueError(
-        f"The number of channels ({x.shape[-1]}) must be divisible by the block"
-        f" size ({np.prod(block_shape)})."
-    )
-
-  old_shape = x.shape
-  cout = old_shape[-1] // np.prod(block_shape)
-  x = jnp.reshape(x, old_shape[:-1] + tuple(block_shape) + (cout,))
-  # interleave old and new spatial axes
-  spatial_axes = np.arange(2 * len(block_shape), dtype=np.int32) + 1
-  new_axes = spatial_axes.reshape(2, -1).ravel(order="F")
-  x = jnp.transpose(x, (0,) + tuple(new_axes) + (len(new_axes) + 1,))  # pyrefly: ignore[bad-argument-type]
-  # collapse interleaved axes
-  new_shape = np.asarray(old_shape[1:-1]) * np.asarray(block_shape)
-  new_shape = (old_shape[0],) + tuple(new_shape) + (cout,)
-  return jnp.reshape(x, new_shape)
+  return upsample_lib.channel_to_space(inputs=x, block_shape=block_shape)
 
 
 class Add1dPosEmbedding(nn.Module):
@@ -186,9 +166,11 @@ class Add2dPosEmbedding(nn.Module):
   @nn.compact
   def __call__(self, x: Array) -> Array:
     if x.ndim != 4:
-      raise ValueError("Only 4D inputs are supported for the two ",
-                       "dimensional positional embeddings. Instead the ",
-                       "dimension of the input is {x.ndim}.")
+      raise ValueError(
+          "Only 4D inputs are supported for the two "
+          "dimensional positional embeddings. Instead the "
+          f"dimension of the input is {x.ndim}."
+      )
     _, h, w, c = x.shape
     if c % 2 == 1:
       raise ValueError(f"Number of channels must be even, instead we had {c}")
@@ -227,7 +209,7 @@ class DStack(nn.Module):
   use_attention: bool = False
   num_heads: int = 8
   use_position_encoding: bool = False
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, *, is_training: bool) -> list[Array]:
@@ -301,7 +283,7 @@ class UStack(nn.Module):
   padding: str = "CIRCULAR"
   use_attention: bool = False
   num_heads: int = 8
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
