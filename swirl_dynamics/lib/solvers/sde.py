@@ -59,7 +59,7 @@ class SdeSolver(Protocol):
       full path containing all steps.
   """
 
-  terminal_only: bool
+  terminal_only: ClassVar[bool]
 
   def __call__(
       self,
@@ -148,7 +148,7 @@ class LoopSdeSolver:
   differentiable.
   """
 
-  terminal_only: bool = True
+  terminal_only: ClassVar[bool] = True
 
   def step(
       self,
@@ -228,11 +228,15 @@ def EulerMaruyama(  # pylint: disable=invalid-name
 ) -> SdeSolver:
   match iter_type:
     case "scan":
-      time_axis_pos = time_axis_pos or 0
-      return ScanBasedEulerMaruyama(time_axis_pos=time_axis_pos)  # pyrefly: ignore[bad-return]
+      resolved_axis = 0 if time_axis_pos is None else time_axis_pos
+      return ScanBasedEulerMaruyama(time_axis_pos=resolved_axis)
     case "loop":
       if time_axis_pos is not None:
         warnings.warn(
             "`time_axis_pos` is set but does not apply to loop-based solver."
         )
       return LoopBasedEulerMaruyama()
+    case _:
+      raise ValueError(
+          f"`iter_type` must be 'scan' or 'loop', got {iter_type!r}."
+      )
