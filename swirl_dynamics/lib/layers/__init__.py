@@ -26,6 +26,29 @@ from swirl_dynamics.lib.layers.convolutions import (
     DownsampleConv,
     LatLonConv,
 )
+from swirl_dynamics.lib.layers.normalized_layers import (
+    compute_norm,
+    mp_cat,
+    mp_convex,
+    mp_silu,
+    normalize,
+)
 from swirl_dynamics.lib.layers.residual import CombineResidualWithSkip
 from swirl_dynamics.lib.layers.resize import FilteredResize
 from swirl_dynamics.lib.layers.upsample import channel_to_space
+
+__all__ = [
+    "AddAxialPositionEmbedding",
+    "AxialSelfAttention",
+    "CombineResidualWithSkip",
+    "ConvLayer",
+    "DownsampleConv",
+    "FilteredResize",
+    "LatLonConv",
+    "channel_to_space",
+    "compute_norm",
+    "mp_cat",
+    "mp_convex",
+    "mp_silu",
+    "normalize",
+]
