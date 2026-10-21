@@ -13,11 +13,16 @@
 # limitations under the License.
 
 """Residual layer modules."""
+
+import math
+from typing import TypeAlias
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 PrecisionLike = (
     None
     | str
@@ -38,8 +43,8 @@ class CombineResidualWithSkip(nn.Module):
 
   project_skip: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, *, residual: Array, skip: Array) -> Array:
@@ -53,4 +58,4 @@ class CombineResidualWithSkip(nn.Module):
           dtype=self.dtype,
           param_dtype=self.param_dtype,
       )(skip)
-    return (skip + residual) / jnp.sqrt(2.0)
+    return (skip + residual) / math.sqrt(2.0)

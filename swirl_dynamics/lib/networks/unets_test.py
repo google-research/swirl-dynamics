@@ -42,7 +42,8 @@ class NetworksTest(parameterized.TestCase):
         use_position_encoding=use_pos_enc,
     )
     out, _ = model.init_with_output(
-        jax.random.PRNGKey(42), x=x,  # is_training=True
+        jax.random.PRNGKey(42),
+        x=x,  # is_training=True
     )
     self.assertEqual(out.shape, x.shape)
 

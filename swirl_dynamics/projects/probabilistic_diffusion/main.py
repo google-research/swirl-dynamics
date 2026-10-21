@@ -72,8 +72,8 @@ def main(argv):
     logging.info("Using JAX XLA backend %s", jax_xla_backend)
   logging.info("JAX process: %d / %d", jax.process_index(), jax.process_count())
   logging.info("JAX devices: %r", jax.devices())
-  # Add a note so that we can tell which Borg task is which JAX host.
-  # (Borg task 0 is not guaranteed to be host 0)
+  # Add a note so that we can tell which task is which JAX host.
+  # (Task 0 is not guaranteed to be host 0)
   platform.work_unit().set_task_status(
       f"process_index: {jax.process_index()}, "
       f"process_count: {jax.process_count()}"
