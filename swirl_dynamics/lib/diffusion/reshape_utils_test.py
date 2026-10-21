@@ -13,10 +13,10 @@
 # limitations under the License.
 
 """Tests for the reshape utilities used in the ViViT-based models."""
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
-
 from swirl_dynamics.lib.diffusion import reshape_utils
 
 
@@ -51,12 +51,12 @@ class ReshapeTest(parameterized.TestCase):
 
     x = jax.random.normal(jax.random.PRNGKey(0), shape)
 
-    new_batch = {'1': batch_size * height * width,
-                 '2': batch_size * time * width,
-                 '3': batch_size * time * height}
-    new_token = {'1': time,
-                 '2': height,
-                 '3': width}
+    new_batch = {
+        '1': batch_size * height * width,
+        '2': batch_size * time * width,
+        '3': batch_size * time * height,
+    }
+    new_token = {'1': time, '2': height, '3': width}
 
     out = reshape_utils.reshape_3d_to_1d_factorized(x, axis=axis)
 
@@ -97,6 +97,17 @@ class ReshapeTest(parameterized.TestCase):
     )
 
     self.assertEqual(out_identity.tolist(), x.tolist())
+
+  def test_invalid_axis_raises_value_error(self):
+    x_1d = jax.random.normal(jax.random.PRNGKey(0), (16, 4, 3))
+    with self.assertRaisesRegex(ValueError, 'input axis should be either 1'):
+      reshape_utils.reshape_to_2d_factorized(
+          x_1d, axis=0, two_d_shape=(2, 4, 8, 3)
+      )
+    with self.assertRaisesRegex(ValueError, 'input axis should be either 1'):
+      reshape_utils.reshape_to_3d_factorized(
+          x_1d, axis=4, three_d_shape=(2, 4, 2, 4, 3)
+      )
 
 
 if __name__ == '__main__':

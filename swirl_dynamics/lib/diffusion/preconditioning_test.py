@@ -268,6 +268,55 @@ class PreconditioningTest(parameterized.TestCase):
       with self.assertRaisesRegex(ValueError, "sigma must be 1D"):
         preconditioning.compute_denoising_preconditioners(sigma, 0.5, (2, 3))
 
+  def test_heavy_tailed_preconditioners_extreme_sigma_float16(self):
+    sigma = jnp.asarray([1024.0, 65504.0], dtype=jnp.float16)
+    sigma_data = 0.5
+    x_shape = (2, 4, 4, 1)
+    df = 3.0
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            sigma, sigma_data, x_shape, df=df
+        )
+    )
+    sigma_f64 = np.asarray(sigma, dtype=np.float64)
+    df_scale = np.sqrt((df - 2.0) / df)
+    scaled_sigma_data = sigma_data * df_scale
+    total_std = np.hypot(scaled_sigma_data, sigma_f64)
+    expanded = (2, 1, 1, 1)
+    expected = (
+        (df_scale / total_std).reshape(expanded),
+        (sigma_data * (sigma_f64 / total_std)).reshape(expanded),
+        ((scaled_sigma_data / total_std) ** 2).reshape(expanded),
+        0.25 * np.log(sigma_f64),
+    )
+    for actual, wanted in zip((c_in, c_out, c_skip, c_noise), expected):
+      self.assertEqual(actual.dtype, jnp.float16)
+      self.assertTrue(bool(jnp.all(jnp.isfinite(actual))))
+      np.testing.assert_allclose(actual, wanted, rtol=3e-3, atol=1e-7)
+
+    with self.assertRaisesRegex(ValueError, "`df` must be greater than 2"):
+      preconditioning.compute_denoising_preconditioners(
+          sigma, sigma_data, x_shape, df=2.0
+      )
+
+  def test_mixed_precision_bfloat16_and_float64_preservation(self):
+    sigma_data = 1.5
+    net = preconditioning.Preconditioned(SimpleNetwork(), sigma_data=sigma_data)
+    x_bf16 = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=jnp.bfloat16)
+    sigma_bf16 = jnp.array([0.2, 0.3], dtype=jnp.bfloat16)
+    out_bf16 = net(x_bf16, sigma_bf16, is_training=False)
+    self.assertEqual(out_bf16.dtype, jnp.bfloat16)
+    self.assertTrue(bool(jnp.all(jnp.isfinite(out_bf16))))
+
+    with jax.enable_x64():
+      x_f64 = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=jnp.float64)
+      sigma_f32 = jnp.array([0.25, 0.5], dtype=jnp.float32)
+      out_f64 = net(x_f64, sigma_f32, is_training=False)
+      self.assertEqual(out_f64.dtype, jnp.float64)
+      sigma_b = _broadcastable(sigma_f32.astype(jnp.float64), x_f64.shape)
+      expected_f64 = _expected_output(x_f64, sigma_b, sigma_data)
+      np.testing.assert_allclose(out_f64, expected_f64, rtol=1e-14, atol=1e-14)
+
 
 if __name__ == "__main__":
   absltest.main()

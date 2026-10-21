@@ -23,17 +23,14 @@ transport." Advances in neural information processing systems 26 (2013).
 optimal transport maps." arXiv preprint arXiv:2109.12004 (2021).
 """
 
-from typing import Callable, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 
-
 Array = jax.Array
 State = tuple[Array, Array, Array, Array]
-
-# We need to enable x64 to avoid numerical issues.
-jax.config.update("jax_enable_x64", True)
 
 
 # TODO: Enable dataclasses for SinkhornOutput.
@@ -58,8 +55,8 @@ class SinkhornOutput(NamedTuple):
   epsilon: float
   reg_ot_cost: Array | None = None
   threshold: float | None = None
-  converged: bool | None = None
-  num_iterations: int | None = None
+  converged: bool | Array | None = None
+  num_iterations: int | Array | None = None
   # TODO: Compute deviation from optimality in the solutions.
   # errors: jnp.ndarray | None = None
 
@@ -114,7 +111,7 @@ class SinkhornSolver:
       num_iterations: int = 100,
       threshold: float = 1e-3,
       metric: Callable[[Array], Array] = lambda x: jnp.pow(x, 2),
-      eps_marginal: float = 1e-12,
+      eps_marginal: float = 0.0,
   ):
     self.epsilon = epsilon
     self.num_iterations = num_iterations
@@ -124,15 +121,29 @@ class SinkhornSolver:
     self.eps_marginal = eps_marginal
     self._solver = jax.jit(self._forward_solve)
 
-  def __call__(self, x: Array, y: Array) -> SinkhornOutput:
-    return self._solver(x, y)
+  def __call__(
+      self,
+      x: Array,
+      y: Array,
+      a: Array | None = None,
+      b: Array | None = None,
+  ) -> SinkhornOutput:
+    return self._solver(x, y, a, b)
 
-  def _forward_solve(self, x: Array, y: Array) -> SinkhornOutput:
+  def _forward_solve(
+      self,
+      x: Array,
+      y: Array,
+      a: Array | None = None,
+      b: Array | None = None,
+  ) -> SinkhornOutput:
     """Computation of the cost and the coupling matrix.
 
     Args:
       x: Collection of points of set A.
       y: Collection of point of set B.
+      a: Optional marginal weights for `x` (defaults to uniform).
+      b: Optional marginal weights for `y` (defaults to uniform).
 
     Returns:
       An instance of SinkhornOutput, which is a named tuple containing the cost
@@ -151,7 +162,16 @@ class SinkhornSolver:
     num_y = y.shape[0]
 
     # Defines the marginal densities as empirical measures.
-    a, b = jnp.ones((num_x,)) / num_x, jnp.ones((num_y,)) / num_y
+    if a is None:
+      a = jnp.ones((num_x,), dtype=x.dtype) / num_x
+    else:
+      a = jnp.asarray(a, dtype=x.dtype)
+      a = a / jnp.sum(a)
+    if b is None:
+      b = jnp.ones((num_y,), dtype=y.dtype) / num_y
+    else:
+      b = jnp.asarray(b, dtype=y.dtype)
+      b = b / jnp.sum(b)
 
     # Initialises approximation vectors in log domain.
     u, v = jnp.zeros_like(a), jnp.zeros_like(b)
@@ -211,7 +231,7 @@ class SinkhornSolver:
     reg_ot_cost = jnp.sum(pi * cost_matrix, axis=(-2, -1))
 
     # Checks if the iteration converged.
-    converged = num_its < self.num_iterations - 1
+    converged = num_its < self.num_iterations
 
     return SinkhornOutput(
         potentials=(u, v),
@@ -279,20 +299,16 @@ class SinkhornSolver:
     Args:
       potential: The potential g (or f) given by the Sinkhorn algorithm.
       y: Collection of point of set B, associated with the potential.
-      weights: Quadrature weights (or marginal densities) for the y points.
+      weights: Optional quadrature weights for `y` when not already absorbed
+        into `potential`.
 
     Returns:
       A function that computes the transport function at a given x.
     """
-
-    # Computes the potential of set A.
-    f_eps = lambda x: self._potential_fn(x, potential, y, weights)
-
-    # Here we assume that the cost is the Euclidean distance. In comparison with
-    # [2] we don't have a 1/2 factor in the definition of the distance, so we
-    # need to divide by 2.
-    return jax.vmap(
-        lambda x: x - 0.5 * jax.grad(f_eps)(x), in_axes=0, out_axes=0
+    f_eps = lambda pt: self._potential_fn(pt, potential, y, weights)
+    grad_map = jax.vmap(lambda pt: pt - 0.5 * jax.grad(f_eps)(pt))
+    return lambda x: (
+        grad_map(jnp.atleast_2d(x))[0] if x.ndim == 1 else grad_map(x)
     )
 
   def _potential_fn(
@@ -315,52 +331,40 @@ class SinkhornSolver:
       x: Collection of points of set A where f_{\epsilon} will be computed at.
       potential: Potential of set B.
       y: Collection of point of set B.
-      weights: Quadrature weights (or marginal densities) for the y points.
+      weights: Optional quadrature weights for `y` when not already absorbed
+        into `potential`.
 
     Returns:
       The potential of set A.
     """
-    x = jnp.atleast_2d(x)
-
-    if weights is None:
-      num_y = y.shape[0]
-      weights = jnp.ones((num_y,)) / num_y
-
-    if x.shape[-1] != y.shape[-1]:
+    x_2d = jnp.atleast_2d(x)
+    if x_2d.shape[-1] != y.shape[-1]:
       raise ValueError(
-          "x and y should have the same feature dimension, but"
-          f" they have shape {x.shape[-1]}, {y.shape[-1]}, respectively."
+          "x and y should have the same feature dimension, got"
+          f" {x_2d.shape[-1]} and {y.shape[-1]}."
       )
-
-    # Computes cost matrix with respect to the current x.
-    cost = jnp.squeeze(self._compute_cost(x, y))
-    z = (potential - cost) / self.epsilon
-    lse = -self.epsilon * jax.scipy.special.logsumexp(z, b=weights, axis=-1)
-    return jnp.squeeze(lse)
+    log_w = (potential[None, :] - self._compute_cost(x_2d, y)) / self.epsilon
+    if weights is not None:
+      log_w = log_w + jnp.log(weights)[None, :]
+    lse = -self.epsilon * jax.scipy.special.logsumexp(log_w, axis=-1)
+    return lse[0] if x.ndim == 1 else lse
 
   def transport_fn_direct(
-      self, potential: Array, y: Array, weights: Array | None
+      self, potential: Array, y: Array, weights: Array | None = None
   ) -> Callable[[Array], Array]:
-    """Transport directly (not very stable). Using the formulas in [1]."""
-    if potential.ndim != 1:
+    """Transport directly using the barycentric projection formula in [1]."""
+    if potential.ndim != 1 or potential.shape[0] != y.shape[0]:
       raise ValueError(
-          "The potential should be a vector, but its dimension are not one,"
-          f" instead {y.ndim}"
+          f"Expected 1D potential matching `y.shape[0]`, got {potential.shape}"
+          f" vs {y.shape}."
       )
-    if potential.shape[0] != y.shape[0]:
-      raise ValueError(
-          "We assume that the potential comes from solving Sinkhorn, but"
-          f" potential.shape[0] != y.shape[0]: {potential.shape}, {y.shape}"
-      )
-
-    if not weights:
-      num_y = y.shape[0]
-      weights = jnp.ones((num_y,)) / num_y
 
     def _transport_direct(x: Array) -> Array:
-      # The dimension should be (1, num_y)
-      cost = jnp.squeeze(self._compute_cost(x, y))
-      z = jnp.exp((potential - cost) / self.epsilon) * weights
-      return jnp.sum(y * z[:, None], axis=-1)/jnp.sum(z)
+      x_2d = jnp.atleast_2d(x)
+      log_w = (potential[None, :] - self._compute_cost(x_2d, y)) / self.epsilon
+      if weights is not None:
+        log_w = log_w + jnp.log(weights)[None, :]
+      out = jax.nn.softmax(log_w, axis=-1) @ y
+      return out[0] if x.ndim == 1 else out
 
     return _transport_direct
