@@ -14,7 +14,7 @@
 
 """Training callback library."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import functools
 import os
@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 import orbax.checkpoint as ocp
+from orbax.checkpoint.checkpoint_managers import preservation_policy as preservation_policy_lib
 from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
 from swirl_dynamics.templates import utils
@@ -39,6 +40,8 @@ import tqdm.auto as tqdm
 
 Array = jax.Array
 ComputedMetrics = Mapping[str, Array | Mapping[str, Array]]
+PolicyCheckpointInfo = preservation_policy_lib.PolicyCheckpointInfo
+PreservationContext = preservation_policy_lib.PreservationContext
 Trainer = trainers.BaseTrainer
 
 
@@ -527,3 +530,128 @@ class InitializeFromCheckpoint(Callback):
         for field in self.fields_to_override
     })
     trainer.train_state = trainer.train_state.replace(**overrides)
+
+
+@dataclasses.dataclass(kw_only=True)
+class ParetoFrontier(preservation_policy_lib.PreservationPolicy):
+  """Preserves checkpoints that lie on the Pareto frontier of multiple metrics.
+
+  Attributes:
+    metric_fns: Sequence of callables. Each takes the metrics dict and returns a
+      float to minimize.
+    max_to_keep: Maximum number of Pareto-frontier checkpoints to retain (must
+      be `>= max(1, len(metric_fns))` when set). When the frontier exceeds this
+      size, each metric's best checkpoint is kept as an anchor and remaining
+      slots are filled with the most recent frontier checkpoints. The latest
+      checkpoint (`checkpoints[-1]`) is always preserved for preemption
+      recovery, so up to `max_to_keep + 1` checkpoints may be retained on disk
+      when `checkpoints[-1]` is not in the pruned frontier. If `None`, all
+      Pareto-frontier checkpoints (plus `checkpoints[-1]`) are retained.
+  """
+
+  metric_fns: Sequence[Callable[[Any], Any]]  # Callable[[PyTree], float]
+  max_to_keep: int | None = None
+
+  def __post_init__(self):
+    min_keep = max(1, len(self.metric_fns))
+    if self.max_to_keep is not None and self.max_to_keep < min_keep:
+      raise ValueError(
+          f"`max_to_keep` must be >= {min_keep} (max(1, len(metric_fns))) when"
+          f" set, got {self.max_to_keep}."
+      )
+
+  def should_preserve(
+      self,
+      checkpoints: Sequence[PolicyCheckpointInfo],
+      *,
+      context: PreservationContext,
+  ) -> Sequence[bool]:
+    del context
+    if not checkpoints:
+      return []
+    if not self.metric_fns:
+      result = [False] * len(checkpoints)
+      result[-1] = True
+      return result
+
+    valid_indices = []
+    metrics_matrix = []
+
+    for i, ckpt in enumerate(checkpoints):
+      if ckpt.metrics is None:
+        continue
+      try:
+        vals = [_scalar_to_float(fn(ckpt.metrics)) for fn in self.metric_fns]
+        if all(np.isfinite(vals)):
+          valid_indices.append(i)
+          metrics_matrix.append(vals)
+      except (KeyError, TypeError, ValueError) as exc:
+        logging.warning(
+            "Skipping checkpoint at step %s during Pareto evaluation: %s",
+            ckpt.step,
+            exc,
+        )
+
+    if not valid_indices:
+      result = [False] * len(checkpoints)
+      result[-1] = True
+      return result
+
+    metrics_arr = np.array(metrics_matrix)
+    num_valid = len(valid_indices)
+    is_efficient = np.ones(num_valid, dtype=bool)
+
+    for i in range(num_valid):
+      for j in range(num_valid):
+        if i == j:
+          continue
+        is_j_better_or_equal = np.all(metrics_arr[j] <= metrics_arr[i])
+        is_j_strictly_better = np.any(metrics_arr[j] < metrics_arr[i])
+        if is_j_better_or_equal and is_j_strictly_better:
+          is_efficient[i] = False
+          break
+
+    frontier_original_indices = [
+        valid_indices[i] for i in range(num_valid) if is_efficient[i]
+    ]
+
+    if (
+        self.max_to_keep is not None
+        and len(frontier_original_indices) > self.max_to_keep
+    ):
+      frontier_matrix_indices = [i for i in range(num_valid) if is_efficient[i]]
+
+      anchor_indices: set[int] = set()
+      num_metrics = len(self.metric_fns)
+      for m in range(num_metrics):
+        best_idx_on_frontier = int(
+            np.argmin(metrics_arr[frontier_matrix_indices, m])
+        )
+        best_original_idx = valid_indices[
+            frontier_matrix_indices[best_idx_on_frontier]
+        ]
+        anchor_indices.add(best_original_idx)
+
+      selected_indices = set(anchor_indices)
+      remaining_slots = self.max_to_keep - len(selected_indices)
+      if remaining_slots > 0:
+        non_anchor_frontier = [
+            idx
+            for idx in frontier_original_indices
+            if idx not in anchor_indices
+        ]
+        non_anchor_frontier = sorted(
+            non_anchor_frontier,
+            key=lambda idx: checkpoints[idx].step,
+            reverse=True,
+        )
+        selected_indices.update(non_anchor_frontier[:remaining_slots])
+
+      frontier_original_indices = sorted(selected_indices)
+
+    result = [False] * len(checkpoints)
+    for idx in frontier_original_indices:
+      result[idx] = True
+
+    result[-1] = True
+    return result
