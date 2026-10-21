@@ -63,10 +63,10 @@ def channel_to_space(inputs: Array, block_shape: Sequence[int]) -> Array:
 
   # Interleave old and new spatial axes.
   spatial_axes = np.arange(2 * len(block_shape), dtype=np.int32) + batch_ndim
-  new_axes = spatial_axes.reshape(2, -1).ravel(order="F")
+  new_axes = spatial_axes.reshape(2, -1).ravel(order="F").tolist()
   x = jnp.transpose(
       x,
-      tuple(range(batch_ndim))  # pyrefly: ignore[bad-argument-type]
+      tuple(range(batch_ndim))
       + tuple(new_axes)
       + (len(new_axes) + batch_ndim,),
   )
