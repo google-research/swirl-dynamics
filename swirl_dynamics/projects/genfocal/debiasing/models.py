@@ -71,8 +71,8 @@ class FlowFlaxModule(Protocol):
 def lognormal_sampler(
     mean: float = 0.0, std: float = 1.0
 ) -> Callable[[Array, tuple[int, ...]], Array]:
-  return lambda x, y: jax.lax.logistic(
-      std * jax.random.uniform(x, y, dtype=jnp.float32) + mean
+  return lambda rng, shape: nn.sigmoid(
+      std * jax.random.normal(rng, shape, dtype=jnp.float32) + mean
   )
 
 
@@ -196,7 +196,7 @@ class ReFlowModel(models.BaseModel):
       weighted_norm = self.weighted_norm
 
     # Eq. (1) in [1], but with a possibly weighted norm.
-    error = ((batch["x_1"] - batch["x_0"]) - v_t)  # pyrefly: ignore[unsupported-operation]
+    error = (batch["x_1"] - batch["x_0"]) - v_t  # pyrefly: ignore[unsupported-operation]
     loss = jnp.mean(weighted_norm * jnp.square(error))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
@@ -285,6 +285,7 @@ class ConditionalReFlowModel(ReFlowModel):
     cond_shape: Dictionary containing the keys and shapes of the conditional
       input.
   """
+
   cond_shape: ShapeDict | None = None
 
   def initialize(self, rng: Array):
@@ -362,7 +363,7 @@ class ConditionalReFlowModel(ReFlowModel):
       weighted_norm = self.weighted_norm
 
     # Eq. (1) in [1], but with a possibly weighted norm.
-    error = ((batch["x_1"] - batch["x_0"]) - v_t)  # pyrefly: ignore[unsupported-operation]
+    error = (batch["x_1"] - batch["x_0"]) - v_t  # pyrefly: ignore[unsupported-operation]
     loss = jnp.mean(weighted_norm * jnp.square(error))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
@@ -442,7 +443,13 @@ class ConditionalReFlowModel(ReFlowModel):
     )
 
     # Eq. (1) in [1]. (by default in_axes=0 and out_axes=0 in vmap)
-    int_losses = jax.vmap(jnp.mean)(jnp.square((x_1 - x_0 - v_t)))
+    if self.weighted_norm is None:
+      weighted_norm = 1.0
+    else:
+      weighted_norm = self.weighted_norm[None, ...]
+    int_losses = jax.vmap(jnp.mean)(
+        weighted_norm * jnp.square((x_1 - x_0 - v_t))
+    )
     eval_losses = {f"time_lvl{i}": loss for i, loss in enumerate(int_losses)}
 
     return eval_losses
