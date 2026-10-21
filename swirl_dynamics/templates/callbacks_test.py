@@ -117,6 +117,35 @@ class TrainStateCheckpointCallbackTest(parameterized.TestCase):
     self.assertIsInstance(new_trainer.train_state, train_states.TrainState)
     self.assertEqual(new_trainer.train_state.int_step, 20)
 
+  def test_checkpoint_uses_current_step_eval_metrics(self):
+    work_dir = self.create_tempdir().full_path
+    options = ocp.CheckpointManagerOptions(
+        save_interval_steps=2,
+        best_fn=lambda metrics: metrics["eval_loss"],
+        best_mode="min",
+        max_to_keep=1,
+    )
+    callback = callbacks.TrainStateCheckpoint(
+        base_dir=work_dir, options=options
+    )
+    trainer = TestTrainer(model=mock.Mock(), rng=jax.random.PRNGKey(0))
+    trainer.is_distributed = False
+    callback.on_train_begin(trainer)
+
+    # Step 2 is an eval step: saving is deferred until on_eval_batches_end.
+    callback._eval_scheduled_steps.add(2)
+    trainer.train_state = _mock_train_state(2, replicate=False)
+    callback.on_train_batches_end(
+        trainer, train_metrics={"train_loss": jnp.array(1.0)}
+    )
+    self.assertIsNone(callback.ckpt_manager.latest_step())
+    callback.on_eval_batches_end(
+        trainer, eval_metrics={"eval_loss": jnp.array(0.5)}
+    )
+    callback.ckpt_manager.wait_until_finished()
+    self.assertEqual(callback.ckpt_manager.latest_step(), 2)
+    self.assertEqual(callback.last_eval_metric["eval_loss"], 0.5)
+
 
 class ProgressReportCallbackTest(parameterized.TestCase):
 
