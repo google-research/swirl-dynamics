@@ -15,15 +15,18 @@
 """U-Net denoiser models."""
 
 from collections.abc import Callable, Sequence
+import math
+from typing import TypeAlias
 
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
-
+from swirl_dynamics.lib.diffusion import preconditioning
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 PrecisionLike = (
     None
@@ -40,6 +43,15 @@ def default_init(scale: float = 1e-10) -> Initializer:
   )
 
 
+def _safe_num_groups(channels: int, max_groups: int = 32) -> int:
+  """Returns largest divisor of `channels` <= `min(channels // 4, max_groups)`."""
+  target = max(1, min(channels // 4, max_groups))
+  for groups in range(target, 0, -1):
+    if channels % groups == 0:
+      return groups
+  return 1
+
+
 class AdaptiveScale(nn.Module):
   """Adaptively scale the input based on embedding.
 
@@ -54,8 +66,8 @@ class AdaptiveScale(nn.Module):
 
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array) -> Array:
@@ -94,12 +106,12 @@ class AttentionBlock(nn.Module):
   num_heads: int = 1
   normalize_qk: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
-    h = nn.GroupNorm(min(x.shape[-1] // 4, 32), name="norm")(x)
+    h = nn.GroupNorm(_safe_num_groups(x.shape[-1]), name="norm")(x)
     h = nn.MultiHeadDotProductAttention(
         num_heads=self.num_heads,
         kernel_init=nn.initializers.xavier_uniform(),
@@ -120,8 +132,8 @@ class ResConv1x(nn.Module):
   out_channels: int
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -174,8 +186,8 @@ class ResConv1xGLU(nn.Module):
   act_fun: Callable[[Array], Array] = nn.swish
   use_bias: bool = True
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -254,13 +266,13 @@ class ConvBlock(nn.Module):
   film_act_fun: Callable[[Array], Array] = nn.swish
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, is_training: bool) -> Array:
     h = x
-    h = nn.GroupNorm(min(h.shape[-1] // 4, 32))(h)
+    h = nn.GroupNorm(_safe_num_groups(h.shape[-1]))(h)
     h = self.act_fun(h)
     h = layers.ConvLayer(
         features=self.out_channels,
@@ -272,7 +284,7 @@ class ConvBlock(nn.Module):
         param_dtype=self.param_dtype,
         name="conv_0",
     )(h)
-    h = nn.GroupNorm(min(h.shape[-1] // 4, 32))(h)
+    h = nn.GroupNorm(_safe_num_groups(h.shape[-1]))(h)
     h = AdaptiveScale(act_fun=self.film_act_fun)(h, emb)
     h = self.act_fun(h)
     h = nn.Dropout(rate=self.dropout, deterministic=not is_training)(h)
@@ -314,8 +326,8 @@ class FourierEmbedding(nn.Module):
   use_magnitude_preserving: bool = False
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -334,7 +346,7 @@ class FourierEmbedding(nn.Module):
     if self.use_magnitude_preserving:
       # We multiply by sqrt(2) to ensure that the norm of the embedding is
       # preserved.
-      x *= jnp.sqrt(2.0)
+      x *= math.sqrt(2.0)
 
     # Project to the desired output dimension.
     if self.projection:
@@ -416,15 +428,14 @@ class Axial2DMLP(nn.Module):
     act_fn: The activation function.
   """
 
-  out_dims: tuple[int, int]
+  out_dims: tuple[int, ...]
   act_fn: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
-
     num_channels = x.shape[-1]
 
     for i, out_dim in enumerate(self.out_dims):
@@ -436,7 +447,7 @@ class Axial2DMLP(nn.Module):
           dtype=self.dtype,
           param_dtype=self.param_dtype,
       )(x)
-      x = nn.swish(x)
+      x = self.act_fn(x)
       x = jnp.swapaxes(x, -1, spatial_dim)
 
     x = nn.Dense(
@@ -463,8 +474,8 @@ class MergeChannelCond(nn.Module):
   resize_method: str = "cubic"
   padding: str = "CIRCULAR"
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
 
 class InterpConvMerge(MergeChannelCond):
@@ -474,7 +485,7 @@ class InterpConvMerge(MergeChannelCond):
   """
 
   @nn.compact
-  def __call__(self, x: Array, cond: dict[str, Array]):
+  def __call__(self, x: Array, cond: dict[str, Array]) -> Array:
     """Merges conditional inputs along the channel dimension.
 
     Fields with spatial shape differing from the sample `x` are reshaped to
@@ -489,7 +500,6 @@ class InterpConvMerge(MergeChannelCond):
     Returns:
       Model input merged with channel conditions.
     """
-
     out_spatial_shape = x.shape[-3:-1]
     for key, value in sorted(cond.items()):
       if key.startswith("channel:"):
@@ -499,32 +509,32 @@ class InterpConvMerge(MergeChannelCond):
               f" ({value.ndim}) as x ({x.ndim})!"
           )
 
-      if value.shape[-3:-1] != out_spatial_shape:
-        value = layers.FilteredResize(
-            output_size=x.shape[:-1],
+        if value.shape[-3:-1] != out_spatial_shape:
+          value = layers.FilteredResize(
+              output_size=x.shape[:-1],
+              kernel_size=self.kernel_size,
+              method=self.resize_method,
+              padding=self.padding,
+              precision=self.precision,
+              dtype=self.dtype,
+              param_dtype=self.param_dtype,
+              name=f"resize_{key}",
+          )(value)
+        value = nn.swish(nn.LayerNorm()(value))
+        value = layers.ConvLayer(
+            features=self.embed_dim,
             kernel_size=self.kernel_size,
-            method=self.resize_method,
             padding=self.padding,
             precision=self.precision,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name=f"resize_{key}",
+            name=f"conv2d_embed_{key}",
         )(value)
-      value = nn.swish(nn.LayerNorm()(value))
-      value = layers.ConvLayer(
-          features=self.embed_dim,
-          kernel_size=self.kernel_size,
-          padding=self.padding,
-          precision=self.precision,
-          dtype=self.dtype,
-          param_dtype=self.param_dtype,
-          name=f"conv2d_embed_{key}",
-      )(value)
 
-      # Cast to the dtype of the input to avoid a type mismatch when
-      # concatenating.
-      value = value.astype(x.dtype)
-      x = jnp.concatenate([x, value], axis=-1, dtype=x.dtype)
+        # Cast to the dtype of the input to avoid a type mismatch when
+        # concatenating.
+        value = value.astype(x.dtype)
+        x = jnp.concatenate([x, value], axis=-1, dtype=x.dtype)
 
     return x
 
@@ -533,7 +543,7 @@ class AxialMLPInterpConvMerge(MergeChannelCond):
   """Merges conditional inputs through MLPs, interpolation and convolutions."""
 
   @nn.compact
-  def __call__(self, x: Array, cond: dict[str, Array]):
+  def __call__(self, x: Array, cond: dict[str, Array]) -> Array:
     """Transforms and merges conditional inputs along the channel dimension.
 
     Relevant fields in the conditional input dictionary are first passed through
@@ -548,13 +558,20 @@ class AxialMLPInterpConvMerge(MergeChannelCond):
     Returns:
       Model input merged with channel conditions.
     """
-
     out_spatial_shape = x.shape[-3:-1]
     proc_cond = {}
     for key, value in sorted(cond.items()):
-      if value.shape[-3:-1] == out_spatial_shape:
+      if not key.startswith("channel:"):
         continue
-      proc_cond[key] = Axial2DMLP(out_dims=value.shape[-3:-1])(value)  # pyrefly: ignore[bad-argument-type]
+      if value.shape[-3:-1] == out_spatial_shape:
+        proc_cond[key] = value
+      else:
+        proc_cond[key] = Axial2DMLP(
+            out_dims=value.shape[-3:-1],
+            precision=self.precision,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )(value)
 
     merge_channel_cond = InterpConvMerge(
         embed_dim=self.embed_dim,
@@ -605,11 +622,13 @@ class EmbConvMerge(MergeEmdCond):
   num_heads: int = 128
   normalize_qk: bool = True
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
-  def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):
+  def __call__(
+      self, emb: Array, cond: dict[str, Array], is_training: bool
+  ) -> Array:
     """Merges conditional inputs along the channel dimension.
 
     Fields with spatial shape differing from the sample `x` are reshaped to
@@ -625,7 +644,6 @@ class EmbConvMerge(MergeEmdCond):
     Returns:
       Embedding merged with channel conditions.
     """
-
     if emb.shape[-1] != self.embed_dim:
       raise ValueError(
           f"Number of channels in the embedding ({emb.shape[-1]}) must "
@@ -639,7 +657,6 @@ class EmbConvMerge(MergeEmdCond):
     for key, value in sorted(cond.items()):
       # TODO: Change the prefix to "merge_embed:".
       if key.startswith("channel:"):
-        # Enforcing prefix in the key.
         value = layers.FilteredResize(
             output_size=self.interp_shape,
             kernel_size=self.kernel_size,
@@ -650,8 +667,10 @@ class EmbConvMerge(MergeEmdCond):
             param_dtype=self.param_dtype,
             name=f"resize_embedding_{key}",
         )(value)
+        value_temp.append(value)
 
-      value_temp.append(value)
+    if not value_temp:
+      return emb
 
     value = jnp.concatenate(value_temp, axis=-1)
 
@@ -720,8 +739,8 @@ class DStack(nn.Module):
   use_position_encoding: bool = False
   normalize_qk: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, *, is_training: bool) -> list[Array]:
@@ -827,8 +846,8 @@ class UStack(nn.Module):
   channels_per_head: int = -1
   normalize_qk: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -934,8 +953,8 @@ class UNet(nn.Module):
   cond_embed_fn: type[nn.Module] | None = None
   cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -1051,7 +1070,7 @@ class UNet(nn.Module):
         param_dtype=self.param_dtype,
     )(skips[-1], emb, skips, is_training=is_training)
 
-    h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
+    h = nn.swish(nn.GroupNorm(_safe_num_groups(h.shape[-1]))(h))
     h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=kernel_dim * (3,),
@@ -1093,29 +1112,19 @@ class PreconditionedDenoiser(UNet):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
+    orig_dtype = x.dtype
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype), self.sigma_data, x.shape
+        )
     )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(self.dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
 
 
 class HeavyTailedDenoiser(UNet):
@@ -1141,33 +1150,19 @@ class HeavyTailedDenoiser(UNet):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    total_var = (self.df / (self.df - 2)) * jnp.square(sigma) + jnp.square(
-        self.sigma_data
+    orig_dtype = x.dtype
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype),
+            self.sigma_data,
+            x.shape,
+            df=self.df,
+        )
     )
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = (
-        jnp.sqrt(self.df / (self.df - 2))
-        * sigma
-        * self.sigma_data
-        / jnp.sqrt(total_var)
-    )
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
-    )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(self.dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
