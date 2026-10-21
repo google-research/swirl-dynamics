@@ -61,6 +61,16 @@ class Hdf5UtilsTest(parameterized.TestCase):
       saved = hdf5_utils.read_single_array(save_path, key)
       self.assertEqual(saved, value)
 
+  def test_read_nested_groups_with_array_dtype(self):
+    tmp_dir = self.create_tempdir().full_path
+    save_path = os.path.join(tmp_dir, "nested_dtype.hdf5")
+    nested = {"outer": {"inner": np.ones((4,), dtype=np.float64)}}
+    hdf5_utils.save_array_dict(save_path, nested)
+    restored_f64 = hdf5_utils.read_all_arrays_as_dict(
+        save_path, array_dtype=np.float64
+    )
+    self.assertEqual(restored_f64["outer"]["inner"].dtype, np.float64)
+
 
 if __name__ == "__main__":
   flags.FLAGS.mark_as_parsed()

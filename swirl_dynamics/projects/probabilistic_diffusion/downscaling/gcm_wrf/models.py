@@ -94,6 +94,7 @@ class DenoisingModel(dfn_models.DenoisingModel):
     sampling_fn = functools.partial(
         sde_sampler.generate, self.num_samples_per_condition
     )
+
     def sampling_map(args):
       return sampling_fn(*args)
 
@@ -117,11 +118,14 @@ class DenoisingModel(dfn_models.DenoisingModel):
             forecasts=samples, observations=batch["x"]
         )
     )
+    example_input = batch["cond"].get(
+        "channel:input", next(iter(batch["cond"].values()))
+    )[:1]
     return {
         # Take first batch element and one sample only. The batch axis is kept
         # to work with `CollectingMetric` in clu.
         "gen_sample": jnp.asarray(samples)[:1, 0],
-        "example_input": batch["cond"]["channel:input"][:1],
+        "example_input": example_input,
         "example_obs": batch["x"][:1],
         "mean_crps": crps,
         "rmse_ens_mean": rmse,
@@ -327,6 +331,8 @@ class SdeSampler(dfn_lib.SdeSampler):
     broadcast_shape = (1,) * (len(cond["channel:input"].shape) - 1)  # pyrefly: ignore[unsupported-operation]
     added_input = cond["channel:input"] * jax.lax.broadcast(  # pyrefly: ignore[unsupported-operation]
         jnp.array(input_std), broadcast_shape
-    ) + jax.lax.broadcast(jnp.array(input_mean), broadcast_shape)
+    ) + jax.lax.broadcast(
+        jnp.array(input_mean), broadcast_shape
+    )
 
     return generated + added_input[..., input_indices]
