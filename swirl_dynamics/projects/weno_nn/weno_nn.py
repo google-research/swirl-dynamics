@@ -27,8 +27,9 @@ non-oscillatory WENO-Z schemes for hyperbolic conservation laws", Journal of
 Computational Physics, Volume 230, 2011.
 """
 
+from collections.abc import Callable
 import functools
-from typing import Any, Callable, Optional
+from typing import Any, TypeAlias
 
 import flax.linen as nn
 import jax
@@ -36,6 +37,7 @@ import jax.numpy as jnp
 from swirl_dynamics.lib.networks import rational_networks
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 PyTree = Any
 
 
@@ -58,33 +60,10 @@ def _delta_layer(u_bar: Array) -> tuple[Array, Array, Array, Array]:
   return (delta_1, delta_2, delta_3, delta_4)
 
 
-def _delta_layer_weno5(u_bar: Array) -> tuple[Array, ...]:
-  """Helper function computing an unnormalized delta layer for WENO5.
-
-  Args:
-    u_bar: Array containing (u_{n-2}, u_{n-1}, u_n, u_{n+1}, u_{n+2}).
-
-  Returns:
-    A tuple containing the absolute value of the first and second order
-    finite-differences of u_bar with difference stencils.
-  """
-
-  delta_1 = jnp.abs(u_bar[0] - 2.0 * u_bar[1]+ u_bar[2])
-  delta_2 = jnp.abs(u_bar[0] - 4.0 * u_bar[1]+ 3 * u_bar[2])
-  delta_3 = jnp.abs(u_bar[1] - 2.0 * u_bar[2]+ u_bar[3])
-  delta_4 = jnp.abs(u_bar[1] - u_bar[3])
-  delta_5 = 1./12.*jnp.abs(- u_bar[0] + 8.0 * u_bar[1] - 30. * u_bar[2]
-                           + 8.0 * u_bar[3] - 1.0 * u_bar[4])
-  delta_6 = jnp.abs(u_bar[2] - 2.0 * u_bar[3]+ u_bar[4])
-  delta_7 = jnp.abs(3 * u_bar[2] - 4.0 * u_bar[3] + u_bar[4])
-
-  return (delta_1, delta_2, delta_3, delta_4, delta_5, delta_6, delta_7)
-
-
 def delta_layer(
     u_bar: Array,
-    global_norm: jnp.float64 | None = None,  # pyrefly: ignore[unsupported-operation]
-    eps: jnp.float64 = 1e-15,  # pyrefly: ignore[not-a-type]
+    global_norm: float | Array | None = None,
+    eps: float | Array = 1e-15,
 ) -> Array:
   """Implementation of Delta layer that outputs the features of the network.
 
@@ -102,7 +81,7 @@ def delta_layer(
     first order finite differences.
   """
 
-  (delta_1, delta_2, delta_3, delta_4) = _delta_layer(u_bar)
+  delta_1, delta_2, delta_3, delta_4 = _delta_layer(u_bar)
 
   # Initializing a global normalization constant if provided.
   if not global_norm:
@@ -116,7 +95,7 @@ def delta_layer(
 def weno_z_layer(
     u_bar: Array,
     q: int = 2,
-    eps: jnp.float64 = 1e-15,  # pyrefly: ignore[not-a-type]
+    eps: float | Array = 1e-15,
 ) -> Array:
   """Delta layer mimimick the WENO-Z features.
 
@@ -131,7 +110,7 @@ def weno_z_layer(
     weights.
   """
 
-  (delta_1, delta_2, delta_3, delta_4) = _delta_layer(u_bar)
+  delta_1, delta_2, delta_3, delta_4 = _delta_layer(u_bar)
 
   # Initializing a global normalization constant if provided.
   alpha_1 = 1 + jnp.power(delta_4 / (delta_1 + eps), q)
@@ -154,8 +133,8 @@ class FeaturesRationalLayer(nn.Module):
     cutoff: Shift for the thresholding.
   """
 
-  dtype: jnp.dtype = jnp.float64  # pyrefly: ignore[bad-assignment]
-  cutoff: Optional[jnp.float64] = None  # pyrefly: ignore[not-a-type]
+  dtype: DTypeLike = jnp.float64
+  cutoff: float | Array | None = None
 
   @nn.compact
   def __call__(self, u_bar: Array) -> Array:
@@ -168,7 +147,7 @@ class FeaturesRationalLayer(nn.Module):
       Four normalized features (between 0 and 1) for the input to the network.
     """
 
-    (delta_1, delta_2, delta_3, delta_4) = _delta_layer(u_bar)
+    delta_1, delta_2, delta_3, delta_4 = _delta_layer(u_bar)
 
     delta = jnp.stack([delta_1, delta_2, delta_3, delta_4])
     output = rational_networks.UnsharedRationalLayer(
@@ -192,8 +171,8 @@ class FeaturesRationalLayerDescentered(nn.Module):
     cutoff: Shift for the thresholding.
   """
 
-  dtype: jnp.dtype = jnp.float64  # pyrefly: ignore[bad-assignment]
-  cutoff: Optional[jnp.float64] = None  # pyrefly: ignore[not-a-type]
+  dtype: DTypeLike = jnp.float64
+  cutoff: float | Array | None = None
 
   @nn.compact
   def __call__(self, u_bar: Array) -> Array:
@@ -206,7 +185,7 @@ class FeaturesRationalLayerDescentered(nn.Module):
       Four normalized features (between 0 and 1) for the input to the network.
     """
 
-    (delta_1, delta_2, delta_3, delta_4) = _delta_layer(u_bar)
+    delta_1, delta_2, delta_3, delta_4 = _delta_layer(u_bar)
 
     delta_5 = jnp.abs(-0.5 * u_bar[2] + 2 * u_bar[1] - 1.5 * u_bar[0])
     delta_6 = jnp.abs(-1.5 * u_bar[2] + 2 * u_bar[1] - 0.5 * u_bar[0])
@@ -225,10 +204,10 @@ class FeaturesRationalLayerDescentered(nn.Module):
 
 
 def hard_thresholding(
-    x: jnp.float64,  # pyrefly: ignore[not-a-type]
-    threshold_value: jnp.float64,  # pyrefly: ignore[not-a-type]
-    cutoff: jnp.float64 = 2e-4,  # pyrefly: ignore[not-a-type]
-) -> jnp.float64:  # pyrefly: ignore[not-a-type]
+    x: float | Array,
+    threshold_value: float | Array,
+    cutoff: float | Array = 2e-4,
+) -> Array:
   """Simple implementation of hard thresholding in Eq. (16) of [1].
 
   Args:
@@ -240,10 +219,15 @@ def hard_thresholding(
     The input, which we assume is a scalar, hard-thresholded by cutoff. Namely
     x if x > cutoff, `threshold_value` otherwise.
   """
-  return jax.lax.cond(x < cutoff, lambda x: threshold_value, lambda x: x, x)
+  return jax.lax.cond(
+      x < cutoff,
+      lambda _: jnp.asarray(threshold_value, dtype=jnp.asarray(x).dtype),
+      jnp.asarray,
+      x,
+  )
 
 
-def eno_layer(omega: Array, cutoff: jnp.float64 = 2e-4) -> Array:  # pyrefly: ignore[not-a-type]
+def eno_layer(omega: Array, cutoff: float | Array = 2e-4) -> Array:
   """Implementation of the ENO_layer that thresholds and normalizes the weights.
 
   Args:
@@ -262,7 +246,7 @@ def eno_layer(omega: Array, cutoff: jnp.float64 = 2e-4) -> Array:  # pyrefly: ig
   return omega_tilde
 
 
-def gamma(u_bar: Array, epsilon_gamma: jnp.float64 = 1e-15) -> Array:  # pyrefly: ignore[not-a-type]
+def gamma(u_bar: Array, epsilon_gamma: float | Array = 1e-15) -> Array:
   """Computation of gamma in Eq. (22) of [1].
 
   Args:
@@ -286,9 +270,9 @@ class OmegaNN(nn.Module):
   Attributes:
     features: Number of neurons for the hidden layers.
     order: Order of the weno scheme. Default to 3.
-    features_fun: Function that computes the input features to the MLP based
-      on the input to the network. Options are the delta layer in [1], and
-      features created using rational networks.
+    features_fun: Function that computes the input features to the MLP based on
+      the input to the network. Options are the delta layer in [1], and features
+      created using rational networks.
     act_fun: Activation function for the hidden layers.
     act_fun_out: Activation function for the last (output) layer.
     dtype: Type of input/outputs and parameters.
@@ -298,16 +282,16 @@ class OmegaNN(nn.Module):
       ENO layer should only be used during inference.
   """
 
-  features: tuple[jnp.int64, ...]  # pyrefly: ignore[not-a-type]
+  features: tuple[int, ...]
   order: int = 3
   features_fun: Callable[[Array], Array] = functools.partial(
       delta_layer, global_norm=None, eps=1e-15
   )
   act_fun: Callable[[Array], Array] | str = nn.swish
   act_fun_out: Callable[[Array], Array] = nn.softmax
-  dtype: jnp.dtype = jnp.float64  # pyrefly: ignore[bad-assignment]
-  global_norm: jnp.float64 | None = None  # pyrefly: ignore[unsupported-operation]
-  eno_layer_cutoff: jnp.float64 = 2e-4  # pyrefly: ignore[not-a-type]
+  dtype: DTypeLike = jnp.float64
+  global_norm: float | Array | None = None
+  eno_layer_cutoff: float | Array = 2e-4
 
   @nn.compact
   def __call__(self, u_bar: Array, test: bool = False) -> Array:
