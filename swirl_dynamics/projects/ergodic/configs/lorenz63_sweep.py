@@ -19,7 +19,7 @@ r"""Default Hyperparameter configuration.
 import ml_collections
 
 # pylint: disable=line-too-long
-DATA_PATH = '/datasets/hdf5/ode/lorenz63_seed_42_ntraj_train_5000_ntraj_eval_10000_ntraj_test_10000_nsteps_100000_nwarmup_100000_dt_0.001_dt_downsample_10.hdf5'
+DATA_PATH = '/hdf5/ode/lorenz63_seed_42_ntraj_train_5000_ntraj_eval_10000_ntraj_test_10000_nsteps_100000_nwarmup_100000_dt_0.001_dt_downsample_10.hdf5'
 # pylint: enable=line-too-long
 
 

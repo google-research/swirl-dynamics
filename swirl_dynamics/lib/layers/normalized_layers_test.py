@@ -85,14 +85,23 @@ class NormalizedLayersTest(parameterized.TestCase):
   @parameterized.parameters(False, True)
   def test_mixed_groups_match_directional_derivative(self, compiled):
     x = jnp.array([[0.0, 0.0, 0.0], [3.0, 4.0, 0.0]], dtype=jnp.float32)
-    tangent = jnp.array(
-        [[1.0, -2.0, 3.0], [2.0, 1.0, -1.0]], dtype=jnp.float32
-    )
-    fn = lambda value: normalized_layers.normalize(value, axis=-1, eps=0.1)
+    tangent = jnp.array([[1.0, -2.0, 3.0], [2.0, 1.0, -1.0]], dtype=jnp.float32)
+    eps = 0.1
+    fn = lambda value: normalized_layers.normalize(value, axis=-1, eps=eps)
     if compiled:
       fn = jax.jit(fn)
     _, jvp = jax.jvp(fn, (x,), (tangent,))
     vjp = jax.grad(lambda value: jnp.sum(fn(value) * tangent))(x)
+    np.testing.assert_allclose(jvp[0], tangent[0] / eps, rtol=1e-6)
+    active_x = np.asarray(x[1], dtype=np.float64)
+    active_t = np.asarray(tangent[1], dtype=np.float64)
+    norm_1 = np.linalg.norm(active_x)
+    scale = np.sqrt(1.0 / active_x.size)
+    denom = eps + scale * norm_1
+    expected_active_jvp = active_t / denom - active_x * (
+        scale * np.dot(active_x, active_t) / norm_1
+    ) / (denom**2)
+    np.testing.assert_allclose(jvp[1], expected_active_jvp, rtol=1e-6)
     np.testing.assert_allclose(jvp, vjp, rtol=1e-6)
     self.assertTrue(np.all(np.isfinite(jvp)))
 
