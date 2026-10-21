@@ -41,27 +41,27 @@ _ERA5_VARIABLES = types.MappingProxyType({
 
 
 # pylint: disable=line-too-long
-_ERA5_DATASET_PATH = "/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = "/lzepedanunez/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
+_ERA5_DATASET_PATH = "/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_STATS_PATH = "/data/era5/stats/daily_mean_240x121_all_variables_and_wind_speed_1961-2000.zarr"
 
 _LENS2_MEMBER_INDEXER = types.MappingProxyType({"member": "cmip6_1001_001"})
 _LENS2_VARIABLE_NAMES = ("TREFHT", "QREFHT", "Z200", "Z500", "PSL", "WSPDSRFAV")
 
 # Data set with original resolution.
 _LENS2_DATASET_PATH_288_192 = (
-    "/wanzy/data/lens2/unnormalized_288x192.zarr"
+    "/data/lens2/unnormalized_288x192.zarr"
 )
-_LENS2_STATS_PATH_288_192 = "/wanzy/data/lens2/stats/all_variables_288x192_1961-2000.zarr/"
+_LENS2_STATS_PATH_288_192 = "/data/lens2/stats/all_variables_288x192_1961-2000.zarr/"
 
 # Interpolated dataset to match the resolution of the ERA5 data set.
 _LENS2_DATASET_PATH = (
-    "/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
+    "/data/lens2/lens2_240x121_lonlat.zarr"
 )
-_LENS2_STATS_PATH = "/lzepedanunez/data/lens2/stats/all_variables_240x121_lonlat_1961-2000.zarr"
+_LENS2_STATS_PATH = "/data/lens2/stats/all_variables_240x121_lonlat_1961-2000.zarr"
 # pylint: enable=line-too-long
 
-_LENS2_MEAN_STATS_PATH = "/lzepedanunez/data/lens2/stats/lens2_mean_stats_all_variables_240x121_lonlat_1961-2000.zarr"
-_LENS2_STD_STATS_PATH = "/lzepedanunez/data/lens2/stats/lens2_std_stats_all_variables_240x121_lonlat_1961-2000.zarr"
+_LENS2_MEAN_STATS_PATH = "/data/lens2/stats/lens2_mean_stats_all_variables_240x121_lonlat_1961-2000.zarr"
+_LENS2_STD_STATS_PATH = "/data/lens2/stats/lens2_std_stats_all_variables_240x121_lonlat_1961-2000.zarr"
 
 
 def maybe_expand_dims(
