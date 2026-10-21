@@ -176,22 +176,25 @@ class BaseTrainer(Generic[M, S], metaclass=abc.ABCMeta):
         batches: BatchType,
     ) -> tuple[S, Metrics, Array]:
       train_rng, out_rng = jax.random.split(train_rng, 2)
-      # Run all but the last step in a compiled for-loop.
-      init_val = (train_state, train_rng)
       batch = lambda i: jax.tree.map(lambda leaf: leaf[i], batches)
-
-      def body_fn(i, val):
-        state, rng = val
-        rng, new_rng = jax.random.split(rng, 2)
-        new_state, _ = self.train_step(state, batch(i), rng)
-        return new_state, new_rng
-
-      state, rng = jax.lax.fori_loop(
-          0, self._num_steps_to_compile - 1, body_fn, init_val
+      rng, step_rng = jax.random.split(train_rng, 2)
+      init_state, init_metrics = self.train_step(
+          train_state, batch(0), step_rng
       )
-      # Use metrics from the last step.
-      out_state, metrics_update = self.train_step(state, batch(-1), rng)
-      return out_state, metrics_update, out_rng
+
+      def body_fn(i: int, val: tuple[S, Metrics, Array]):
+        state, metrics, cur_rng = val
+        cur_rng, next_rng = jax.random.split(cur_rng, 2)
+        new_state, update = self.train_step(state, batch(i), next_rng)
+        return new_state, metrics.merge(update), cur_rng
+
+      out_state, out_metrics, _ = jax.lax.fori_loop(
+          1,
+          self._num_steps_to_compile,
+          body_fn,
+          (init_state, init_metrics, rng),
+      )
+      return out_state, out_metrics, out_rng
 
     return fn
 
@@ -568,7 +571,7 @@ class BasicTrainer(BaseTrainer[BasicModel, BasicTrainState]):
     ) -> Metrics:
       """Use model to compute the evaluation metrics."""
       eval_metrics = self.model.eval_fn(
-          variables=train_state.model_variables, batch=batch, rng=rng  # pyrefly: ignore[bad-argument-type]
+          variables=train_state.model_variables, batch=batch, rng=rng
       )
       # `eval_metrics` must include keys required by `EvalMetrics` definition
       return self.EvalMetrics.single_from_model_output(**eval_metrics)
@@ -649,7 +652,7 @@ class BasicDistributedTrainer(BasicTrainer[BasicModel, BasicTrainState]):
     ) -> Metrics:
       """Use model to compute the evaluation metrics."""
       eval_metrics = self.model.eval_fn(
-          variables=train_state.model_variables, batch=batch, rng=rng  # pyrefly: ignore[bad-argument-type]
+          variables=train_state.model_variables, batch=batch, rng=rng
       )
       return self.EvalMetrics.gather_from_model_output(
           axis_name=PMAP_AXIS_NAME, **eval_metrics
