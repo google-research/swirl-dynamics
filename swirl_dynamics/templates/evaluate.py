@@ -583,17 +583,21 @@ def run(
   cur_step = 0
 
   # restore checkpoint state if applicable
-  if enable_checkpoints and ckpt_manager.latest_step():  # pyrefly: ignore[missing-attribute]
-    ckpt = ckpt_manager.restore(  # pyrefly: ignore[missing-attribute]
-        ckpt_manager.latest_step(),  # pyrefly: ignore[missing-attribute]
+  if (
+      enable_checkpoints
+      and ckpt_manager is not None
+      and ckpt_manager.latest_step() is not None
+  ):
+    ckpt = ckpt_manager.restore(
+        ckpt_manager.latest_step(),
         items=dict(iterator=iterator, eval_state=evaluator.state),
     )
     evaluator.state = ckpt["eval_state"]
     iterator = ckpt["iterator"]
     cur_step = evaluator.state.step
 
-  max_eval_batches = max_eval_batches or np.inf  # pyrefly: ignore[bad-assignment]
-  is_finished = cur_step >= max_eval_batches if not max_eval_batches else False  # pyrefly: ignore[unsupported-operation]
+  max_batches = max_eval_batches if max_eval_batches is not None else np.inf
+  is_finished = cur_step >= max_batches
   ran_out = False
 
   while not is_finished and not ran_out:
@@ -604,12 +608,14 @@ def run(
       cur_step += eod.step
       ran_out = True
       collected = eod.collected
+      num_collected = eod.step
 
       logging.info("Reached the end of dataset at batch number %d.", cur_step)
 
     else:
       cur_step += num_aggregation_batches
-      if cur_step >= max_eval_batches:  # pyrefly: ignore[unsupported-operation]
+      num_collected = num_aggregation_batches
+      if cur_step >= max_batches:
         is_finished = True
 
     finally:
@@ -628,7 +634,11 @@ def run(
         )
 
       # dump collected
-      if dump_period and (ran_out or cur_step % dump_period == 0):
+      if (
+          dump_period
+          and not collected.is_empty
+          and (ran_out or cur_step % dump_period == 0)
+      ):
         if results_format == "hdf5":
           batch_path = results_subfolder / f"batch_{cur_step}.hdf5"
           if not filesys.exists(batch_path):
@@ -640,10 +650,8 @@ def run(
                 out_dir=results_subfolder,
                 basename=f"{key}_collected_metrics",
                 append_dim="time",
-                coords=datacoords,  # pyrefly: ignore[bad-argument-type]
-                append_slice=slice(
-                    cur_step - num_aggregation_batches, cur_step
-                ),
+                coords=datacoords,
+                append_slice=slice(cur_step - num_collected, cur_step),
             )
         else:
           raise ValueError(f"Unknown results format: {results_format}")
@@ -663,7 +671,7 @@ def run(
           value,
           out_dir=results_subfolder,
           basename=f"{key}_aggregated_metrics",
-          coords=datacoords,  # pyrefly: ignore[bad-argument-type]
+          coords=datacoords,
       )
   else:
     raise ValueError(f"Unknown results format: {results_format}")
