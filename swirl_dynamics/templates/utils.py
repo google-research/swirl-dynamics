@@ -54,14 +54,19 @@ def load_scalars_from_tfevents(
     logdir: str,
 ) -> Mapping[int, Mapping[str, Scalar]]:
   """Loads scalar summaries from events in a logdir."""
-  paths = tf.io.gfile.glob(os.path.join(logdir, "events.out.tfevents.*"))
+  paths = sorted(
+      tf.io.gfile.glob(os.path.join(logdir, "events.out.tfevents.*"))
+  )
   data = collections.defaultdict(dict)
   for path in paths:
     for event in tf.compat.v1.train.summary_iterator(path):
       for value in event.summary.value:
-        data[event.step][value.tag] = jnp.asarray(
-            tf.make_ndarray(value.tensor).flat[0]
-        )
+        if value.HasField("tensor"):
+          arr = tf.make_ndarray(value.tensor)
+          if arr.size == 1 and np.issubdtype(arr.dtype, np.number):
+            data[event.step][value.tag] = jnp.asarray(arr.flat[0])
+        elif value.HasField("simple_value"):
+          data[event.step][value.tag] = jnp.asarray(value.simple_value)
 
   return data
 
@@ -73,7 +78,7 @@ def is_scalar(value: Any) -> bool:
   ):
     return True
   if isinstance(value, (np.ndarray, jnp.ndarray)):
-    return value.ndim == 0 or value.size <= 1
+    return value.ndim == 0 or value.size == 1
   return False
 
 

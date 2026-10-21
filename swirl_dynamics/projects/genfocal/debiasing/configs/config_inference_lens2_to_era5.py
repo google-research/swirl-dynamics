@@ -70,7 +70,7 @@ def get_config():
   """Get the default hyperparameter configuration."""
   config = ml_collections.ConfigDict()
   config.experiment = "inference_reflow_lens2_to_era5_with_clim_and_time_cons"
-  config.model_dir = "/lzepedanunez/xm/debiasing/reflow_lens2_to_era5_4_new_member_ens_all_surface_climatology_time_coherent_tpu/148227746/1"
+  config.model_dir = "/xm/debiasing/reflow_lens2_to_era5_4_new_member_ens_all_surface_climatology_time_coherent_tpu/148227746/1"
   config.date_range = ("1960", "2100")
   config.batch_size_eval = 32  # check if this is fine with VFs.
   config.variables = (
@@ -209,7 +209,7 @@ def sweep(add):
       ("smbb_1301_020",),
   ):
     for model_dir in [
-        "/lzepedanunez/xm/debiasing/reflow_lens2_to_era5_4_new_member_clim_3d_10_vars_8_time_6_lvls_tpu_large_3_tmp_attn_bs_16_1980_2000/151818801/1",
+        "/xm/debiasing/reflow_lens2_to_era5_4_new_member_clim_3d_10_vars_8_time_6_lvls_tpu_large_3_tmp_attn_bs_16_1980_2000/151818801/1",
     ]:
       add(
           model_dir=model_dir,

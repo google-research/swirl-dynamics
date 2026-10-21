@@ -52,12 +52,12 @@ from swirl_dynamics.projects.distillation.flow_map_matching import backbones
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
-
 # Defining aliases for the types.
 Array: TypeAlias = jax.Array
 ArrayLike: TypeAlias = jax.typing.ArrayLike  # This is for the keys.
 ArrayShape: TypeAlias = Sequence[int]
 CondDict: TypeAlias = Mapping[str, Array]
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 Metrics: TypeAlias = clu_metrics.Collection
 ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
 PyTree: TypeAlias = Any
@@ -85,8 +85,9 @@ def logit_normal_dist(
     shape: ArrayShape,
     mean: float = 0.0,
     std: float = 1.0,
-    dtype: jnp.dtype = jnp.float32,
-):
+    dtype: DTypeLike = jnp.float32,
+) -> Array:
+  """Samples logit-normal time steps in (0, 1)."""
   rnd_normal = jax.random.normal(rng, shape, dtype=dtype)
   return nn.sigmoid(rnd_normal * std + mean)
 
@@ -250,8 +251,12 @@ class MeanFlowModel(models.BaseModel):
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
+      if self.params_flow is None:
+        raise ValueError(
+            "`params_flow` must be provided when `flow_model` is set."
+        )
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
+          {"params": self.params_flow},
           x=x_t,
           sigma=time_t,
           is_training=False,
@@ -279,15 +284,24 @@ class MeanFlowModel(models.BaseModel):
         (v_t, jnp.ones_like(time_t), jnp.zeros_like(time_s)),
     )
 
-    u_target = v_t - jnp.clip(time_t - time_s, min=0.0, max=1.0) * dt_u_st
+    dt = jnp.clip(time_t - time_s, min=0.0, max=1.0).reshape(
+        (x_t.shape[0],) + (x_t.ndim - 1) * (1,)
+    )
+    u_target = v_t - dt * dt_u_st
 
-    loss = jnp.mean(jnp.square(u_ts - jax.lax.stop_gradient(u_target)))
+    reduce_axes = tuple(range(1, u_ts.ndim))
+    per_sample_mse = jnp.mean(
+        jnp.square(u_ts - jax.lax.stop_gradient(u_target)),
+        axis=reduce_axes,
+    )
 
     # Using the adaptive norm in section 4.3 of [1].
-    adaptive_weight = (loss + self.norm_regularization) ** self.norm_power
-    loss = loss / jax.lax.stop_gradient(adaptive_weight)
+    adaptive_weight = (
+        per_sample_mse + self.norm_regularization
+    ) ** self.norm_power
+    loss = jnp.mean(per_sample_mse / jax.lax.stop_gradient(adaptive_weight))
 
-    metric = dict(loss=loss)
+    metric = dict(loss=loss, raw_mse=jnp.mean(per_sample_mse))
 
     return loss, (metric, mutables)
 
@@ -334,8 +348,12 @@ class MeanFlowModel(models.BaseModel):
     # Computes the velocity at time t. If we are distilling a flow, we use
     # the flow model, otherwise we use the interpolant.
     if self.flow_model is not None:
+      if self.params_flow is None:
+        raise ValueError(
+            "`params_flow` must be provided when `flow_model` is set."
+        )
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
+          {"params": self.params_flow},
           x=x_t,
           sigma=time_t,
           is_training=False,
@@ -363,7 +381,10 @@ class MeanFlowModel(models.BaseModel):
         (v_t, jnp.ones_like(time_t), jnp.zeros_like(time_s)),
     )
 
-    u_target = v_t - jnp.clip(time_t - time_s, min=0.0, max=1.0) * dt_u_st
+    dt = jnp.clip(time_t - time_s, min=0.0, max=1.0).reshape(
+        (x_t.shape[0],) + (x_t.ndim - 1) * (1,)
+    )
+    u_target = v_t - dt * dt_u_st
     loss = jnp.mean(jnp.abs(u_ts - jax.lax.stop_gradient(u_target)))
 
     # Samples from one-step generation. Following [1], \rho_0 is the target
@@ -374,19 +395,18 @@ class MeanFlowModel(models.BaseModel):
 
     eval_losses = {"eval_loss": loss, "eval_samples": eval_samples}
 
-    return eval_losses  # pytype: disable=bad-return-type
+    return eval_losses
 
   @classmethod
   def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):  # pyrefly: ignore[bad-override]
     """Returns the inference flow function."""
 
     def _flow(x: Array, t: float | Array, s: float | Array) -> Array:
-      # This is a wrapper to vectorize time if it is a float.
-      if not jnp.shape(jnp.asarray(t)):
-        t *= jnp.ones((x.shape[0],))
-        s *= jnp.ones((x.shape[0],))
+      # Vectorize time arguments independently if either is a scalar.
+      t_arr = jnp.broadcast_to(jnp.asarray(t), (x.shape[0],))
+      s_arr = jnp.broadcast_to(jnp.asarray(s), (x.shape[0],))
       return mean_flow_model.apply(  # pyrefly: ignore[bad-return]
-          variables, x_s=x, t=t, s=s, is_training=False
+          variables, x_s=x, t=t_arr, s=s_arr, is_training=False
       )
 
     return _flow
@@ -461,8 +481,12 @@ class ConditionalMeanFlowModel(MeanFlowModel):
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
+      if self.params_flow is None:
+        raise ValueError(
+            "`params_flow` must be provided when `flow_model` is set."
+        )
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
+          {"params": self.params_flow},
           x=x_t,
           sigma=time_t,
           cond=cond,
@@ -492,14 +516,23 @@ class ConditionalMeanFlowModel(MeanFlowModel):
         (v_t, jnp.ones_like(time_t), jnp.zeros_like(time_s)),
     )
 
-    u_target = v_t - jnp.clip(time_t - time_s, min=0.0, max=1.0) * dt_u_st
+    dt = jnp.clip(time_t - time_s, min=0.0, max=1.0).reshape(
+        (x_t.shape[0],) + (x_t.ndim - 1) * (1,)
+    )
+    u_target = v_t - dt * dt_u_st
 
     # Using the adaptive norm in section 4.3 of [1].
-    loss = jnp.mean(jnp.square(u_ts - jax.lax.stop_gradient(u_target)))
-    adaptive_weight = (loss + self.norm_regularization) ** self.norm_power
-    loss = loss / jax.lax.stop_gradient(adaptive_weight)
+    reduce_axes = tuple(range(1, u_ts.ndim))
+    per_sample_mse = jnp.mean(
+        jnp.square(u_ts - jax.lax.stop_gradient(u_target)),
+        axis=reduce_axes,
+    )
+    adaptive_weight = (
+        per_sample_mse + self.norm_regularization
+    ) ** self.norm_power
+    loss = jnp.mean(per_sample_mse / jax.lax.stop_gradient(adaptive_weight))
 
-    metric = dict(loss=loss)
+    metric = dict(loss=loss, raw_mse=jnp.mean(per_sample_mse))
     return loss, (metric, mutables)
 
   def eval_fn(
@@ -552,15 +585,16 @@ class ConditionalMeanFlowModel(MeanFlowModel):
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
       if self.params_flow is None:
-        raise ValueError("Params flow is None.")
-      else:
-        v_t = self.flow_model.apply(
-            {"params": self.params_flow},
-            x=x_t,
-            sigma=time_t,
-            cond=cond,
-            is_training=False,
+        raise ValueError(
+            "`params_flow` must be provided when `flow_model` is set."
         )
+      v_t = self.flow_model.apply(
+          {"params": self.params_flow},
+          x=x_t,
+          sigma=time_t,
+          cond=cond,
+          is_training=False,
+      )
     else:
       v_t = self.interpolant.calculate_time_derivative_interpolant(
           time_t, batch["x_0"], batch["x_1"], noise  # pyrefly: ignore[bad-argument-type]
@@ -585,7 +619,10 @@ class ConditionalMeanFlowModel(MeanFlowModel):
         (v_t, jnp.ones_like(time_t), jnp.zeros_like(time_s)),
     )
 
-    u_target = v_t - jnp.clip(time_t - time_s, min=0.0, max=1.0) * dt_u_st
+    dt = jnp.clip(time_t - time_s, min=0.0, max=1.0).reshape(
+        (x_t.shape[0],) + (x_t.ndim - 1) * (1,)
+    )
+    u_target = v_t - dt * dt_u_st
 
     # We don't use the adaptive norm here.
     loss = jnp.mean(jnp.abs(u_ts - jax.lax.stop_gradient(u_target)))
@@ -598,7 +635,7 @@ class ConditionalMeanFlowModel(MeanFlowModel):
 
     eval_losses = {"eval_loss": loss, "eval_samples": eval_samples}
 
-    return eval_losses  # pytype: disable=bad-return-type
+    return eval_losses
 
   @classmethod
   def inference_fn(cls, variables: models.PyTree, mean_flow_model: nn.Module):
@@ -610,12 +647,11 @@ class ConditionalMeanFlowModel(MeanFlowModel):
         s: float | Array,
         cond: CondDict | None = None,
     ) -> Array:
-      # This is a wrapper to vectorize time if it is a float.
-      if not jnp.shape(jnp.asarray(t)):
-        t *= jnp.ones((x.shape[0],))
-        s *= jnp.ones((x.shape[0],))
+      # Vectorize time arguments independently if either is a scalar.
+      t_arr = jnp.broadcast_to(jnp.asarray(t), (x.shape[0],))
+      s_arr = jnp.broadcast_to(jnp.asarray(s), (x.shape[0],))
       return mean_flow_model.apply(  # pyrefly: ignore[bad-return]
-          variables, x_s=x, t=t, s=s, cond=cond, is_training=False
+          variables, x_s=x, t=t_arr, s=s_arr, cond=cond, is_training=False
       )
 
     return _flow
@@ -664,8 +700,8 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
 
     # Interpolation between x_0 and x_1 (check the interpolant)
     noise = self.noising_process(noise_rng, batch["x_0"].shape)
-    # Shall we add constraint that x_tt = x_t?
     x_t = self.interpolant(time_t, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
+    x_s = self.interpolant(time_s, batch["x_0"], batch["x_1"], noise)  # pyrefly: ignore[bad-argument-type]
 
     # Extracting the conditioning.
     if self.cond_shape is not None:
@@ -676,16 +712,20 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
     # Computes the velocity at time t. If we are distilling a flow map, we use
     # the flow map model, otherwise we use the interpolant.
     if self.flow_model is not None:
+      if self.params_flow is None:
+        raise ValueError(
+            "`params_flow` must be provided when `flow_model` is set."
+        )
       v_t = self.flow_model.apply(
-          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
+          {"params": self.params_flow},
           x=x_t,
           sigma=time_t,
           cond=cond,
           is_training=False,
       )
       v_s = self.flow_model.apply(
-          {"params": self.params_flow},  # pyrefly: ignore[bad-argument-type]
-          x=x_t,
+          {"params": self.params_flow},
+          x=x_s,
           sigma=time_s,
           cond=cond,
           is_training=False,
@@ -724,18 +764,34 @@ class ConditionalSymmetricMeanFlowModel(ConditionalMeanFlowModel):
         (jnp.zeros_like(x_t), jnp.zeros_like(time_t), jnp.ones_like(time_s)),
     )
 
-    u_target_t = v_t - (time_t - time_s) * dt_u_st
-    u_target_s = v_s + (time_t - time_s) * ds_u_st
+    dt = (time_t - time_s).reshape((x_t.shape[0],) + (x_t.ndim - 1) * (1,))
+    u_target_t = v_t - dt * dt_u_st
+    u_target_s = v_s + dt * ds_u_st
 
     # Using the adaptive norm in section 4.3 of [1].
-    loss_t = jnp.mean(jnp.square(u_ts - jax.lax.stop_gradient(u_target_t)))
-    loss_s = jnp.mean(jnp.square(u_ts - jax.lax.stop_gradient(u_target_s)))
+    reduce_axes = tuple(range(1, u_ts.ndim))
+    per_sample_mse_t = jnp.mean(
+        jnp.square(u_ts - jax.lax.stop_gradient(u_target_t)),
+        axis=reduce_axes,
+    )
+    per_sample_mse_s = jnp.mean(
+        jnp.square(u_ts - jax.lax.stop_gradient(u_target_s)),
+        axis=reduce_axes,
+    )
+    per_sample_mse = 0.5 * (per_sample_mse_t + per_sample_mse_s)
+    adaptive_weight = (
+        per_sample_mse + self.norm_regularization
+    ) ** self.norm_power
+    loss = jnp.mean(per_sample_mse / jax.lax.stop_gradient(adaptive_weight))
+    loss_t = jnp.mean(per_sample_mse_t)
+    loss_s = jnp.mean(per_sample_mse_s)
 
-    loss = 0.5 * (loss_t + loss_s)
-    adaptive_weight = (loss + self.norm_regularization) ** self.norm_power
-    loss = loss / jax.lax.stop_gradient(adaptive_weight)
-
-    metric = dict(loss=loss, loss_t=loss_t, loss_s=loss_s)
+    metric = dict(
+        loss=loss,
+        loss_t=loss_t,
+        loss_s=loss_s,
+        raw_mse=jnp.mean(per_sample_mse),
+    )
     return loss, (metric, mutables)
 
 
