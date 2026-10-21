@@ -30,13 +30,9 @@ class UtilsTest(parameterized.TestCase):
 
   def test_flatten_params_with_toy_example(self):
     """Test the flatten and unflatten functions with a toy example."""
-    model_vars = flax.core.freeze(
-        {
-            'params': {
-                'dense': {'bias': jnp.zeros(5), 'kernel': jnp.ones((5, 5))}
-            }
-        }
-    )
+    model_vars = flax.core.freeze({
+        'params': {'dense': {'bias': jnp.zeros(5), 'kernel': jnp.ones((5, 5))}}
+    })
 
     n_params = utils.flat_dim(model_vars['params'])
     self.assertEqual(n_params, 30)
@@ -171,47 +167,55 @@ class UtilsTest(parameterized.TestCase):
         rngs, 2
     )
     model_vars_mean = utils.vmean(model_vars_vmapped)
-    model_vars_ref = flax.core.freeze(
-        {
-            'params': {
-                'dense': {
-                    'bias': jnp.array(
-                        jnp.mean(
-                            jax.vmap(jax.random.normal, in_axes=(0, None))(
-                                rngs, (2,)
-                            ),
-                            axis=0,
-                        )
-                    ),
-                    'kernel': jnp.array(
-                        jnp.mean(
-                            jax.vmap(jax.random.normal, in_axes=(0, None))(
-                                rngs, (2, 2)
-                            ),
-                            axis=0,
-                        )
-                    ),
-                }
+    model_vars_ref = flax.core.freeze({
+        'params': {
+            'dense': {
+                'bias': jnp.array(
+                    jnp.mean(
+                        jax.vmap(jax.random.normal, in_axes=(0, None))(
+                            rngs, (2,)
+                        ),
+                        axis=0,
+                    )
+                ),
+                'kernel': jnp.array(
+                    jnp.mean(
+                        jax.vmap(jax.random.normal, in_axes=(0, None))(
+                            rngs, (2, 2)
+                        ),
+                        axis=0,
+                    )
+                ),
             }
         }
-    )
+    })
     jax.tree_util.tree_map(
         np.testing.assert_array_almost_equal, model_vars_mean, model_vars_ref
     )
 
   def rand_model_vars(self, rng, n_size):
     """Function to create a random simple parameters dictionary."""
-    model_vars = flax.core.freeze(
-        {
-            'params': {
-                'dense': {
-                    'bias': jax.random.normal(rng, (n_size,)),
-                    'kernel': jax.random.normal(rng, (n_size, n_size)),
-                }
+    model_vars = flax.core.freeze({
+        'params': {
+            'dense': {
+                'bias': jax.random.normal(rng, (n_size,)),
+                'kernel': jax.random.normal(rng, (n_size, n_size)),
             }
         }
-    )
+    })
     return model_vars
+
+  def test_flatten_params_rejects_insufficient_rank_or_mismatched_batch(self):
+    with self.subTest('insufficient_rank'):
+      with self.assertRaisesRegex(ValueError, 'fewer dimensions'):
+        utils.flatten_params(
+            {'a': jnp.zeros((4,)), 'b': jnp.zeros((4, 2))}, from_axis=2
+        )
+    with self.subTest('mismatched_batch'):
+      with self.assertRaisesRegex(ValueError, 'Inconsistent batch prefix'):
+        utils.flatten_params(
+            {'a': jnp.zeros((2, 3)), 'b': jnp.zeros((4, 3))}, from_axis=1
+        )
 
 
 if __name__ == '__main__':

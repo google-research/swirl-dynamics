@@ -14,11 +14,14 @@
 
 """Commonly-used metrics for probabilistic forecasting tasks."""
 
+from typing import TypeAlias
+
 import jax
 import jax.numpy as jnp
 
 Array = jax.Array
 ArrayLike = jax.typing.ArrayLike
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 
 
 def _process_forecasts(
@@ -72,6 +75,7 @@ def crps(
     *,
     ensemble_axis: int = 1,
     direct_broadcast: bool = True,
+    dtype: DTypeLike = jnp.float32,
 ) -> Array:
   """Calculates the continuous ranked probability score (CRPS).
 
@@ -95,23 +99,25 @@ def crps(
       difference part of the score, which is efficient but memory intensive. If
       `False`, the mean abs diff is instead computed with a loop, which requires
       less memory but also slower.
+    dtype: Minimum floating-point dtype to promote `forecasts` and
+      `observations` to before computation.
 
   Returns:
     The CRPS with same shape as the observations, computed and returned in at
-    least float32 precision.
+    least `dtype` precision.
   """
-  # Promote before subtraction, abs, and accumulation to avoid integer and
-  # low-precision overflow, while retaining any requested float64 precision.
-  dtype = jnp.result_type(forecasts, observations, jnp.float32)
-  forecasts = jnp.asarray(forecasts, dtype=dtype)
-  observations = jnp.asarray(observations, dtype=dtype)
+  promoted_dtype = jnp.result_type(forecasts, observations, dtype)
+  forecasts = jnp.asarray(forecasts, dtype=promoted_dtype)
+  observations = jnp.asarray(observations, dtype=promoted_dtype)
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
   mae = jnp.mean(jnp.abs(forecasts - observations[..., None]), axis=-1)
 
   if direct_broadcast:
-    mean_abs_diff = _mean_abs_diff_with_broadcast(forecasts)
+    mean_abs_diff = _mean_abs_diff_with_broadcast(forecasts).astype(
+        promoted_dtype
+    )
   else:
-    mean_abs_diff = _mean_abs_diff_with_loop(forecasts)
+    mean_abs_diff = _mean_abs_diff_with_loop(forecasts).astype(promoted_dtype)
 
   return mae - 0.5 * mean_abs_diff
 
@@ -122,6 +128,7 @@ def threshold_brier_score(
     thresholds: ArrayLike,
     *,
     ensemble_axis: int = 1,
+    dtype: DTypeLike = jnp.float32,
 ) -> Array:
   """Calculates the Brier scores of an ensemble exceeding given thresholds.
 
@@ -131,7 +138,7 @@ def threshold_brier_score(
 
   where p_1 is the forecast probability of k = 1. The threshold BS simply
   computes p_1 as the fraction of forecasts exceeding a given threshold. The
-  same threshold is used to transform the observations into binary values.  Note
+  same threshold is used to transform the observations into binary values. Note
   that counting above or below the thresholds correspond to the same scores,
   provided that it is applied consistently between forecasts and observations.
 
@@ -143,27 +150,30 @@ def threshold_brier_score(
       be a scalar (single threshold) or a 1-dimensional array (multiple
       thresholds at the same time).
     ensemble_axis: The axis of forecasts corresponding to the ensemble members.
+    dtype: Minimum floating-point dtype to promote inputs and output scores to.
 
   Returns:
     The threshold Brier score with shape of either
       * observations.shape, if thresholds is 0-dimensional
       * observations.shape + thresholds.shape, if thresholds is 1-dimensional
   """
-  thresholds = jnp.asarray(thresholds)
+  promoted_dtype = jnp.result_type(forecasts, observations, dtype)
+  thresholds = jnp.asarray(thresholds, dtype=promoted_dtype)
   if thresholds.ndim > 1:
     raise ValueError("`thresholds` must be 0- or 1-dimensional.")
 
+  forecasts = jnp.asarray(forecasts, dtype=promoted_dtype)
+  observations = jnp.asarray(observations, dtype=promoted_dtype)
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
-  observations = jnp.asarray(observations)
   binary_obs = jnp.greater(
       observations[..., None],
       thresholds.reshape((1,) * observations.ndim + (-1,)),
   )
-  binary_obs = jnp.asarray(binary_obs, dtype=jnp.float32)
+  binary_obs = jnp.asarray(binary_obs, dtype=promoted_dtype)
   prob_forecasts = jnp.greater(
       forecasts[..., None], thresholds.reshape((1,) * forecasts.ndim + (-1,))
   )
-  prob_forecasts = jnp.mean(prob_forecasts, axis=-2)
+  prob_forecasts = jnp.mean(prob_forecasts, axis=-2, dtype=promoted_dtype)
   score = (binary_obs - prob_forecasts) ** 2
 
   if thresholds.ndim == 0:
@@ -176,8 +186,9 @@ def unreliability_score(
     observations: ArrayLike,
     *,
     ensemble_axis: int = 1,
+    dtype: DTypeLike = jnp.float32,
 ) -> Array:
-  """Calculates the unreliability score of the ensemble forecast.
+  """Calculates the scalar unreliability score of the ensemble forecast.
 
   The unreliability score is estimated as the squared averaged deviation of the
   rank histogram bins with respect to that of a perfectly reliable forecast.
@@ -189,12 +200,15 @@ def unreliability_score(
     observations: Observations based on which to score the ensemble forecasts,
       with the same shape of the forecasts except for missing the ensemble axis.
     ensemble_axis: The axis of forecasts corresponding to the ensemble members.
+    dtype: Minimum floating-point dtype to promote inputs and output score to.
 
   Returns:
-    The unreliability score with same shape as the observations.
+    A 0D scalar array representing the unreliability score.
   """
+  promoted_dtype = jnp.result_type(forecasts, observations, dtype)
+  forecasts = jnp.asarray(forecasts, dtype=promoted_dtype)
+  observations = jnp.asarray(observations, dtype=promoted_dtype)
   forecasts = _process_forecasts(forecasts, observations, ensemble_axis)
-  observations = jnp.asarray(observations)
 
   num_observations = jnp.size(observations)
   num_ensemble_members = forecasts.shape[-1]
@@ -202,7 +216,9 @@ def unreliability_score(
 
   # We use 0-based ranks for 0-based indexing in one_hot encoding.
   ranks = jnp.sum(forecasts <= obs_expanded, axis=-1)
-  one_hot_ranks = jax.nn.one_hot(ranks, num_classes=num_ensemble_members + 1)
+  one_hot_ranks = jax.nn.one_hot(
+      ranks, num_classes=num_ensemble_members + 1, dtype=promoted_dtype
+  )
   # Sum over all axes except the number of classes to get the rank counts.
   rank_counts = jnp.sum(one_hot_ranks, axis=tuple(range(ranks.ndim)))
   unreliability = jnp.sum(
