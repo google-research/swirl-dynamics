@@ -15,7 +15,7 @@
 """Convolution layers."""
 
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import flax.linen as nn
 import jax
@@ -23,6 +23,7 @@ import jax.numpy as jnp
 import numpy as np
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 PrecisionLike = (
     None
     | str
@@ -38,8 +39,8 @@ def ConvLayer(
     padding: nn.linear.PaddingLike,
     use_local: bool = False,
     precision: PrecisionLike = None,
-    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
-    param_dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
+    dtype: DTypeLike = jnp.float32,
+    param_dtype: DTypeLike = jnp.float32,
     **kwargs,
 ) -> nn.Module:
   """Factory for different types of convolution layers."""
@@ -94,8 +95,8 @@ class LatLonConv(nn.Module):
   strides: tuple[int, int] = (1, 1)
   use_local: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -123,7 +124,7 @@ class LatLonConv(nn.Module):
       lat_pad, lon_pad = self.kernel_size[0] // 2, self.kernel_size[1] // 2
     elif self.order == "lonlat":
       lon_axes, lat_axes = (-3, -2)
-      lon_pad, lat_pad = self.kernel_size[1] // 2, self.kernel_size[0] // 2
+      lon_pad, lat_pad = self.kernel_size[0] // 2, self.kernel_size[1] // 2
     else:
       raise ValueError(
           f"Unrecognized order {self.order} - 'latlon' or 'lonlat' expected."
@@ -165,8 +166,8 @@ class DownsampleConv(nn.Module):
       scale=1.0, mode="fan_avg", distribution="uniform"
   )
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
