@@ -33,6 +33,7 @@ dependencies = [
   "gin-config",
   "jax",
   "matplotlib",
+  "ml_collections",
   "numpy",
   "optax",
   "orbax-checkpoint",

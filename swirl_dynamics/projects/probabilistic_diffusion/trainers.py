@@ -39,7 +39,9 @@ class DenoisingModelTrainState(train_states.BasicTrainState):
   @property
   def ema_variables(self) -> flax.core.FrozenDict:
     if self.ema_state:
-      return flax.core.FrozenDict({"params": self.ema_state.ema})
+      return flax.core.freeze(
+          dict(params=self.ema_state.ema, **self.flax_mutables)
+      )
     else:
       raise ValueError("EMA state is none.")
 
@@ -111,7 +113,9 @@ class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
   ):
     if use_ema:
       if isinstance(state.ema_state, dict):
-        variables = flax.core.FrozenDict({"params": state.ema_state["ema"]})
+        variables = flax.core.freeze(
+            dict(params=state.ema_state["ema"], **state.flax_mutables)
+        )
       else:
         variables = state.ema_variables
     else:

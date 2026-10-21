@@ -84,6 +84,18 @@ class ConvLayersTest(parameterized.TestCase):
     self.assertEqual(out.dtype, dtype)  # pyrefly: ignore[missing-attribute]
     self.assertEqual(out.shape, input_shape)  # pyrefly: ignore[missing-attribute]
 
+  @parameterized.parameters("latlon", "lonlat")
+  def test_latlon_conv_nonsquare_kernel_lonlat_preserves_shape(self, order):
+    input_shape = (2, 8, 6, 4)
+    inputs = jnp.ones(input_shape, dtype=jnp.float32)
+    model = convolutions.LatLonConv(
+        features=5,
+        kernel_size=(3, 5),
+        order=order,
+    )
+    out, _ = model.init_with_output(jax.random.PRNGKey(0), inputs)
+    self.assertEqual(out.shape, (2, 8, 6, 5))
+
 
 if __name__ == "__main__":
   absltest.main()
