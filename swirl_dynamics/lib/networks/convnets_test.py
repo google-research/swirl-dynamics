@@ -14,7 +14,6 @@
 
 """Tests for the Convolution-based Modules."""
 
-
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
@@ -25,8 +24,7 @@ class DilatedBlockTest(parameterized.TestCase):
   """Testing the DilatedBlock building block of the PeriodicConvNetModel."""
 
   @parameterized.named_parameters(
-      (f':input_dim={i}', i)
-      for i in ((512,), (64, 64))
+      (f':input_dim={i}', i) for i in ((512,), (64, 64))
   )
   def test_output_shapes(
       self,
@@ -40,7 +38,7 @@ class DilatedBlockTest(parameterized.TestCase):
     d_block = convnets.DilatedBlock(
         num_channels=num_channels,
         kernel_size=(kernel_size,),
-        num_levels=num_levels
+        num_levels=num_levels,
     )
     rng = jax.random.PRNGKey(0)
     x = jax.random.normal(rng, ((batch_size,) + input_dim + (input_channels,)))
@@ -53,8 +51,7 @@ class PeriodicConvNetModelTest(parameterized.TestCase):
   """Testing the PeriodicConvNetModel."""
 
   @parameterized.named_parameters(
-      (f':input_dim={i}', i)
-      for i in ((512,), (64, 64))
+      (f':input_dim={i}', i) for i in ((512,), (64, 64))
   )
   def test_output_shapes(
       self,
@@ -66,8 +63,7 @@ class PeriodicConvNetModelTest(parameterized.TestCase):
       num_processors=4,
       encoder_kernel_size=(5,),
       decoder_kernel_size=(5,),
-      processor_kernel_size=(5,)
-
+      processor_kernel_size=(5,),
   ):
     test_model = convnets.PeriodicConvNetModel(
         latent_dim=latent_dim,
