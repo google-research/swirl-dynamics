@@ -25,27 +25,38 @@ ArrayLike = jax.typing.ArrayLike
 DTypeLike = jax.typing.DTypeLike
 
 
-def _union_axes(
-    sum_axes: Sequence[int], mean_axes: Sequence[int], ndim: int
-) -> tuple[int, ...]:
-  """Returns distinct reduction axes without hiding out-of-bounds axes."""
-  axes = []
-  for axis in (*sum_axes, *mean_axes):
+def _normalize_axes(axes: int | Sequence[int], ndim: int) -> tuple[int, ...]:
+  """Normalizes an axis or sequence of axes into deduplicated positive ints."""
+  if isinstance(axes, int):
+    axes = (axes,)
+  normalized = []
+  for axis in axes:
     axis = operator.index(axis)
     if not -ndim <= axis < ndim:
       raise ValueError(
           f"axis {axis} is out of bounds for array of dimension {ndim}"
       )
-    axes.append(axis % ndim)
-  return tuple(dict.fromkeys(axes))
+    normalized.append(axis % ndim)
+  return tuple(dict.fromkeys(normalized))
+
+
+def _union_axes(
+    sum_axes: int | Sequence[int],
+    mean_axes: int | Sequence[int],
+    ndim: int,
+) -> tuple[int, ...]:
+  """Returns distinct reduction axes without hiding out-of-bounds axes."""
+  norm_sum = _normalize_axes(sum_axes, ndim)
+  norm_mean = _normalize_axes(mean_axes, ndim)
+  return tuple(dict.fromkeys((*norm_sum, *norm_mean)))
 
 
 def mean_squared_error(
     pred: ArrayLike,
     true: ArrayLike,
     *,
-    sum_axes: Sequence[int] = (),
-    mean_axes: Sequence[int] | None = None,
+    sum_axes: int | Sequence[int] = (),
+    mean_axes: int | Sequence[int] | None = None,
     relative: bool = False,
     squared: bool = True,
     dtype: DTypeLike = jnp.float32,
@@ -83,6 +94,7 @@ def mean_squared_error(
         f"`pred` {pred.shape} and `true` {true.shape} must have the same shape."
     )
 
+  sum_axes = _normalize_axes(sum_axes, pred.ndim)
   if mean_axes is not None:
     mean_axes = _union_axes(sum_axes, mean_axes, pred.ndim)
 
@@ -105,8 +117,8 @@ def mean_absolute_error(
     pred: ArrayLike,
     true: ArrayLike,
     *,
-    sum_axes: Sequence[int] = (),
-    mean_axes: Sequence[int] | None = None,
+    sum_axes: int | Sequence[int] = (),
+    mean_axes: int | Sequence[int] | None = None,
     relative: bool = True,
     dtype: DTypeLike = jnp.float32,
 ) -> Array:
@@ -141,6 +153,7 @@ def mean_absolute_error(
         f"`pred` {pred.shape} and `true` {true.shape} must have the same shape."
     )
 
+  sum_axes = _normalize_axes(sum_axes, pred.ndim)
   if mean_axes is not None:
     mean_axes = _union_axes(sum_axes, mean_axes, pred.ndim)
 
