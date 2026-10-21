@@ -146,6 +146,54 @@ class OdeSolversTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       ode.DoPri45()(dummy_ode_dynamics, jnp.array(0), tspan, {})
 
+  def test_jit_dopri45_and_pytree_scan_solver(self):
+    tspan = jnp.linspace(0.0, 1.0, 21)
+    dyn_tree = lambda x, t, params: jax.tree_util.tree_map(
+        lambda leaf: leaf + t, x
+    )
+    with self.subTest("jit_dopri45"):
+      out_dopri = jax.jit(ode.DoPri45(), static_argnums=(0,))(
+          dyn_tree, jnp.zeros((3,)), tspan, {}
+      )
+      np.testing.assert_allclose(
+          out_dopri[-1], (np.e - 2.0) * jnp.ones((3,)), atol=1e-5
+      )
+
+    x0_tree = {"u": jnp.zeros((2,)), "v": jnp.ones((2,))}
+    with self.subTest(solver="ExplicitEuler"):
+      out_euler = jax.jit(ode.ExplicitEuler(), static_argnums=(0,))(
+          dyn_tree, x0_tree, tspan, {}
+      )
+      dt = 0.05
+      euler_u = (1.0 + dt) ** 20 - 2.0
+      euler_v = 2.0 * (1.0 + dt) ** 20 - 2.0
+      np.testing.assert_allclose(
+          out_euler["u"][-1], euler_u * jnp.ones((2,)), atol=1e-5
+      )
+      np.testing.assert_allclose(
+          out_euler["v"][-1], euler_v * jnp.ones((2,)), atol=1e-5
+      )
+    for name, solver, tol in (
+        ("HeunsMethod", ode.HeunsMethod(), 3e-3),
+        ("RungeKutta4", ode.RungeKutta4(), 1e-5),
+    ):
+      with self.subTest(solver=name):
+        out_tree = jax.jit(solver, static_argnums=(0,))(
+            dyn_tree, x0_tree, tspan, {}
+        )
+        np.testing.assert_allclose(
+            out_tree["u"][-1], (np.e - 2.0) * jnp.ones((2,)), atol=tol
+        )
+        np.testing.assert_allclose(
+            out_tree["v"][-1], (2.0 * np.e - 2.0) * jnp.ones((2,)), atol=tol
+        )
+    with self.subTest(solver="OneStepDirect"):
+      out_direct = ode.OneStepDirect()(
+          dyn_tree, x0_tree, jnp.array([0.0, 1.0]), {}
+      )
+      np.testing.assert_allclose(out_direct["u"][-1], jnp.zeros((2,)))
+      np.testing.assert_allclose(out_direct["v"][-1], jnp.ones((2,)))
+
 
 class MultiStepOdeSolversTest(parameterized.TestCase):
 

@@ -14,7 +14,8 @@
 
 """Backbones for the stochastic interpolants."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from flax import linen as nn
 import jax
@@ -22,8 +23,8 @@ import jax.numpy as jnp
 from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
 
-
 Array = jax.Array
+DTypeLike = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 PrecisionLike = (
     None
@@ -58,10 +59,10 @@ class UNet(nn.Module):
   cond_embed_dim: int = 128
   cond_merging_fn: type[unets.MergeChannelCond] | None = None
   cond_embed_fn: type[unets.MergeEmdCond] | None = None
-  cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
+  cond_embed_kwargs: Mapping[str, Any] | None = None
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -127,7 +128,8 @@ class UNet(nn.Module):
     emb = unets.FourierEmbedding(dims=self.noise_embed_dim)(sigma)
     # Incorporating the embedding from the conditional inputs.
     if self.cond_embed_fn:
-      emb = self.cond_embed_fn(**self.cond_embed_kwargs)(  # pyrefly: ignore[bad-unpacking]
+      cond_kwargs = self.cond_embed_kwargs or {}
+      emb = self.cond_embed_fn(**cond_kwargs)(
           emb, cond, is_training=is_training
       )
 
@@ -159,7 +161,7 @@ class UNet(nn.Module):
         param_dtype=self.param_dtype,
     )(skips[-1], emb, skips, is_training=is_training)
 
-    h = nn.swish(nn.GroupNorm(min(h.shape[-1] // 4, 32))(h))
+    h = nn.swish(nn.GroupNorm(unets._safe_num_groups(h.shape[-1]))(h))
     h = layers.ConvLayer(
         features=self.out_channels,
         kernel_size=kernel_dim * (3,),
@@ -198,13 +200,14 @@ class MergeCategoricalEmbCond(unets.MergeEmdCond):
     dtype: The dtype to use in the embedding.
     param_dtype: The param dtype to use in the embedding.
   """
+
   cond_key: str = "emb:label"
   num_classes: int = 10  # This is for the MNIST dataset.
   features_embedding: int = 128
   act_fun: Callable[[Array], Array] = nn.silu
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):
