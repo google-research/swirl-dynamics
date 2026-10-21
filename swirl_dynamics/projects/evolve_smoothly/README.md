@@ -8,10 +8,14 @@ We present a data-driven, space-time continuous framework to learn surrogate mod
 
 The datasets used for this work are simulated using `jax-cfd` ([github](https://github.com/google/jax-cfd)). We have made the generated datasets available to download (in `hdf5` format) on google cloud.
 
-To download the datasets, first follow the [instructions](https://cloud.google.com/storage/docs/gsutil_install) to install the `gsutil` tool. Then simply run the following command (see [here](https://cloud.google.com/storage/docs/gsutil/commands/cp) for more CLI options) to copy the dataset to a local directory
+To download the datasets, first follow the
+[instructions](https://docs.cloud.google.com/sdk/gcloud) to install the
+`gcloud storage` tool. Then simply run the following command (see
+[here](https://docs.cloud.google.com/sdk/gcloud/reference/storage/cp) for more
+CLI options) to copy the dataset to a local directory
 
 ```.bash
-gsutil cp gs://gresearch/swirl_dynamics/hdf5/pde/1d/{dataset_path}
+gcloud storage cp gs://gresearch/swirl_dynamics/hdf5/pde/1d/{dataset_path}
 ```
 where `{dataset_path}` is one of the paths listed in the table below. The dataset will be downloaded to your current directory.
 
