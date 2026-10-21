@@ -12,10 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for utils."""
-
-import tempfile
-
 from absl.testing import absltest
 from clu import metric_writers
 import numpy as np
@@ -30,15 +26,22 @@ class LoadTFeventsTest(absltest.TestCase):
     steps = 10
     rng = np.random.default_rng(42)
     loss = rng.uniform(size=(steps,))
-    with tempfile.TemporaryDirectory() as temp_dir:
-      writer = metric_writers.create_default_writer(temp_dir)
-      for s, l in enumerate(loss):
-        writer.write_scalars(s, {"loss": l})
+    temp_dir = self.create_tempdir().full_path
+    writer = metric_writers.create_default_writer(temp_dir)
+    for s, l in enumerate(loss):
+      writer.write_scalars(s, {"loss": l})
 
-      writer.flush()
-      loaded = utils.load_scalars_from_tfevents(temp_dir)
-      loaded = [loaded[s]["loss"] for s in range(steps)]
-      self.assertSequenceAlmostEqual(loaded, loss)
+    writer.flush()
+    loaded = utils.load_scalars_from_tfevents(temp_dir)
+    loaded = [loaded[s]["loss"] for s in range(steps)]
+    self.assertSequenceAlmostEqual(loaded, loss)
+
+  def test_is_scalar_handles_empty_and_multielement_arrays(self):
+    self.assertTrue(utils.is_scalar(1.5))
+    self.assertTrue(utils.is_scalar(np.array(2.0)))
+    self.assertTrue(utils.is_scalar(np.array([2.0])))
+    self.assertFalse(utils.is_scalar(np.array([])))
+    self.assertFalse(utils.is_scalar(np.array([1.0, 2.0])))
 
 
 if __name__ == "__main__":

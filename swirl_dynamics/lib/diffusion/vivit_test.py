@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the light-weight ViViT implementation.
-"""
+"""Tests for the light-weight ViViT implementation."""
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
@@ -26,8 +26,16 @@ class VivitTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ((16, 32, 32), (2, 2, 2), 1),
-      ((16, 64, 64), (4, 4, 4), 1,),
-      ((32, 64, 64), (8, 8, 8), 2,),
+      (
+          (16, 64, 64),
+          (4, 4, 4),
+          1,
+      ),
+      (
+          (32, 64, 64),
+          (8, 8, 8),
+          2,
+      ),
   )
   def test_vivit_output_shape(self, spatial_dims, patch_size, output_features):
     batch, channels = 2, 3
@@ -115,8 +123,18 @@ class VivitTest(parameterized.TestCase):
         train=False,
     )
 
-    self.assertEqual(out.shape, (batch_size, time * t, height * h, width * w,
-                                 output_features))
+    self.assertEqual(
+        out.shape,
+        (batch_size, time * t, height * h, width * w, output_features),
+    )
+
+  def test_central_frame_initializer_zeros_temporal_axis(self):
+    shape = (3, 4, 6, 2, 8)
+    kernel = vivit.central_frame_initializer()(jax.random.PRNGKey(0), shape)
+    self.assertEqual(kernel.shape, shape)
+    np.testing.assert_array_equal(kernel[0], np.zeros_like(kernel[0]))
+    np.testing.assert_array_equal(kernel[2], np.zeros_like(kernel[2]))
+    self.assertTrue(bool(np.any(kernel[1, :, 2:, :, :] != 0.0)))
 
 
 if __name__ == "__main__":
