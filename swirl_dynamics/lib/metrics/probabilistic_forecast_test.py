@@ -223,6 +223,29 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
     np.testing.assert_allclose(gradient, ref_gradient, rtol=1e-3, atol=1e-4)
     self.assertTrue(np.all(np.isfinite(gradient)))
 
+  def test_unreliability_and_brier_preserve_float64_and_promote_int(self):
+    forecasts_int = jnp.asarray(
+        [[0, 1, 2], [0, 1, 2], [0, 1, 2]], dtype=jnp.int32
+    )
+    obs_int = jnp.asarray([-1, 0, 1], dtype=jnp.int32)
+    unrel_int = probabilistic_forecast.unreliability_score(
+        forecasts_int, obs_int, ensemble_axis=-1
+    )
+    self.assertEqual(unrel_int.shape, ())
+    self.assertEqual(unrel_int.dtype, jnp.float32)
+
+    with jax.enable_x64():
+      forecasts_f64 = forecasts_int.astype(jnp.float64)
+      obs_f64 = obs_int.astype(jnp.float64)
+      unrel_f64 = probabilistic_forecast.unreliability_score(
+          forecasts_f64, obs_f64, ensemble_axis=-1
+      )
+      brier_f64 = probabilistic_forecast.threshold_brier_score(
+          forecasts_f64, obs_f64, 0.5, ensemble_axis=-1
+      )
+      self.assertEqual(unrel_f64.dtype, jnp.float64)
+      self.assertEqual(brier_f64.dtype, jnp.float64)
+
 
 if __name__ == "__main__":
   absltest.main()
