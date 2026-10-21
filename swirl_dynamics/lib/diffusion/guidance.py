@@ -16,6 +16,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import functools
+import math
 from typing import Any, Literal, Protocol
 
 import chex
@@ -102,9 +103,7 @@ class InfillFromSlices:
 
       constraint_grad, denoised = jax.grad(constraint, has_aux=True)(x)
       # Rescale based on the fraction of values being conditioned.
-      cond_fraction = jnp.prod(jnp.asarray(x[self.slices].shape)) / jnp.prod(
-          jnp.asarray(x.shape)
-      )
+      cond_fraction = math.prod(x[self.slices].shape) / math.prod(x.shape)
       guide_strength = self.guide_strength / cond_fraction
       denoised -= guide_strength * constraint_grad
       return denoised.at[self.slices].set(guidance_inputs['observed_slices'])
@@ -261,7 +260,14 @@ class ClassifierFreeHybrid:
   ) -> DenoiseFn:
     """Constructs denoise function with classifier free guidance."""
 
-    def _guided_denoise(x: Array, sigma: Array, cond: ArrayMapping) -> Array:
+    def _guided_denoise(
+        x: Array, sigma: Array, cond: ArrayMapping | None = None
+    ) -> Array:
+      if cond is None or (
+          not isinstance(self.guidance_strength, jax.Array)
+          and self.guidance_strength == 0
+      ):
+        return denoise_fn(x, sigma, cond)
       masked_cond = {
           k: (
               v  # pylint: disable=g-long-ternary
@@ -278,11 +284,12 @@ class ClassifierFreeHybrid:
       denoised = jax.vmap(denoised_fn_partial)(stacked_conds)
       cond_denoised = denoised[0]
       uncond_denoised = denoised[1]
-      return (  # pyrefly: ignore[bad-return]
-          1 + self.guidance_strength
-      ) * cond_denoised - self.guidance_strength * uncond_denoised
+      return jnp.asarray(
+          (1 + self.guidance_strength) * cond_denoised
+          - self.guidance_strength * uncond_denoised
+      )
 
-    return _guided_denoise  # pyrefly: ignore[bad-return]
+    return _guided_denoise
 
 
 @flax.struct.dataclass
@@ -336,7 +343,14 @@ class ClassifierFreeContrastive:
   ) -> DenoiseFn:
     """Constructs denoise function with classifier free guidance."""
 
-    def _guided_denoise(x: Array, sigma: Array, cond: ArrayMapping) -> Array:
+    def _guided_denoise(
+        x: Array, sigma: Array, cond: ArrayMapping | None = None
+    ) -> Array:
+      if cond is None or (
+          not isinstance(self.guidance_strength, jax.Array)
+          and self.guidance_strength == 0
+      ):
+        return denoise_fn(x, sigma, cond)
       contrast_cond_value = jnp.stack(
           [guidance_inputs[self.contrast_cond_key]] * x.shape[0], axis=0
       )
@@ -350,8 +364,9 @@ class ClassifierFreeContrastive:
           for k, v in cond.items()
       }
       constrastive_denoised = denoise_fn(x, sigma, contrastive_cond)
-      return (1 + self.guidance_strength) * denoise_fn(  # pyrefly: ignore[bad-return]
-          x, sigma, cond
-      ) - self.guidance_strength * constrastive_denoised
+      return jnp.asarray(
+          (1 + self.guidance_strength) * denoise_fn(x, sigma, cond)
+          - self.guidance_strength * constrastive_denoised
+      )
 
-    return _guided_denoise  # pyrefly: ignore[bad-return]
+    return _guided_denoise
