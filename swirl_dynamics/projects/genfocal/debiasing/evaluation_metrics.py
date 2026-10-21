@@ -238,8 +238,8 @@ def log_energy_error(
   num_fields = len(variables)
   if num_fields != input_array.shape[-1]:
     raise ValueError(
-        f"Number of fields ({num_fields}) does not match the ",
-        f"number of channels if the input fields ({input_array.shape[-1]}).",
+        f"Number of fields ({num_fields}) does not match the "
+        f"number of channels in the input fields ({input_array.shape[-1]})."
     )
 
   sample_radspec = build_vectorized_function(num_bins, lon, lat)
@@ -305,8 +305,8 @@ def smoothed_average_l1_error(
   num_fields = len(variables)
   if num_fields != input_array.shape[-1]:
     raise ValueError(
-        f"Number of fields ({num_fields}) does not match the ",
-        f"number of channels if the input fields ({input_array.shape[-1]}).",
+        f"Number of fields ({num_fields}) does not match the "
+        f"number of channels in the input fields ({input_array.shape[-1]})."
     )
 
   err_mean = {}
@@ -329,7 +329,7 @@ def smoothed_average_l1_error(
     )
 
     # Compute the moving average.
-    conv_window = np.ones(window_size)/window_size
+    conv_window = np.ones(window_size) / window_size
     reflow_mean = np.convolve(reflow_mean, conv_window, mode="valid")
     lens2_mean = np.convolve(lens2_mean, conv_window, mode="valid")
     era5_mean = np.convolve(era5_mean, conv_window, mode="valid")
