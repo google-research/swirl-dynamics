@@ -15,6 +15,7 @@
 """U-Net denoiser models."""
 
 from collections.abc import Callable, Sequence
+from typing import TypeAlias
 
 from flax import linen as nn
 import jax
@@ -22,8 +23,8 @@ import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
 
-
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 PrecisionLike = (
     None
@@ -54,8 +55,8 @@ class AdaptiveScale(nn.Module):
 
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array) -> Array:
@@ -94,8 +95,8 @@ class AttentionBlock(nn.Module):
   num_heads: int = 1
   normalize_qk: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -120,8 +121,8 @@ class ResConv1x(nn.Module):
   out_channels: int
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -174,8 +175,8 @@ class ResConv1xGLU(nn.Module):
   act_fun: Callable[[Array], Array] = nn.swish
   use_bias: bool = True
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -254,8 +255,8 @@ class ConvBlock(nn.Module):
   film_act_fun: Callable[[Array], Array] = nn.swish
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, is_training: bool) -> Array:
@@ -314,8 +315,8 @@ class FourierEmbedding(nn.Module):
   use_magnitude_preserving: bool = False
   act_fun: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -419,8 +420,8 @@ class Axial2DMLP(nn.Module):
   out_dims: tuple[int, int]
   act_fn: Callable[[Array], Array] = nn.swish
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -463,8 +464,8 @@ class MergeChannelCond(nn.Module):
   resize_method: str = "cubic"
   padding: str = "CIRCULAR"
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
 
 class InterpConvMerge(MergeChannelCond):
@@ -605,8 +606,8 @@ class EmbConvMerge(MergeEmdCond):
   num_heads: int = 128
   normalize_qk: bool = True
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):
@@ -720,8 +721,8 @@ class DStack(nn.Module):
   use_position_encoding: bool = False
   normalize_qk: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, *, is_training: bool) -> list[Array]:
@@ -827,8 +828,8 @@ class UStack(nn.Module):
   channels_per_head: int = -1
   normalize_qk: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -934,8 +935,8 @@ class UNet(nn.Module):
   cond_embed_fn: type[nn.Module] | None = None
   cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
