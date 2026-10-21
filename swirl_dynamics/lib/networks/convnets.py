@@ -16,6 +16,7 @@
 
 1) PeriodicConvNetModel
 """
+
 from collections.abc import Callable
 from typing import Any
 
@@ -43,13 +44,15 @@ class DilatedBlock(nn.Module):
 
     # Ascending and descending order
     dilation_order = list(range(self.num_levels))
-    dilation_order += list(range(self.num_levels-1))[::-1]
+    dilation_order += list(range(self.num_levels - 1))[::-1]
     for i in dilation_order:
-      x = nn.Conv(features=self.num_channels,
-                  kernel_size=self.kernel_size,
-                  kernel_dilation=2**i,
-                  padding=self.padding,
-                  dtype=self.dtype)(x)
+      x = nn.Conv(
+          features=self.num_channels,
+          kernel_size=self.kernel_size,
+          kernel_dilation=2**i,
+          padding=self.padding,
+          dtype=self.dtype,
+      )(x)
       x = self.act_fun(x)
     return x
 
@@ -77,6 +80,7 @@ class PeriodicConvNetModel(nn.Module):
     is_input_residual: Boolean to use a global skip connection, so the
       architecture is similar to a Forward Euler integration rule.
   """
+
   latent_dim: int = 48
   num_levels: int = 4
   num_processors: int = 4
@@ -95,23 +99,29 @@ class PeriodicConvNetModel(nn.Module):
     x = inputs.astype(self.dtype)
 
     # Encoder to latent dimension (larger than regular dimension).
-    latent_x = nn.Conv(features=self.latent_dim,
-                       kernel_size=self.encoder_kernel_size,
-                       padding=self.padding,
-                       dtype=self.dtype)(x)
+    latent_x = nn.Conv(
+        features=self.latent_dim,
+        kernel_size=self.encoder_kernel_size,
+        padding=self.padding,
+        dtype=self.dtype,
+    )(x)
 
     for _ in range(self.num_processors):
-      y = DilatedBlock(num_channels=self.latent_dim,
-                       kernel_size=self.processor_kernel_size,
-                       num_levels=self.num_levels,
-                       act_fun=self.act_fun)(latent_x)
+      y = DilatedBlock(
+          num_channels=self.latent_dim,
+          kernel_size=self.processor_kernel_size,
+          num_levels=self.num_levels,
+          act_fun=self.act_fun,
+      )(latent_x)
       y = self.norm_layer(y)
       latent_x += y
 
-    x = nn.Conv(features=inputs.shape[-1],
-                kernel_size=self.decoder_kernel_size,
-                padding=self.padding,
-                dtype=self.dtype)(latent_x)
+    x = nn.Conv(
+        features=inputs.shape[-1],
+        kernel_size=self.decoder_kernel_size,
+        padding=self.padding,
+        dtype=self.dtype,
+    )(latent_x)
 
     # Last skip connection.
     if self.is_input_residual:
