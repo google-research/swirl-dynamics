@@ -15,6 +15,7 @@
 """Resizing modules."""
 
 from collections.abc import Sequence
+from typing import TypeAlias
 
 import flax.linen as nn
 import jax
@@ -22,6 +23,7 @@ import jax.numpy as jnp
 from swirl_dynamics.lib.layers import convolutions
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 PrecisionLike = (
     None
     | str
@@ -56,8 +58,8 @@ class FilteredResize(nn.Module):
   )
   use_local: bool = False
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
