@@ -27,12 +27,14 @@ from collections.abc import Callable
 import enum
 import math
 import string
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 
 # ********************
 # Layers
@@ -93,7 +95,7 @@ class SpectralConv(nn.Module):
   fft_norm: Literal["backward", "ortho", "forward"] = "backward"
   contract_fn: ContractFnType = ContractFnType.DENSE
   separable: bool = False
-  weights_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
+  weights_dtype: DTypeLike = jnp.complex64
 
   def setup(self):
     weights_shape = (
@@ -165,8 +167,8 @@ class SpectralConv(nn.Module):
     x = self._contract_fn(x, self.weights, separable=self.separable)
     x = jnp.fft.irfftn(x, s=domain_size, axes=fft_axes, norm=self.fft_norm)
 
-    if self.use_bias:
-      x = x + self.bias[None]  # pyrefly: ignore[unsupported-operation]
+    if self.bias is not None:
+      x = x + self.bias[None]
 
     return x
 
@@ -205,7 +207,7 @@ class FnoResBlock(nn.Module):
   separable: bool = False
   act_fn: Callable[[jax.Array], jax.Array] = nn.swish
   skip_type: Literal["linear", "soft-gate", "identity"] = "soft-gate"
-  param_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
+  param_dtype: DTypeLike = jnp.complex64
 
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:
@@ -285,7 +287,7 @@ class Fno(nn.Module):
   contract_fn: ContractFnType = ContractFnType.DENSE
   separable: bool = False
   act_fn: Callable[[jax.Array], jax.Array] = nn.swish
-  param_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
+  param_dtype: DTypeLike = jnp.complex64
 
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:
@@ -342,13 +344,13 @@ class Fno2d(nn.Module):
   domain_size: tuple[int, int] | None = None
   fft_norm: Literal["backward", "ortho", "forward"] = "ortho"
   act_fn: Callable[[jax.Array], jax.Array] = jax.nn.selu
-  param_dtype: jnp.dtype = jnp.complex64  # pyrefly: ignore[bad-assignment]
-  grid_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  param_dtype: DTypeLike = jnp.complex64
+  grid_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: jax.Array) -> jax.Array:
     batch_sz, *grid_size, _ = x.shape
-    grid = self.get_grid(tuple(grid_size), dtype=self.grid_dtype)  # pyrefly: ignore[bad-argument-type]
+    grid = self.get_grid((grid_size[0], grid_size[1]), dtype=self.grid_dtype)
     grid = jnp.tile(grid, (batch_sz,) + (1,) * (len(grid_size) + 1))
 
     # Scaling follows the reference repo in the class description
@@ -366,10 +368,11 @@ class Fno2d(nn.Module):
           domain_size=self.domain_size,
           num_modes=tuple(modes[i]),
           fft_norm=self.fft_norm,
+          weights_dtype=self.param_dtype,
       )(x)
       h2 = nn.Conv(features=widths[i + 1], kernel_size=kernel_sz)(x)
       x = h1 + h2
-      if i < 4:
+      if i < 3:
         x = self.act_fn(x)
 
     x = self.act_fn(nn.Dense(features=widths[-1] * 2)(x))
@@ -377,7 +380,7 @@ class Fno2d(nn.Module):
     x = nn.Dense(features=self.out_channels)(x)
     return x
 
-  def get_grid(self, grid_size: tuple[int, int], dtype: jnp.dtype) -> jax.Array:
+  def get_grid(self, grid_size: tuple[int, int], dtype: DTypeLike) -> jax.Array:
     sz_x, sz_y = grid_size
     grid_x = jnp.expand_dims(
         jnp.linspace(0, 1, sz_x, endpoint=False, dtype=dtype), (1, 2)
