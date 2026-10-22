@@ -25,15 +25,16 @@ submitted to ICLR2023. "https://openreview.net/forum?id=Z4s73sJYQM"
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeAlias
 
 from flax import linen as nn
+import jax
 import jax.numpy as jnp
 import numpy as np
 
 Scalar = Any
 Array = Any
-Dtype = jnp.dtype
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 
 
 class HyperUnet(nn.Module):
@@ -56,7 +57,7 @@ class HyperUnet(nn.Module):
   embed_dims: tuple[int, int, int]
   act_fn: Callable[[Array], Array] = nn.swish
   use_layernorm: bool = False
-  dtype: Dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   def slice_inputs(self, inputs: Array, axis: int = -1) -> list[Array]:
     """Slice into layers based on weight shapes.
