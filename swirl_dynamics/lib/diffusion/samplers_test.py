@@ -52,9 +52,7 @@ class TimeStepSchedulersTest(parameterized.TestCase):
     if compiled:
       schedule = jax.jit(schedule)
     tspan = schedule(end_time=jnp.asarray(end_time))
-    np.testing.assert_allclose(
-        tspan, np.linspace(1.0, end_time, 3), atol=1e-6
-    )
+    np.testing.assert_allclose(tspan, np.linspace(1.0, end_time, 3), atol=1e-6)
 
   @parameterized.product(compiled=[False, True])
   def test_uniform_time_explicit_end_sigma(self, compiled):
@@ -98,6 +96,20 @@ class TimeStepSchedulersTest(parameterized.TestCase):
         scheme, rho=2, num_steps=num_steps, end_sigma=end_sigma
     )
     np.testing.assert_allclose(tspan, np.asarray(expected_tspan), atol=1e-6)
+
+  def test_noise_decay_schedulers_invalid_inputs(self):
+    scheme = diffusion.Diffusion.create_variance_exploding(
+        diffusion.tangent_noise_schedule()
+    )
+    with self.subTest("exp_num_steps_lt_2"):
+      with self.assertRaisesRegex(ValueError, "`num_steps` must be at least 2"):
+        samplers.exponential_noise_decay(scheme, num_steps=1)
+    with self.subTest("edm_num_steps_lt_2"):
+      with self.assertRaisesRegex(ValueError, "`num_steps` must be at least 2"):
+        samplers.edm_noise_decay(scheme, num_steps=1)
+    with self.subTest("edm_rho_nonpositive"):
+      with self.assertRaisesRegex(ValueError, "`rho` must be positive"):
+        samplers.edm_noise_decay(scheme, rho=0)
 
 
 class TestTransform:
@@ -229,7 +241,7 @@ class SamplersTest(parameterized.TestCase):
           samplers.SdeSampler,
           {"integrator": sde.EulerMaruyama(iter_type="loop")},
       ),
-      (samplers.ExponentialSdeSampler, {}),
+      (samplers.ExponentialOdeSampler, {}),
       (samplers.ExponentialSdeSampler, {}),
   )
   def test_output_shape_with_guidance(self, sampler, kwargs):
@@ -521,9 +533,52 @@ class SamplersTest(parameterized.TestCase):
     result = sampler.compute_log_likelihood(
         x, cond={"center": jnp.zeros(2)}, rng=jax.random.key(4)
     )
-    np.testing.assert_allclose(
-        result, self._log_normal(x, 0.0, 1.0), rtol=1e-6
+    np.testing.assert_allclose(result, self._log_normal(x, 0.0, 1.0), rtol=1e-6)
+
+  def test_ode_sampler_exact_log_likelihood_without_rng(self):
+    sampler = self._make_prior_sampler(
+        samplers.OdeSampler, jnp.ones_like, 2.0, (2,), [1.0, 0.5]
     )
+    x = jnp.array([[0.1, 0.2], [0.5, -0.25]])
+    logp = sampler.compute_log_likelihood(x, rng=None)
+    self.assertEqual(logp.shape, (2,))
+    self.assertTrue(bool(jnp.all(jnp.isfinite(logp))))
+
+    with self.assertRaisesRegex(ValueError, "`rng` must be provided"):
+      sampler.replace(num_probes=2).compute_log_likelihood(x, rng=None)
+
+  def test_array_to_int_all_dtypes(self):
+    with jax.enable_x64():
+      for dtype in (jnp.float16, jnp.bfloat16, jnp.float32, jnp.float64):
+        with self.subTest(dtype=dtype):
+          val = jnp.asarray([0.25, 0.75], dtype=dtype)
+          hashed = samplers.array_to_int(val)
+          self.assertEqual(hashed.shape, ())
+
+  @parameterized.parameters(False, True)
+  def test_t_student_ode_sampler_terminal_prior(self, isotropic: bool):
+    sigma = diffusion.InvertibleSchedule(lambda t: 1.0 + t, lambda y: y - 1.0)
+    scheme = diffusion.Diffusion(scale=jnp.ones_like, sigma=sigma)
+    sampler = samplers.TStudentOdeSampler(
+        df=4,
+        isotropic=isotropic,
+        input_shape=(2,),
+        scheme=scheme,
+        tspan=jnp.asarray([1.0]),
+        denoise_fn=lambda x, sigma, cond: jnp.zeros_like(x),
+        apply_denoise_at_end=False,
+    )
+    samples = sampler.generate(3, jax.random.PRNGKey(0))
+    self.assertEqual(samples.shape, (3, 2))
+    logp = sampler.compute_log_likelihood(samples, rng=None)
+    self.assertEqual(logp.shape, (3,))
+    if not isotropic:
+      expected = jnp.sum(
+          jax.scipy.stats.t.logpdf(samples, df=4, scale=2.0), axis=-1
+      )
+      np.testing.assert_allclose(logp, expected, rtol=1e-6)
+    else:
+      self.assertTrue(bool(jnp.all(jnp.isfinite(logp))))
 
 
 if __name__ == "__main__":
