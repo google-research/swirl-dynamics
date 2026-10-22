@@ -75,8 +75,10 @@ class NetworksTest(parameterized.TestCase):
   ):
     batch_size = 2
 
-    new_spatial_dims = (spatial_dims[0]//(2**(num_layers+1)),
-                        spatial_dims[1]//(2**(num_layers+1)))
+    new_spatial_dims = (
+        spatial_dims[0] // (2 ** (num_layers + 1)),
+        spatial_dims[1] // (2 ** (num_layers + 1)),
+    )
     x = np.random.randn(batch_size, *spatial_dims, input_channels)
 
     model = cycle_gan.Discriminator(
@@ -86,9 +88,7 @@ class NetworksTest(parameterized.TestCase):
         use_bias=False,
         use_local=False,
     )
-    out, _ = model.init_with_output(
-        jax.random.PRNGKey(42), x
-    )
+    out, _ = model.init_with_output(jax.random.PRNGKey(42), x)
 
     self.assertEqual(out.shape, (batch_size, *new_spatial_dims, 1))
 
@@ -113,9 +113,7 @@ class NetworksTest(parameterized.TestCase):
         use_local=use_local,
     )
 
-    out, _ = model.init_with_output(
-        jax.random.PRNGKey(42), x
-    )
+    out, _ = model.init_with_output(jax.random.PRNGKey(42), x)
 
     self.assertEqual(out.shape, (batch_size, *output_dims, output_nc))
 
