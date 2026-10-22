@@ -177,7 +177,7 @@ def exponential_noise_decay(
     end_sigma: float | None = 1e-3,
 ) -> Array:
   """Time steps corresponding to exponentially decaying sigma."""
-  exponent = jnp.arange(num_steps) / (num_steps - 1)
+  exponent = jnp.linspace(0.0, 1.0, num_steps)
   r = end_sigma / scheme.sigma_max  # pyrefly: ignore[unsupported-operation]
   sigma_schedule = scheme.sigma_max * jnp.power(r, exponent)
   return jnp.asarray(scheme.sigma.inverse(sigma_schedule))
@@ -191,7 +191,7 @@ def edm_noise_decay(
 ) -> Array:
   """Time steps corresponding to Eq. 5 in Karras et al."""
   rho_inv = 1 / rho
-  sigma_schedule = jnp.arange(num_steps) / (num_steps - 1)
+  sigma_schedule = jnp.linspace(0.0, 1.0, num_steps)
   sigma_schedule *= jnp.power(end_sigma, rho_inv) - jnp.power(  # pyrefly: ignore[bad-argument-type]
       scheme.sigma_max, rho_inv
   )
