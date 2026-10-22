@@ -107,12 +107,11 @@ class Unets3dTest(parameterized.TestCase):
     )
 
     # Run apply
-    out = network.apply(
-        variables, x, sigma=jnp.ones((2,)), is_training=True
-    )
+    out = network.apply(variables, x, sigma=jnp.ones((2,)), is_training=True)
     self.assertEqual(out.shape, x.shape)  # pyrefly: ignore[missing-attribute]
 
     self.assertEqual(out.dtype, jnp.float32)  # pyrefly: ignore[missing-attribute]
+
 
 if __name__ == "__main__":
   absltest.main()

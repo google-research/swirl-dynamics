@@ -154,6 +154,19 @@ class ZarrUtilsTest(parameterized.TestCase):
       ds_appended = xr.open_zarr(os.path.join(outdir, "written_file.zarr"))
       self.assertEqual(ds_appended.dims["x"], 6)
 
+  def test_collected_metrics_to_ds_multiple_keys_without_coords(self):
+    data = {
+        "foo": np.ones((2, 4, 3)),
+        "bar": np.zeros((2, 4, 3)),
+    }
+    ds = zarr_utils.collected_metrics_to_ds(
+        data, append_dim="time", append_slice=slice(0, 2), coords=None
+    )
+    self.assertIn("foo", ds)
+    self.assertIn("bar", ds)
+    self.assertEqual(ds["foo"].dims, ("time", "dim_0", "dim_1"))
+    self.assertEqual(ds["bar"].dims, ("time", "dim_0", "dim_1"))
+
 
 if __name__ == "__main__":
   flags.FLAGS.mark_as_parsed()
