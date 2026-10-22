@@ -134,10 +134,10 @@ class SdeSolversTest(parameterized.TestCase):
     # => dX_T/dmu = X_0 * T * exp(mu * T + sigma * W_T)
     # => dX_T/dsigma = X_0 * W_T * exp(mu * T + sigma * W_T)
     expected_grad_mu = (
-        x0 * tspan[-1] * jnp.exp(mu * tspan[-1] + sigma * path[-1]),
+        x0 * tspan[-1] * jnp.exp(mu * tspan[-1] + sigma * path[-1])
     )
     expected_grad_sigma = (
-        x0 * path[-1] * jnp.exp(mu * tspan[-1] + sigma * path[-1]),
+        x0 * path[-1] * jnp.exp(mu * tspan[-1] + sigma * path[-1])
     )
     np.testing.assert_allclose(
         grad["drift"], expected_grad_mu, atol=1e-3, rtol=1e-2
@@ -200,6 +200,10 @@ class SdeSolversTest(parameterized.TestCase):
           rng=jax.random.PRNGKey(0),
           params={"drift": jnp.zeros((100,))},
       )
+
+  def test_invalid_iter_type(self):
+    with self.assertRaisesRegex(ValueError, "`iter_type` must be"):
+      sde.EulerMaruyama(iter_type="invalid")  # pyrefly: ignore[bad-argument-type]
 
 
 if __name__ == "__main__":
