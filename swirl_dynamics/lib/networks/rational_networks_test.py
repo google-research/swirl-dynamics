@@ -88,6 +88,29 @@ class RationalMLPTest(absltest.TestCase):
     num_params = utils.flat_dim(params)
     self.assertEqual(num_params, 17)
 
+  def test_nonlinear_fourier_rational_and_nd_cutoff(self):
+    rng = jax.random.PRNGKey(0)
+    x_2d = jax.random.normal(rng, (4, 8))
+    rat_cutoff = rational_networks.RationalLayer(cutoff=1e-3)
+    out_cutoff, _ = rat_cutoff.init_with_output(rng, x_2d)
+    self.assertEqual(out_cutoff.shape, (4, 8))
+
+    x_1d = jnp.linspace(-1.0, 1.0, 16)[:, None]
+    for train_freqs in (False, True):
+      with self.subTest(train_freqs=train_freqs):
+        net = rational_networks.NonLinearFourierRational(
+            features=(8, 8),
+            num_freqs=3,
+            train_freqs=train_freqs,
+            dyadic=True,
+            zero_freq=True,
+        )
+        out, variables = jax.vmap(net.init_with_output, in_axes=(None, 0))(
+            rng, x_1d
+        )
+        self.assertEqual(out.shape, (16, 1))
+        self.assertEqual('frequencies' in variables['params'], train_freqs)
+
 
 if __name__ == '__main__':
   absltest.main()
