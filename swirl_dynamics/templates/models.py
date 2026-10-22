@@ -16,18 +16,19 @@
 
 import abc
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, TypeAlias
 
 import flax.linen as nn
 import jax
-import numpy as np
 
-ArrayDict = Mapping[str, jax.Array]
-BatchType = Mapping[str, np.ndarray | jax.Array]
-VarDict = nn.module.FrozenVariableDict
-ModelVariable = VarDict | tuple[VarDict, ...] | Mapping[str, VarDict]
-PyTree = Any
-LossAndAux = tuple[jax.Array, tuple[ArrayDict, PyTree]]
+ArrayDict: TypeAlias = Mapping[str, Any]
+BatchType: TypeAlias = Mapping[str, Any]
+VarDict: TypeAlias = nn.module.FrozenVariableDict
+ModelVariable: TypeAlias = (
+    VarDict | tuple[VarDict, ...] | Mapping[str, VarDict] | Any
+)
+PyTree: TypeAlias = Any
+LossAndAux: TypeAlias = tuple[jax.Array, tuple[ArrayDict, PyTree]]
 
 
 class BaseModel(metaclass=abc.ABCMeta):
@@ -77,7 +78,6 @@ class BaseModel(metaclass=abc.ABCMeta):
       batch: BatchType,
       rng: jax.Array,
       mutables: PyTree,
-      **kwargs,
   ) -> LossAndAux:
     """Computes training loss and metrics.
 
@@ -90,7 +90,6 @@ class BaseModel(metaclass=abc.ABCMeta):
       rng: jax random key for randomized loss if needed.
       mutables: model variables which are not differentiated against; can be
         mutable if so desired.
-      **kwargs: additional static configs.
 
     Returns:
       loss: the (scalar) loss function value.
@@ -108,12 +107,11 @@ class BaseModel(metaclass=abc.ABCMeta):
       variables: tuple[PyTree, ...] | PyTree,
       batch: BatchType,
       rng: jax.Array,
-      **kwargs,
   ) -> ArrayDict:
     """Computes evaluation metrics."""
     raise NotImplementedError
 
   @staticmethod
-  def inference_fn(variables: PyTree, **kwargs) -> Callable[..., Any]:
+  def inference_fn(variables: PyTree, *args, **kwargs) -> Callable[..., Any]:
     """Returns an inference function with bound variables."""
     raise NotImplementedError
