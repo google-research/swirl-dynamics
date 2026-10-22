@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Tests for the light-weight ViViT Diffusion implementation."""
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
@@ -92,7 +93,7 @@ class VivitDiffusionTest(parameterized.TestCase):
         hidden_size=6,
         temporal_encoding_config=temporal_encoding_config,
         attention_config=attention_config,
-        positional_embedding='none'
+        positional_embedding='none',
     )
 
     out, _ = vivit_model.init_with_output(
@@ -149,6 +150,7 @@ class VivitDiffusionTest(parameterized.TestCase):
         is_training=True,
     )
     self.assertEqual(out.shape, x.shape)
+
 
 if __name__ == '__main__':
   absltest.main()
