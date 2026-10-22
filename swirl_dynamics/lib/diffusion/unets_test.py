@@ -229,6 +229,61 @@ class NetworksTest(parameterized.TestCase):
     )
     self.assertEqual(out.shape, x.shape)
 
+  def test_heavy_tailed_denoiser_output_shape_and_float16_stability(self):
+    x = jnp.ones((2, 8, 8, 2), dtype=jnp.float16)
+    sigma = jnp.asarray([512.0, 65504.0], dtype=jnp.float16)
+    model = diffusion.unets.HeavyTailedDenoiser(
+        out_channels=2,
+        num_channels=(4, 8),
+        downsample_ratio=(2, 2),
+        num_blocks=1,
+        num_heads=2,
+        df=3,
+        sigma_data=1.0,
+        use_position_encoding=False,
+    )
+    out, _ = model.init_with_output(
+        jax.random.PRNGKey(0), x=x, sigma=sigma, is_training=False
+    )
+    self.assertEqual(out.shape, x.shape)
+    self.assertEqual(out.dtype, jnp.float16)
+    self.assertTrue(bool(jnp.all(jnp.isfinite(out))))
+
+  def test_channel_mergers_ignore_non_channel_keys_and_keep_matching_shape(
+      self,
+  ):
+    x = jnp.ones((2, 8, 8, 4), dtype=jnp.float32)
+    cond = {
+        "channel:same": jnp.ones((2, 8, 8, 2), dtype=jnp.float32),
+        "emb:vec": jnp.ones((2, 16), dtype=jnp.float32),
+    }
+    for merger_cls in (
+        diffusion.unets.InterpConvMerge,
+        diffusion.unets.AxialMLPInterpConvMerge,
+    ):
+      with self.subTest(merger=merger_cls.__name__):
+        merger = merger_cls(embed_dim=8, kernel_size=(3, 3))
+        out, _ = merger.init_with_output(jax.random.PRNGKey(0), x, cond)
+        self.assertEqual(out.shape, (2, 8, 8, 12))
+
+    with self.subTest("emb_conv_merge_empty_channel_cond"):
+      emb = jnp.ones((2, 16), dtype=jnp.float32)
+      emb_merger = diffusion.unets.EmbConvMerge(
+          embed_dim=16,
+          latent_dim=8,
+          kernel_size=(3, 3),
+          downsample_ratio=(2,),
+          interp_shape=(2, 8, 8),
+          num_heads=2,
+      )
+      out_emb, _ = emb_merger.init_with_output(
+          jax.random.PRNGKey(0),
+          emb,
+          {"emb:vec": jnp.ones((2, 16), dtype=jnp.float32)},
+          is_training=False,
+      )
+      np.testing.assert_array_equal(out_emb, emb)
+
 
 if __name__ == "__main__":
   absltest.main()
