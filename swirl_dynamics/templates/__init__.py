@@ -17,6 +17,7 @@
 # pylint: disable=g-importing-member
 # pylint: disable=g-multiple-import
 
+from swirl_dynamics.templates import schedules
 from swirl_dynamics.templates import utils
 from swirl_dynamics.templates.callbacks import (
     Callback,
@@ -25,6 +26,7 @@ from swirl_dynamics.templates.callbacks import (
     LogLearningRateToTensorBoard,
     MatplotlibFigureAsImage,
     ParameterOverview,
+    ParetoFrontier,
     ProgressReport,
     TqdmProgressBar,
     TrainStateCheckpoint,
@@ -37,6 +39,10 @@ from swirl_dynamics.templates.evaluate import (
 )
 from swirl_dynamics.templates.models import (
     BaseModel,
+)
+from swirl_dynamics.templates.schedules import (
+    get_lr_schedule,
+    warmup_hold_cosine_schedule,
 )
 from swirl_dynamics.templates.train import (
     run as run_train,

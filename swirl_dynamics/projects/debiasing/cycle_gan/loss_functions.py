@@ -47,6 +47,7 @@ class GanLoss:
   The GANLoss class abstracts away the need to create the target label tensor
   that has the same size as the input.
   """
+
   gan_mode: GanMode
   target_real_label: float = 1.0
   target_fake_label: float = 0.0
@@ -92,8 +93,8 @@ class GanLoss:
       if self.gan_mode in [GanMode.LSGAN, GanMode.BCE_WITH_LOGITS]:
         if target_array.shape != prediction.shape:
           raise ValueError(
-              f"Target shapes ({target_array.shape}) must coincide with the",
-              f" input shapes ({prediction.shape})",
+              f"Target shapes ({target_array.shape}) must coincide with the"
+              f" input shapes ({prediction.shape})"
           )
         # Using Mean Square Error (MSE) loss.
         if self.gan_mode == GanMode.LSGAN:
@@ -124,8 +125,8 @@ class GanLoss:
 def l1_loss(prediction: Array, target_array: Array) -> Array:
   if target_array.shape != prediction.shape:
     raise ValueError(
-        f"Target shapes ({target_array.shape}) must coincide with the input",
-        f" shapes ({prediction.shape})",
+        f"Target shapes ({target_array.shape}) must coincide with the input"
+        f" shapes ({prediction.shape})"
     )
   absolute = jnp.abs(target_array - prediction)
   return jnp.mean(absolute)

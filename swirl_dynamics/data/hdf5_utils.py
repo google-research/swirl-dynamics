@@ -52,7 +52,7 @@ def _read_group(
   out = {}
   for key in group.keys():
     if isinstance(group[key], h5py.Group):
-      out[key] = _read_group(group[key])
+      out[key] = _read_group(group[key], array_dtype=array_dtype)
     elif isinstance(group[key], h5py.Dataset):
       if group[key].shape:
         out[key] = np.asarray(group[key], dtype=array_dtype)
@@ -78,7 +78,7 @@ def read_all_arrays_as_dict(
 def _save_array_dict(group: h5py.Group, data: Mapping[str, Any]) -> None:
   """Saves a nested python dictionary to hdf5 groups recursively."""
   for key, value in data.items():
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
       subgroup = group.create_group(key)
       _save_array_dict(subgroup, value)
     else:
