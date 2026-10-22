@@ -17,6 +17,18 @@
 # pylint: disable=g-importing-member
 # pylint: disable=g-multiple-import
 
+from swirl_dynamics.lib.diffusion.denoising_models import (
+    CondDict,
+    DenoisingFlaxModule,
+    DenoisingModel,
+    ShapeDict,
+    cond_sample_from_shape,
+)
+from swirl_dynamics.lib.diffusion.denoising_trainers import (
+    DenoisingModelTrainState,
+    DenoisingTrainer,
+    DistributedDenoisingTrainer,
+)
 from swirl_dynamics.lib.diffusion.diffusion import (
     Diffusion,
     InvertibleSchedule,
@@ -41,8 +53,15 @@ from swirl_dynamics.lib.diffusion.guidance import (
     InfillFromSlices,
     Transform as GuidanceTransform,
 )
+from swirl_dynamics.lib.diffusion.preconditioning import (
+    Preconditioned,
+    compute_denoising_preconditioners,
+    precondition,
+)
 from swirl_dynamics.lib.diffusion.samplers import (
     DenoiseFn,
+    ExponentialOdeSampler,
+    ExponentialSdeSampler,
     NoiseDist,
     OdeSampler,
     Sampler,
@@ -57,8 +76,10 @@ from swirl_dynamics.lib.diffusion.samplers import (
 )
 from swirl_dynamics.lib.diffusion.unets import (
     AxialMLPInterpConvMerge,
-    HeavyTailedDenoiser as HeavyTailedDenoiserUNet,
+    EmbConvMerge,
+    HeavyTailedDenoiser,
     InterpConvMerge,
+    MergeChannelCond,
     PreconditionedDenoiser as PreconditionedDenoiserUNet,
     UNet,
 )
@@ -67,3 +88,66 @@ from swirl_dynamics.lib.diffusion.unets3d import UNet3d
 from swirl_dynamics.lib.diffusion.vivit import ViViT
 from swirl_dynamics.lib.diffusion.vivit_diffusion import PreconditionedDenoiser as PreconditionedDenoiserViViT
 from swirl_dynamics.lib.diffusion.vivit_diffusion import ViViTDiffusion
+
+HeavyTailedDenoiserUNet = HeavyTailedDenoiser
+
+__all__ = [
+    "AxialMLPInterpConvMerge",
+    "ClassifierFreeContrastive",
+    "ClassifierFreeHybrid",
+    "CondDict",
+    "DenoiseFn",
+    "DenoisingFlaxModule",
+    "DenoisingModel",
+    "DenoisingModelTrainState",
+    "DenoisingTrainer",
+    "Diffusion",
+    "DistributedDenoisingTrainer",
+    "EmbConvMerge",
+    "ExponentialOdeSampler",
+    "ExponentialSdeSampler",
+    "GuidanceTransform",
+    "HeavyTailedDenoiser",
+    "HeavyTailedDenoiserUNet",
+    "InfillFromSlices",
+    "InterpConvMerge",
+    "InvertibleSchedule",
+    "MergeChannelCond",
+    "NoiseDist",
+    "NoiseLevelSampling",
+    "NoiseLossWeighting",
+    "OdeSampler",
+    "Preconditioned",
+    "PreconditionedDenoiserUNet",
+    "PreconditionedDenoiserUNet3d",
+    "PreconditionedDenoiserViViT",
+    "Sampler",
+    "ScoreFn",
+    "SdeSampler",
+    "ShapeDict",
+    "TStudentOdeSampler",
+    "TStudentSdeSampler",
+    "TimeStepScheduler",
+    "UNet",
+    "UNet3d",
+    "ViViT",
+    "ViViTDiffusion",
+    "compute_denoising_preconditioners",
+    "cond_sample_from_shape",
+    "create_variance_exploding_scheme",
+    "create_variance_preserving_scheme",
+    "edm_noise_decay",
+    "edm_weighting",
+    "exponential_noise_decay",
+    "exponential_noise_schedule",
+    "inverse_squared_weighting",
+    "log_normal_sampling",
+    "log_uniform_sampling",
+    "min_snr_edm_weighting",
+    "power_noise_schedule",
+    "precondition",
+    "t_edm_weighting",
+    "tangent_noise_schedule",
+    "time_uniform_sampling",
+    "uniform_time",
+]
