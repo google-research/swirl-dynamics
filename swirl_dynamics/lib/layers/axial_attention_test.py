@@ -38,6 +38,14 @@ class AxialAttentionLayersTest(parameterized.TestCase):
     out, _ = model.init_with_output(jax.random.PRNGKey(42), inputs=inputs)
     self.assertEqual(out.shape, input_shape)
 
+  def test_pos_embedding_invalid_axis_raises_value_error(self):
+    # The out-of-range error message used to reference a nonexistent
+    # `feature_axis` attribute, leaking an AttributeError instead.
+    inputs = jnp.ones((2, 4, 6, 8))
+    model = axial_attention.AddAxialPositionEmbedding(position_axis=-5)
+    with self.assertRaises(ValueError):
+      model.init(jax.random.PRNGKey(42), inputs=inputs)
+
   @parameterized.parameters(
       (jnp.float32, jnp.float32),
       (jnp.float32, jnp.bfloat16),

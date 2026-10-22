@@ -42,8 +42,8 @@ class AddAxialPositionEmbedding(nn.Module):
 
     if not 0 <= pos_axis < inputs.ndim:
       raise ValueError(
-          f"Invalid position ({self.position_axis}) or feature axis"
-          f" ({self.feature_axis})!"
+          f"Invalid position axis ({self.position_axis}) for inputs with"
+          f" {inputs.ndim} dimensions!"
       )
 
     feat_axis = inputs.ndim - 1
