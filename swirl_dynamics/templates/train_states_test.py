@@ -103,6 +103,30 @@ class BasicTrainStateTest(absltest.TestCase):
       )
       jax.tree.map(np.testing.assert_array_equal, loaded_state, state)
 
+  def test_restore_from_orbax_ckpt_step_zero(self):
+    field = "state"
+    state_0 = train_states.TrainState(step=jnp.array(0))
+    state_10 = train_states.TrainState(step=jnp.array(10))
+    save_dir = os.path.join(self.create_tempdir().full_path, "checkpoints")
+    mngr = ocp.CheckpointManager(
+        save_dir, item_handlers={field: ocp.StandardCheckpointHandler()}
+    )
+    mngr.save(
+        step=0,
+        args=ocp.args.Composite(**{field: ocp.args.StandardSave(state_0)}),
+        force=True,
+    )
+    mngr.save(
+        step=10,
+        args=ocp.args.Composite(**{field: ocp.args.StandardSave(state_10)}),
+        force=True,
+    )
+    mngr.wait_until_finished()
+    loaded_0 = train_states.TrainState.restore_from_orbax_ckpt(
+        save_dir, step=0, field=field
+    )
+    self.assertEqual(loaded_0.int_step, 0)
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -26,23 +26,24 @@ References:
     the Design Space of Diffusion-Based Generative Models', NeurIPS 2022.
 """
 
+from collections.abc import Callable, Sequence
 import functools
-from typing import Any, Optional, Callable, Sequence
+from typing import Any, TypeAlias
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
-
+from swirl_dynamics.lib.diffusion import preconditioning
 from swirl_dynamics.lib.diffusion import reshape_utils
 from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.lib.diffusion import vivit
 
-
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 Shape = Sequence[int]
-Initializer = Callable[[Array, Sequence[int], jnp.dtype], Array]
+Initializer = Callable[[Array, Sequence[int], DTypeLike], Array]
 
 _KERNEL_INITIALIZERS = dict({
     'zero': nn.initializers.zeros,
@@ -71,8 +72,7 @@ class EncoderEmbeddingBlock(nn.Module):
     dropout_rate: Dropout rate.
     attention_dropout_rate: Dropout for attention heads.
     droplayer_p: Probability of dropping a layer.
-    attention_kernel_initializer: Initializer to use for attention
-      layers.
+    attention_kernel_initializer: Initializer to use for attention layers.
     deterministic: Deterministic or not (to apply dropout).
     attention_fn: dot_product_attention or compatible function. Accepts query,
       key, value, and returns output of shape `[bs, dim1, dim2, ..., dimN,,
@@ -82,9 +82,10 @@ class EncoderEmbeddingBlock(nn.Module):
   Returns:
     Output after transformer encoder block.
   """
+
   mlp_dim: int
   num_heads: int
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   attention_kernel_initializer: Initializer = nn.initializers.xavier_uniform()
@@ -95,7 +96,8 @@ class EncoderEmbeddingBlock(nn.Module):
     if not deterministic and self.droplayer_p:
       shape = (x.shape[0],) + (1,) * (x.ndim - 1)
       return jax.random.bernoulli(
-          self.make_rng('dropout'), self.droplayer_p, shape).astype('float32')
+          self.make_rng('dropout'), self.droplayer_p, shape
+      ).astype('float32')
     else:
       return jnp.array([0.0])
 
@@ -104,9 +106,11 @@ class EncoderEmbeddingBlock(nn.Module):
     """Applies Encoder1DBlock module."""
 
     if inputs.ndim != 3:
-      raise ValueError('The input of the encoder block needs to be a',
-                       '3-dimensional tensor following (batch_size, num_tokes, '
-                       f'emb_dim). Instead got {inputs.shape}.')
+      raise ValueError(
+          'The input of the encoder block needs to be a '
+          '3-dimensional tensor following (batch_size, num_tokes, '
+          f'emb_dim). Instead got {inputs.shape}.'
+      )
 
     # Attention block.
     x = nn.LayerNorm(dtype=self.dtype)(inputs)
@@ -119,8 +123,8 @@ class EncoderEmbeddingBlock(nn.Module):
         broadcast_dropout=False,
         dropout_rate=self.attention_dropout_rate,
         attention_fn=self.attention_fn,
-        dtype=self.dtype)(
-            x, x, deterministic=deterministic)
+        dtype=self.dtype,
+    )(x, x, deterministic=deterministic)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic)
     # Add FiLM layer after the attention layer (see Fig. 3 in [1]).
     x = unets.AdaptiveScale()(x, emb)
@@ -138,8 +142,8 @@ class EncoderEmbeddingBlock(nn.Module):
         dropout_rate=self.dropout_rate,
         activation_fn=nn.gelu,
         kernel_init=nn.initializers.xavier_uniform(),
-        bias_init=nn.initializers.normal(stddev=1e-6))(
-            y, deterministic=deterministic)
+        bias_init=nn.initializers.normal(stddev=1e-6),
+    )(y, deterministic=deterministic)
     # Add FiLM layer after the MLP block (see Fig. 3 in [1]).
     y = unets.AdaptiveScale()(y, emb)
 
@@ -162,15 +166,16 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
       space_time}.
     dtype: the dtype of the computation (default: float32).
   """
+
   mlp_dim: int
   num_heads: int
   temporal_dims: int
   attention_kernel_initializer: Initializer
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
-  droplayer_p: Optional[float] = None
+  droplayer_p: float | None = None
   attention_order: str = 'time_space'
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -189,7 +194,8 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
         kernel_init=self.attention_kernel_initializer,
         broadcast_dropout=False,
         dropout_rate=self.attention_dropout_rate,
-        dtype=self.dtype)
+        dtype=self.dtype,
+    )
 
     # Order of the Axial Transformer.
     if self.attention_order == 'time_space':
@@ -210,8 +216,9 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
       )(inputs)
       # Add first FiLM layer, some reshaping is necessary. (see Fig. 3 in [1]).
       in_shape = x.shape
-      x = unets.AdaptiveScale()(x.reshape(two_d_shape[0], -1, two_d_shape[-1]),
-                                emb).reshape(in_shape)
+      x = unets.AdaptiveScale()(
+          x.reshape(two_d_shape[0], -1, two_d_shape[-1]), emb
+      ).reshape(in_shape)
 
       x = self_attention(
           name='MultiHeadDotProductAttention_{}'.format(_AXIS_TO_NAME[axis])
@@ -220,8 +227,9 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
 
       # Second FiLM layer (see Fig. 3 in [1]).
       in_shape = x.shape
-      x = unets.AdaptiveScale()(x.reshape(two_d_shape[0], -1, two_d_shape[-1]),
-                                emb).reshape(in_shape)
+      x = unets.AdaptiveScale()(
+          x.reshape(two_d_shape[0], -1, two_d_shape[-1]), emb
+      ).reshape(in_shape)
 
       x = x + inputs
 
@@ -249,8 +257,8 @@ class FactorizedSelfAttentionEmbeddingBlock(nn.Module):
         activation_fn=nn.gelu,
         kernel_init=nn.initializers.xavier_uniform(),
         bias_init=nn.initializers.normal(stddev=1e-6),
-        name='MlpBlock')(
-            y, deterministic=deterministic)
+        name='MlpBlock',
+    )(y, deterministic=deterministic)
     # Add FiLM layer after the attention layer (see Fig. 3 in [1]).
     y = unets.AdaptiveScale()(y, emb)
 
@@ -272,15 +280,16 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
       are 'time_height_width' and 'height_width_time'.
     dtype: the dtype of the computation (default: float32).
   """
+
   mlp_dim: int
   num_heads: int
-  three_dim_shape: tuple[int, int, int, int, int]
+  three_dim_shape: tuple[int, ...]
   attention_kernel_initializer: Initializer
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
-  droplayer_p: Optional[float] = None
+  droplayer_p: float | None = None
   attention_order: str = 'time_height_width'
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array, emb: Array, *, deterministic: bool):
@@ -290,10 +299,12 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
     _, enc_t, enc_h, enc_w, _ = self.three_dim_shape
 
     if num_tokens != (enc_t * enc_h * enc_w):
-      raise ValueError('The product of the encoded dimensions for time, height',
-                       f' and width ( {enc_t}, {enc_h}, {enc_w}) respectively,',
-                       ' should match with the number of of tokens ',
-                       f'({num_tokens}) in the input.')
+      raise ValueError(
+          'The product of the encoded dimensions for time, height'
+          f' and width ( {enc_t}, {enc_h}, {enc_w}) respectively,'
+          ' should match with the number of of tokens '
+          f'({num_tokens}) in the input.'
+      )
 
     inputs = jnp.reshape(inputs, self.three_dim_shape)
 
@@ -303,7 +314,8 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
         kernel_init=self.attention_kernel_initializer,
         broadcast_dropout=False,
         dropout_rate=self.attention_dropout_rate,
-        dtype=self.dtype)
+        dtype=self.dtype,
+    )
 
     # Order of the Axial Transformer.
     if self.attention_order == 'time_height_width':
@@ -317,7 +329,7 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
         inputs: Array,
         emb: Array,
         axis: int,
-        three_dim_shape: tuple[int, int, int, int, int],
+        three_dim_shape: tuple[int, ...],
     ):
       """Reshapes the input and run attention on the given axis."""
       # shape: (batch, num_tokens, emb_dim)
@@ -354,7 +366,7 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
 
     # shape: (batch, num_frames, hw, emb_dim)
     for axis in attention_axes:
-      x = _run_attention_on_axis(x, emb, axis, three_dim_shape)  # pyrefly: ignore[bad-argument-type]
+      x = _run_attention_on_axis(x, emb, axis, three_dim_shape)
 
     # MLP block.
     x = jnp.reshape(x, (batch_size, num_tokens, emb_dim))
@@ -368,8 +380,8 @@ class Factorized3DSelfAttentionEmbeddingBlock(nn.Module):
         activation_fn=nn.gelu,
         kernel_init=nn.initializers.xavier_uniform(),
         bias_init=nn.initializers.normal(stddev=1e-6),
-        name='MlpBlock')(
-            y, deterministic=deterministic)
+        name='MlpBlock',
+    )(y, deterministic=deterministic)
     # Add FiLM layer after the attention layer (see Fig. 3 in [1]).
     y = unets.AdaptiveScale()(y, emb)
 
@@ -388,10 +400,10 @@ class TransformerEmbeddingBlock(nn.Module):
     attention_config: Has parameters for the type of attention.
     dropout_rate: Dropout rate.
     attention_dropout_rate: Dropout for attention heads.
-    stochastic_droplayer_rate: Probability of dropping a layer linearly
-      grows from 0 to the provided value. Our implementation of stochastic
-      depth follows timm library, which does per-example layer dropping and
-      uses independent dropping patterns for each skip-connection.
+    stochastic_droplayer_rate: Probability of dropping a layer linearly grows
+      from 0 to the provided value. Our implementation of stochastic depth
+      follows timm library, which does per-example layer dropping and uses
+      independent dropping patterns for each skip-connection.
     positional_embedding: The type of positional embedding to use. Supported
       values are {learned_1d, sinusoidal_1d, sinusoidal_3d, none}.
     encoded_shape: Three-dimensional shapes of the equivalent tensor. This is
@@ -399,7 +411,7 @@ class TransformerEmbeddingBlock(nn.Module):
     normalise_output: If True, perform layernorm on the output.
   """
 
-  temporal_dims: Optional[int]
+  temporal_dims: int | None
   mlp_dim: int
   num_layers: int
   num_heads: int
@@ -407,9 +419,9 @@ class TransformerEmbeddingBlock(nn.Module):
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   stochastic_droplayer_rate: float = 0.0
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
   positional_embedding: str = 'sinusoidal_3d'
-  encoded_shape: Optional[tuple[int, ...]] | None = None
+  encoded_shape: tuple[int, ...] | None = None
   normalise_output: bool = True
 
   @nn.compact
@@ -421,15 +433,22 @@ class TransformerEmbeddingBlock(nn.Module):
     # Choosing the type of embedding.
     # TODO: add more embeddings in here.
     if self.positional_embedding == 'sinusoidal_3d':
+      if self.temporal_dims is None:
+        raise ValueError(
+            '`temporal_dims` must be provided for `sinusoidal_3d` embedding.'
+        )
       batch, num_tokens, hidden_dim = inputs.shape
-      height = width = int(np.sqrt(num_tokens // self.temporal_dims))  # pyrefly: ignore[unsupported-operation]
-      if height * width * self.temporal_dims != num_tokens:  # pyrefly: ignore[unsupported-operation]
-        raise ValueError('Input is assumed to be square for sinusoidal init.',
-                         f'Instead the input shape is {inputs.shape}, which ',
-                         f'leads to {height}x{width}x{self.temporal_dims}')
+      height = width = int(np.sqrt(num_tokens // self.temporal_dims))
+      if height * width * self.temporal_dims != num_tokens:
+        raise ValueError(
+            'Input is assumed to be square for sinusoidal init. '
+            f'Instead the input shape is {inputs.shape}, which '
+            f'leads to {height}x{width}x{self.temporal_dims}'
+        )
 
-      inputs_reshape = inputs.reshape([batch, self.temporal_dims, height, width,
-                                       hidden_dim])
+      inputs_reshape = inputs.reshape(
+          [batch, self.temporal_dims, height, width, hidden_dim]
+      )
 
       x = vivit.AddFixedSinCosPositionEmbedding()(inputs_reshape)
       x = x.reshape([batch, num_tokens, hidden_dim])
@@ -437,29 +456,47 @@ class TransformerEmbeddingBlock(nn.Module):
       x = inputs
     else:
       raise ValueError(
-          f'Unknown positional embedding {self.positional_embedding}')
+          f'Unknown positional embedding {self.positional_embedding}'
+      )
 
     # Choosing the type of attention mechanism to use.
     if self.attention_config is None or self.attention_config.type in [
-        'spacetime', 'factorized_encoder'
+        'spacetime',
+        'factorized_encoder',
     ]:
       encoder_block = EncoderEmbeddingBlock
     elif self.attention_config.type == 'factorized_self_attention_block':
+      if self.temporal_dims is None:
+        raise ValueError(
+            '`temporal_dims` must be provided for'
+            ' `factorized_self_attention_block`.'
+        )
       encoder_block = functools.partial(
           FactorizedSelfAttentionEmbeddingBlock,
           attention_order=self.attention_config.attention_order,
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
-              self.attention_config.get('attention_kernel_init_method',
-                                        'xavier')],
-          temporal_dims=self.temporal_dims)  # pyrefly: ignore[bad-argument-type]
+              self.attention_config.get(
+                  'attention_kernel_init_method', 'xavier'
+              )
+          ],
+          temporal_dims=self.temporal_dims,
+      )
     elif self.attention_config.type == 'factorized_3d_self_attention_block':
+      if self.encoded_shape is None:
+        raise ValueError(
+            '`encoded_shape` must be provided for'
+            ' `factorized_3d_self_attention_block`.'
+        )
       encoder_block = functools.partial(
           Factorized3DSelfAttentionEmbeddingBlock,
           attention_order=self.attention_config.attention_order,
           attention_kernel_initializer=_KERNEL_INITIALIZERS[
-              self.attention_config.get('attention_kernel_init_method',
-                                        'xavier')],
-          three_dim_shape=self.encoded_shape)  # pyrefly: ignore[bad-argument-type]
+              self.attention_config.get(
+                  'attention_kernel_init_method', 'xavier'
+              )
+          ],
+          three_dim_shape=self.encoded_shape,
+      )
     else:
       raise ValueError(f'Unknown attention type {self.attention_config.type}')
 
@@ -468,7 +505,8 @@ class TransformerEmbeddingBlock(nn.Module):
     # We apply the attention module num_layers time.
     for layer in range(self.num_layers):
       droplayer_p = (
-          layer / max(self.num_layers - 1, 1)) * self.stochastic_droplayer_rate
+          layer / max(self.num_layers - 1, 1)
+      ) * self.stochastic_droplayer_rate
 
       # Applyign the encoder block with all the common options.
       x = encoder_block(
@@ -478,8 +516,8 @@ class TransformerEmbeddingBlock(nn.Module):
           attention_dropout_rate=self.attention_dropout_rate,
           droplayer_p=droplayer_p,
           name=f'encoderblock_{layer}',
-          dtype=dtype)(
-              x, emb, deterministic=not train)
+          dtype=dtype,
+      )(x, emb, deterministic=not train)
 
     if self.normalise_output:
       encoded = nn.LayerNorm(name='encoder_norm')(x)
@@ -530,7 +568,7 @@ class ViViTDiffusion(nn.Module):
   cond_embed_dim: int = 128
   cond_padding: str = 'SAME'
   cond_kernel_size: Sequence[int] = (3, 3)
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -539,7 +577,7 @@ class ViViTDiffusion(nn.Module):
       sigma: Array,
       cond: dict[str, Array] | None = None,
       *,
-      is_training: bool = False
+      is_training: bool = False,
   ) -> Array:
     batch_size_input, num_frames, height, width, _ = x.shape
 
@@ -564,8 +602,8 @@ class ViViTDiffusion(nn.Module):
 
     batch_size, enc_t, enc_h, enc_w, emb_dim = x.shape
     assert batch_size == batch_size_input, (
-        'Batch size was modified during temporal encoder. They should be ',
-        f'equal, instead we obtained: {batch_size_input} and {batch_size}',
+        'Batch size was modified during temporal encoder. They should be '
+        f'equal, instead we obtained: {batch_size_input} and {batch_size}'
     )
     num_tokens = enc_t * enc_h * enc_w
 
@@ -583,8 +621,8 @@ class ViViTDiffusion(nn.Module):
         positional_embedding=self.positional_embedding,
         dtype=self.dtype,
         encoded_shape=(batch_size, enc_t, enc_h, enc_w, emb_dim),
-        name='Transformer')(
-            x, emb, train=is_training)
+        name='Transformer',
+    )(x, emb, train=is_training)
 
     x = vivit.TemporalDecoder(
         patches=self.patches.size,
@@ -599,8 +637,10 @@ class ViViTDiffusion(nn.Module):
         height,
         width,
         self.output_features,
-    ), (f'Shape of the output is {x.shape},but it should have been ',
-        f'({batch_size, num_frames, height, width, self.output_features})')
+    ), (
+        f'Shape of the output is {x.shape}, but it should have been '
+        f'({batch_size, num_frames, height, width, self.output_features})'
+    )
     return x
 
 
@@ -625,26 +665,16 @@ class PreconditionedDenoiser(ViViTDiffusion):
       is_training: bool = False,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          'sigma must be 1D and have the same leading (batch) dimension as x'
-          f' ({x.shape[0]})!'
-      )
-
-    total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
+    orig_dtype = x.dtype
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype), self.sigma_data, x.shape
+        )
     )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(self.dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
