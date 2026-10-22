@@ -56,8 +56,21 @@ def flatten_params(
   shapes = [p.shape for p in flat_params]
 
   flattened = []
+  batch_prefix = None
 
   for p in flat_params:
+    if p.ndim < from_axis:
+      raise ValueError(
+          f"Leaf shape {p.shape} has fewer dimensions than `from_axis`"
+          f" ({from_axis})."
+      )
+    if batch_prefix is None:
+      batch_prefix = p.shape[:from_axis]
+    elif p.shape[:from_axis] != batch_prefix:
+      raise ValueError(
+          f"Inconsistent batch prefix across leaves: {p.shape[:from_axis]} vs"
+          f" {batch_prefix}."
+      )
     d = np.prod(p.shape[from_axis:], dtype=int)
     flattened.append(jnp.reshape(p, p.shape[:from_axis] + (d,)))
 
