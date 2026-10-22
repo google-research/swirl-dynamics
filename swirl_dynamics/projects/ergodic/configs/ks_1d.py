@@ -19,7 +19,7 @@ r"""Default Hyperparameter configuration.
 import ml_collections
 
 # pylint: disable=line-too-long
-DATA_PATH = '/datasets/gcs_staging/hdf5/pde/1d/ks_trajectories.hdf5'
+DATA_PATH = '/gcs_staging/hdf5/pde/1d/ks_trajectories.hdf5'
 # pylint: enable=line-too-long
 
 
