@@ -83,9 +83,10 @@ class TrainState(flax.struct.PyTreeNode):
     mngr = ocp.CheckpointManager(
         ckpt_dir, item_handlers={field: ocp.StandardCheckpointHandler()}
     )
+    restore_step = step if step is not None else mngr.latest_step()
     if ref_state is not None:
       restored = mngr.restore(
-          step or mngr.latest_step(),
+          restore_step,
           args=ocp.args.Composite(
               **{field: ocp.args.StandardRestore(item=ref_state)}
           ),
@@ -94,7 +95,7 @@ class TrainState(flax.struct.PyTreeNode):
         raise ValueError(f"Field `{field}` not found in the checkpoint.")
       return restored[field]
     else:
-      restored = mngr.restore(step or mngr.latest_step())
+      restored = mngr.restore(restore_step)
       state_fields = restored[field]
       if state_fields is None:
         raise ValueError(f"Field `{field}` not found in the checkpoint.")
