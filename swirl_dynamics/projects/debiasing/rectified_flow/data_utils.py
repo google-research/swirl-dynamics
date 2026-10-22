@@ -27,7 +27,6 @@ from swirl_dynamics.data import hdf5_utils
 from swirl_dynamics.projects.debiasing.rectified_flow import pygrain_transforms as transforms
 import xarray_tensorstore as xrts
 
-
 Array: TypeAlias = jax.Array
 PyTree: TypeAlias = Any
 DynamicsFn: TypeAlias = Callable[[Array, Array, PyTree], Array]
@@ -140,11 +139,11 @@ class SourceInMemoryHDF5(pygrain.RandomAccessDataSource):
       snapshots = snapshots.reshape((num_trajs * num_time, nx, ny, dim))
     elif snapshots.ndim != 4:
       raise ValueError(
-          "The dimension of the data should be either a 5- or 4-",
-          "dimensional tensor: two spatial dimension, one chanel ",
-          "dimension and either number of samples, or number of ",
-          "trajectories plus number of time-steps per trajectories.",
-          f" Instead the data is a {snapshots.ndim}-tensor.",
+          "The dimension of the data should be either a 5- or 4-"
+          "dimensional tensor: two spatial dimension, one chanel "
+          "dimension and either number of samples, or number of "
+          "trajectories plus number of time-steps per trajectories."
+          f" Instead the data is a {snapshots.ndim}-tensor."
       )
 
     # Downsample the data spatially, the data is two-dimensional.
@@ -310,7 +309,9 @@ def create_loader_from_hdf5(
   if normalize:
     transformations.append(
         transforms.Standardize(
-            input_fields=["u",],
+            input_fields=[
+                "u",
+            ],
             mean={"u": normalize_stats["mean"]},
             std={"u": normalize_stats["std"]},
         )
@@ -319,13 +320,16 @@ def create_loader_from_hdf5(
   if output_name is not None and output_name != "u":
     if not isinstance(output_name, str):
       raise ValueError(
-          "The output_name should be a string, but it is a ",
-          type(output_name),
+          f"The output_name should be a string, but it is a {type(output_name)}"
       )
     transformations.append(
         transforms.SelectAs(
-            select_features=["u",],
-            as_features=[output_name,]
+            select_features=[
+                "u",
+            ],
+            as_features=[
+                output_name,
+            ],
         )
     )
 
@@ -455,7 +459,7 @@ class SingleSource(CommonSource):
   def _compute_time_idx(self, idx: int) -> int:
     return idx
 
-  def _maybe_expands_dims(self, x: np.ndarray) ->  np.ndarray:
+  def _maybe_expands_dims(self, x: np.ndarray) -> np.ndarray:
     return maybe_expand_dims(x, allowed_dims=(2, 3), trigger_expand_dims=2)
 
   def __init__(
@@ -660,9 +664,7 @@ class DataSourceContiguousEnsembleWithStats:
     sample_output = {}
 
     for var_key, da in self._input_arrays.items():
-      array = xrts.read(
-          da[member].isel(time=time_slice)
-      ).data
+      array = xrts.read(da[member].isel(time=time_slice)).data
       sample_input[var_key] = maybe_expand_dims(array, (3, 4), 3)
 
     for var_key, da in self._input_stats_arrays.items():
@@ -686,9 +688,7 @@ class DataSourceContiguousEnsembleWithStats:
     item["input_std"] = std_input
 
     for var_key, da in self._output_arrays.items():
-      array = xrts.read(
-          da.isel(time=time_slice)
-      ).data
+      array = xrts.read(da.isel(time=time_slice)).data
       sample_output[var_key] = maybe_expand_dims(array, (3, 4), 3)
 
     item["output"] = sample_output
@@ -1578,8 +1578,8 @@ def create_lens2_loader_chunked_with_normalized_stats(
     stats_path: Path of the Zarr file containing the statistics.
     mean_stats_path: Path of the Zarr file containing the mean statistics.
     std_stats_path: Path of the Zarr file containing the std statistics.
-    member_indexer: The index for the ensemble members from which the data
-      is extracted. LENS2 dataset has 100 ensemble members under different
+    member_indexer: The index for the ensemble members from which the data is
+      extracted. LENS2 dataset has 100 ensemble members under different
       modelling choices.
     variable_names: Input variables to be included in the batch.
     shuffle: Whether to shuffle the data points.

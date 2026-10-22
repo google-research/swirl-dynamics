@@ -484,8 +484,8 @@ class TrajectorySamplerParallel:
       )
 
       step = 0
-      while step < len(self.tspan):
-        logging.info("Denoising step %d / %d", step + 1, len(self.tspan))
+      while step < len(self.tspan) - 1:
+        logging.info("Denoising step %d / %d", step + 1, len(self.tspan) - 1)
         x = self.one_step_denoise(
             x,
             self.tspan[step],
