@@ -31,7 +31,6 @@ from swirl_dynamics.lib import diffusion as dfn_lib
 from swirl_dynamics.lib import metrics as metric_lib
 from swirl_dynamics.lib import solvers as solver_lib
 
-
 Array: TypeAlias = jax.Array
 ArrayDict: TypeAlias = Mapping[str, Array]
 BatchType: TypeAlias = Mapping[str, Any]
@@ -41,18 +40,7 @@ ShapeDict: TypeAlias = Mapping[str, Any]
 VariableDict: TypeAlias = flax.core.scope.FrozenVariableDict
 
 
-def cond_sample_from_shape(
-    shape: ShapeDict | None, batch_dims: tuple[int, ...] = (1,)
-) -> PyTree:
-  """Instantiates a conditional input sample based on shape specifications."""
-  if shape is None:
-    return None
-  elif isinstance(shape, tuple):
-    return jnp.ones(batch_dims + shape)
-  elif isinstance(shape, dict):
-    return {k: cond_sample_from_shape(v, batch_dims) for k, v in shape.items()}
-  else:
-    raise TypeError(f"Cannot initialize shape: {shape}")
+cond_sample_from_shape = dfn_lib.cond_sample_from_shape
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

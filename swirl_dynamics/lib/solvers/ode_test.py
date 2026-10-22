@@ -146,6 +146,23 @@ class OdeSolversTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       ode.DoPri45()(dummy_ode_dynamics, jnp.array(0), tspan, {})
 
+  def test_jit_dopri45_and_pytree_scan_solver(self):
+    tspan = jnp.linspace(0.0, 1.0, 5)
+    out_dopri = jax.jit(ode.DoPri45(), static_argnums=(0,))(
+        dummy_ode_dynamics, jnp.zeros((3,)), tspan, {}
+    )
+    np.testing.assert_allclose(out_dopri[-1], jnp.ones((3,)), atol=1e-5)
+
+    x0_tree = {"u": jnp.zeros((2,)), "v": jnp.ones((2,))}
+    dyn_tree = lambda x, t, p: jax.tree_util.tree_map(jnp.ones_like, x)
+    out_tree = jax.jit(ode.RungeKutta4(), static_argnums=(0,))(
+        dyn_tree, x0_tree, tspan, {}
+    )
+    np.testing.assert_allclose(out_tree["u"][-1], jnp.ones((2,)), atol=1e-6)
+    np.testing.assert_allclose(
+        out_tree["v"][-1], 2.0 * jnp.ones((2,)), atol=1e-6
+    )
+
 
 class MultiStepOdeSolversTest(parameterized.TestCase):
 
