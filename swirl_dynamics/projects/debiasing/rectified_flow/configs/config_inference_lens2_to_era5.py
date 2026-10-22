@@ -34,15 +34,15 @@ _ERA5_VARIABLES = {
 # Cell where the data is located.
 cell_data = "eb"  # "eb" for VF and "oa" for A100 and ta for H100.
 
-_ERA5_DATASET_PATH = f"/cns/{cell_data}-d/home/attractor/lzepedanunez/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = f"/cns/{cell_data}-d/home/attractor/lzepedanunez/data/era5/climat/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
+_ERA5_DATASET_PATH = f"/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
+_ERA5_STATS_PATH = f"/data/era5/climat/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 
 _LENS2_DATASET_PATH = (
-    f"/cns/{cell_data}-d/home/attractor/lzepedanunez/data/lens2/lens2_240x121_lonlat.zarr"
+    f"/data/lens2/lens2_240x121_lonlat.zarr"
 )
-_LENS2_STATS_PATH = f"/cns/{cell_data}-d/home/attractor/lzepedanunez/data/lens2/climat/lens2_240x121_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
-_LENS2_MEAN_CLIMATOLOGY_PATH = f"/cns/{cell_data}-d/home/attractor/lzepedanunez/data/lens2/climat/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
-_LENS2_STD_CLIMATOLOGY_PATH = f"/cns/{cell_data}-d/home/attractor/lzepedanunez/data/lens2/climat/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
+_LENS2_STATS_PATH = f"/data/lens2/climat/lens2_240x121_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
+_LENS2_MEAN_CLIMATOLOGY_PATH = f"/data/lens2/climat/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
+_LENS2_STD_CLIMATOLOGY_PATH = f"/data/lens2/climat/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
 
 _LENS2_MEMBER_INDEXER = ("cmip6_1001_001",)
 
@@ -66,7 +66,7 @@ def get_config():
   """Get the default hyperparameter configuration."""
   config = ml_collections.ConfigDict()
   config.experiment = "inference_reflow_lens2_to_era5_with_clim_and_time_cons"
-  config.model_dir = "/lzepedanunez/xm/debiasing/reflow_lens2_to_era5_4_new_member_ens_all_surface_climatology_time_coherent_tpu/148227746/1"
+  config.model_dir = "/xm/debiasing/reflow_lens2_to_era5_4_new_member_ens_all_surface_climatology_time_coherent_tpu/148227746/1"
   config.date_range = ("1960", "2100")
   config.batch_size_eval = 32  # check if this is fine with VFs.
   config.variables = (
@@ -205,7 +205,7 @@ def sweep(add):
       ("smbb_1301_020",),
   ):
     for model_dir in [
-        "/lzepedanunez/xm/debiasing/reflow_lens2_to_era5_4_new_member_clim_3d_10_vars_8_time_6_lvls_tpu_large_3_tmp_attn_bs_16_1980_2000/151818801/1",
+        "/xm/debiasing/reflow_lens2_to_era5_4_new_member_clim_3d_10_vars_8_time_6_lvls_tpu_large_3_tmp_attn_bs_16_1980_2000/151818801/1",
     ]:
       add(
           model_dir=model_dir,
