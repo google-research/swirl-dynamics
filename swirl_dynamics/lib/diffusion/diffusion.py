@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import dataclasses
+import math
 from typing import Protocol
 
 import chex
@@ -120,8 +121,9 @@ class Diffusion:
     Returns:
       A variance preserving diffusion scheme.
     """
-    var = jnp.square(data_std)
-    scale = lambda t: jnp.sqrt(var / (var + jnp.square(sigma(t))))
+    if data_std <= 0:
+      raise ValueError(f"`data_std` must be positive, got {data_std}.")
+    scale = lambda t: data_std / jnp.hypot(data_std, sigma(t))
     return cls(scale=scale, sigma=sigma)
 
   @classmethod
@@ -142,6 +144,8 @@ class Diffusion:
     Returns:
       A variance exploding diffusion scheme.
     """
+    if data_std <= 0:
+      raise ValueError(f"`data_std` must be positive, got {data_std}.")
     scaled_forward = lambda t: sigma(t) * data_std
     scaled_inverse = lambda y: sigma.inverse(y / data_std)
     scaled_sigma = InvertibleSchedule(scaled_forward, scaled_inverse)
@@ -320,7 +324,9 @@ def _uniform_samples(
   """Generates samples from uniform distribution on [0, 1]."""
   if uniform_grid:
     s0 = jax.random.uniform(rng, dtype=jnp.float32)
-    grid = jnp.linspace(0, 1, np.prod(shape), endpoint=False, dtype=jnp.float32)  # pyrefly: ignore[no-matching-overload]
+    grid = jnp.linspace(
+        0, 1, math.prod(shape), endpoint=False, dtype=jnp.float32
+    )
     samples = jnp.reshape(jnp.remainder(grid + s0, 1), shape)
   else:
     samples = jax.random.uniform(rng, shape, dtype=jnp.float32)
@@ -413,13 +419,14 @@ def edm_weighting(data_std: float = 1.0) -> NoiseLossWeighting:
   Returns:
     The weighting function.
   """
+  if data_std <= 0:
+    raise ValueError(f"`data_std` must be positive, got {data_std}.")
 
-  def _weight_fn(sigma: Array) -> Array:
-    return (jnp.square(data_std) + jnp.square(sigma)) / jnp.square(
-        data_std * sigma
-    )
+  def _weight_fn(sigma: chex.Numeric) -> Array:
+    sigma_arr = jnp.asarray(sigma)
+    return (1.0 / jnp.square(data_std)) + (1.0 / jnp.square(sigma_arr))
 
-  return _weight_fn  # pyrefly: ignore[bad-return]
+  return _weight_fn
 
 
 def t_edm_weighting(df: int, data_std: float = 1.0) -> NoiseLossWeighting:
@@ -438,13 +445,17 @@ def t_edm_weighting(df: int, data_std: float = 1.0) -> NoiseLossWeighting:
   Returns:
     The weighting function.
   """
+  if df <= 2:
+    raise ValueError(f"`df` must be greater than 2, got {df}.")
+  if data_std <= 0:
+    raise ValueError(f"`data_std` must be positive, got {data_std}.")
 
-  def _weight_fn(sigma: Array) -> Array:
-    num = (df / (df - 2)) * jnp.square(sigma) + jnp.square(data_std)
-    den = (df / (df - 2)) * jnp.square(sigma * data_std)
-    return num / den
+  def _weight_fn(sigma: chex.Numeric) -> Array:
+    sigma_arr = jnp.asarray(sigma)
+    df_scale_sq = (df - 2) / df
+    return (1.0 / jnp.square(data_std)) + (df_scale_sq / jnp.square(sigma_arr))
 
-  return _weight_fn  # pyrefly: ignore[bad-return]
+  return _weight_fn
 
 
 def min_snr_edm_weighting(
@@ -453,9 +464,7 @@ def min_snr_edm_weighting(
   """EDM weighting with Min-SNR-γ clamping (Hang et al., https://arxiv.org/abs/2303.09556).
 
   Applies the standard EDM loss weighting from Karras et al. but multiplies
-  by a Min-SNR factor that down-weights high-noise levels (large σ, low SNR).
-  This prevents high-noise timesteps from producing conflicting gradients
-  that slow convergence, particularly in early training.
+  by a Min-SNR factor that down-weights high-SNR (low-noise) levels.
 
   For variance-exploding diffusion with noise level σ:
     SNR(σ) = σ_data² / σ²
@@ -465,18 +474,24 @@ def min_snr_edm_weighting(
 
   Args:
     data_std: The standard deviation of the data (σ_data).
-    gamma: The Min-SNR clamping threshold.  Default 5.0 per the original paper.
+    gamma: The Min-SNR clamping threshold. Default 5.0 per the original paper.
 
   Returns:
     The weighting function.
   """
+  if data_std <= 0:
+    raise ValueError(f"`data_std` must be positive, got {data_std}.")
+  if gamma <= 0:
+    raise ValueError(f"`gamma` must be positive, got {gamma}.")
 
-  def _weight_fn(sigma: Array) -> Array:
-    edm_weight = (jnp.square(data_std) + jnp.square(sigma)) / jnp.square(
-        data_std * sigma
-    )
-    snr = jnp.square(data_std) / jnp.square(sigma)
-    min_snr_factor = jnp.minimum(snr, gamma) / snr
-    return edm_weight * min_snr_factor
+  def _weight_fn(sigma: chex.Numeric) -> Array:
+    sigma_arr = jnp.asarray(sigma)
+    inv_data_var = 1.0 / (data_std**2)
+    is_low_noise = sigma_arr < (data_std / math.sqrt(gamma))
+    sigma_low = jnp.where(is_low_noise, sigma_arr / data_std, 0.0)
+    sigma_high = jnp.where(is_low_noise, data_std, sigma_arr)
+    low_w = gamma * inv_data_var * (1.0 + jnp.square(sigma_low))
+    high_w = inv_data_var * (1.0 + jnp.square(data_std / sigma_high))
+    return jnp.where(is_low_noise, low_w, high_w)
 
-  return _weight_fn  # pyrefly: ignore[bad-return]
+  return _weight_fn

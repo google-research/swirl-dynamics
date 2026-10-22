@@ -19,7 +19,6 @@ from typing import Any, Protocol
 import flax
 import flax.linen as nn
 import jax
-from jax.experimental import checkify
 from jax.experimental import ode
 import jax.numpy as jnp
 import numpy as np
@@ -31,7 +30,7 @@ PyTree = Any
 class OdeDynamics(Protocol):
   """Dynamics interface."""
 
-  def __call__(self, x: Array, t: Array, params: PyTree) -> Array:
+  def __call__(self, x: PyTree, t: Array, params: PyTree) -> PyTree:
     """Evaluate the instantaneous dynamics."""
     ...
 
@@ -41,12 +40,12 @@ def nn_module_to_dynamics(
 ) -> OdeDynamics:
   """Generates an `OdeDynamics` callable from a flax.nn module."""
 
-  def _dynamics_func(x: Array, t: Array, params: PyTree) -> Array:
+  def _dynamics_func(x: PyTree, t: Array, params: PyTree) -> PyTree:
     args = (x,) if autonomous else (x, t)
     # NOTE: `params` here is the whole of model variable, not just the `params`
     # key
     variables = params
-    return module.apply(variables, *args, **static_kwargs)  # pyrefly: ignore[bad-return]
+    return module.apply(variables, *args, **static_kwargs)
 
   return _dynamics_func
 
@@ -55,8 +54,8 @@ class OdeSolver(Protocol):
   """Solver interface."""
 
   def __call__(
-      self, func: OdeDynamics, x0: Array, tspan: Array, params: PyTree
-  ) -> Array:
+      self, func: OdeDynamics, x0: PyTree, tspan: Array, params: PyTree
+  ) -> PyTree:
     """Solves an ordinary differential equation."""
     ...
 
@@ -73,28 +72,34 @@ class ScanOdeSolver:
   time_axis_pos: int = 0
 
   def step(
-      self, func: OdeDynamics, x0: Array, t0: Array, dt: Array, params: PyTree
-  ) -> Array:
+      self, func: OdeDynamics, x0: PyTree, t0: Array, dt: Array, params: PyTree
+  ) -> PyTree:
     """Advances the current state one step forward in time."""
     raise NotImplementedError("Scan solver must implement `step` method.")
 
   def __call__(
-      self, func: OdeDynamics, x0: Array, tspan: Array, params: PyTree
-  ) -> Array:
+      self, func: OdeDynamics, x0: PyTree, tspan: Array, params: PyTree
+  ) -> PyTree:
     """Solves an ODE at given time stamps."""
 
     def scan_fun(
-        state: tuple[Array, Array], t_next: Array
-    ) -> tuple[tuple[Array, Array], Array]:
+        state: tuple[PyTree, Array], t_next: Array
+    ) -> tuple[tuple[PyTree, Array], PyTree]:
       x0, t0 = state
       dt = t_next - t0
       x_next = self.step(func, x0, t0, dt, params)
       return (x_next, t_next), x_next
 
     _, out = jax.lax.scan(scan_fun, (x0, tspan[0]), tspan[1:])
-    out = jnp.concatenate([x0[None], out], axis=0)
+    out = jax.tree_util.tree_map(
+        lambda x_init, x_out: jnp.concatenate([x_init[None], x_out], axis=0),
+        x0,
+        out,
+    )
     if self.time_axis_pos:
-      out = jnp.moveaxis(out, 0, self.time_axis_pos)
+      out = jax.tree_util.tree_map(
+          lambda x: jnp.moveaxis(x, 0, self.time_axis_pos), out
+      )
     return out
 
 
@@ -102,41 +107,64 @@ class ExplicitEuler(ScanOdeSolver):
   """1st order Explicit Euler scheme."""
 
   def step(
-      self, func: OdeDynamics, x0: Array, t0: Array, dt: Array, params: PyTree
-  ) -> Array:
-    return x0 + dt * func(x0, t0, params)
+      self, func: OdeDynamics, x0: PyTree, t0: Array, dt: Array, params: PyTree
+  ) -> PyTree:
+    k1 = func(x0, t0, params)
+    return jax.tree_util.tree_map(lambda x, k: x + dt * k, x0, k1)
 
 
 class HeunsMethod(ScanOdeSolver):
   """2nd order Heun's method."""
 
   def step(
-      self, func: OdeDynamics, x0: Array, t0: Array, dt: Array, params: PyTree
-  ) -> Array:
+      self, func: OdeDynamics, x0: PyTree, t0: Array, dt: Array, params: PyTree
+  ) -> PyTree:
     k1 = func(x0, t0, params)
-    k2 = func(x0 + dt * k1, t0 + dt, params)
-    return x0 + dt * (k1 + k2) / 2
+    x_pred = jax.tree_util.tree_map(lambda x, k: x + dt * k, x0, k1)
+    k2 = func(x_pred, t0 + dt, params)
+    return jax.tree_util.tree_map(
+        lambda x, d1, d2: x + dt * (d1 + d2) / 2, x0, k1, k2
+    )
 
 
 class RungeKutta4(ScanOdeSolver):
   """4th order Runge-Kutta scheme."""
 
   def step(
-      self, func: OdeDynamics, x0: Array, t0: Array, dt: Array, params: PyTree
-  ) -> Array:
+      self, func: OdeDynamics, x0: PyTree, t0: Array, dt: Array, params: PyTree
+  ) -> PyTree:
     k1 = func(x0, t0, params)
-    k2 = func(x0 + dt * k1 / 2, t0 + dt / 2, params)
-    k3 = func(x0 + dt * k2 / 2, t0 + dt / 2, params)
-    k4 = func(x0 + dt * k3, t0 + dt, params)
-    return x0 + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
+    k2 = func(
+        jax.tree_util.tree_map(lambda x, k: x + dt * k / 2, x0, k1),
+        t0 + dt / 2,
+        params,
+    )
+    k3 = func(
+        jax.tree_util.tree_map(lambda x, k: x + dt * k / 2, x0, k2),
+        t0 + dt / 2,
+        params,
+    )
+    k4 = func(
+        jax.tree_util.tree_map(lambda x, k: x + dt * k, x0, k3),
+        t0 + dt,
+        params,
+    )
+    return jax.tree_util.tree_map(
+        lambda x, d1, d2, d3, d4: x + dt * (d1 + 2 * d2 + 2 * d3 + d4) / 6,
+        x0,
+        k1,
+        k2,
+        k3,
+        k4,
+    )
 
 
 class OneStepDirect(ScanOdeSolver):
   """Solver that directly returns function output as next time step."""
 
   def step(
-      self, func: OdeDynamics, x0: Array, t0: Array, dt: Array, params: PyTree
-  ) -> Array:
+      self, func: OdeDynamics, x0: PyTree, t0: Array, dt: Array, params: PyTree
+  ) -> PyTree:
     """Performs a single prediction step: `x_{n+1} = f(x_n, t_n)`."""
     return func(x0, t0, params)
 
@@ -147,13 +175,16 @@ class DoPri45:
 
   rtol: float = 1.4e-8
   atol: float = 1.4e-8
-  max_steps: int = jnp.iinfo(jnp.int32).max
-  max_dt: float = jnp.inf
+  max_steps: int = int(np.iinfo(np.int32).max)
+  max_dt: float = float("inf")
 
   def __call__(
-      self, func: OdeDynamics, x0: Array, tspan: Array, params: PyTree
-  ) -> Array:
-    checkify.check(jnp.all(jnp.diff(tspan) > 0), "time needs to be increasing!")
+      self, func: OdeDynamics, x0: PyTree, tspan: Array, params: PyTree
+  ) -> PyTree:
+    if not isinstance(tspan, jax.core.Tracer) and not bool(
+        jnp.all(jnp.diff(tspan) > 0)
+    ):
+      raise ValueError("time needs to be increasing!")
     return ode.odeint(
         func,
         x0,
