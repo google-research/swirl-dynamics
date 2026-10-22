@@ -33,7 +33,7 @@ Journal of Computational Physics, Volume 452, Issue C, Mar 2022.
 Journal of Computational Physics, 126 (1) (1996) 202-228.
 """
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
@@ -53,8 +53,9 @@ def upwind_weights(order: int = 3) -> tuple[Array, Array]:
   """
 
   if order not in [3, 5]:
-    raise ValueError("Only 3rd and 5th order polynomials are supported, not ",
-                     f"order {order}.")
+    raise ValueError(
+        f"Only 3rd and 5th order polynomials are supported, not order {order}."
+    )
 
   d_minus, d_plus = jnp.array([0.0]), jnp.array([0.0])
 
@@ -80,10 +81,11 @@ def beta(u_bar: Array, order: int = 3) -> Array:
     The indicators of the local smoothness, β, of the function.
   """
   if order not in [3, 5]:
-    raise ValueError("Only 3rd and 5th order polynomials are supported, not ",
-                     f"order {order}.")
+    raise ValueError(
+        f"Only 3rd and 5th order polynomials are supported, not order {order}."
+    )
 
-  beta_array = jnp.array([0., 0.])
+  beta_array = jnp.array([0.0, 0.0])
 
   if order == 3:
     beta_0 = jnp.square(u_bar[1] - u_bar[0])
@@ -93,23 +95,27 @@ def beta(u_bar: Array, order: int = 3) -> Array:
 
   elif order == 5:
     # from Eqs. (3.1), (3.2), and (3.3) in [2].
-    beta_0 = (13. / 12. * (jnp.square(u_bar[0] - 2.0 * u_bar[1]+ u_bar[2])) +
-              0.25 *  (jnp.square(u_bar[0] - 4.0 * u_bar[1]+ 3 * u_bar[2])))
-    beta_1 = (13. / 12. * (jnp.square(u_bar[1] - 2.0 * u_bar[2]+ u_bar[3])) +
-              0.25 * (jnp.square(u_bar[1] - u_bar[3])))
-    beta_2 = (13. / 12. * (jnp.square(u_bar[2] - 2.0 * u_bar[3]+ u_bar[4])) +
-              0.25 *  (jnp.square(3 * u_bar[2] - 4.0 * u_bar[3] + u_bar[4])))
+    beta_0 = 13.0 / 12.0 * (
+        jnp.square(u_bar[0] - 2.0 * u_bar[1] + u_bar[2])
+    ) + 0.25 * (jnp.square(u_bar[0] - 4.0 * u_bar[1] + 3 * u_bar[2]))
+    beta_1 = 13.0 / 12.0 * (
+        jnp.square(u_bar[1] - 2.0 * u_bar[2] + u_bar[3])
+    ) + 0.25 * (jnp.square(u_bar[1] - u_bar[3]))
+    beta_2 = 13.0 / 12.0 * (
+        jnp.square(u_bar[2] - 2.0 * u_bar[3] + u_bar[4])
+    ) + 0.25 * (jnp.square(3 * u_bar[2] - 4.0 * u_bar[3] + u_bar[4]))
 
     beta_array = jnp.array([beta_0, beta_1, beta_2])
 
   return beta_array
 
 
-def omega_plus(u_bar: Array,
-               order: int = 3,
-               p: int = 2,
-               eps: jnp.float64 = 1e-15,  # pyrefly: ignore[not-a-type]
-               ) -> Array:
+def omega_plus(
+    u_bar: Array,
+    order: int = 3,
+    p: int = 2,
+    eps: float | Array = 1e-15,
+) -> Array:
   """Computes the WENO weights in the interpolation.
 
   Args:
@@ -150,10 +156,12 @@ def interpolants_plus(u_bar: Array, order: int = 3) -> Array:
     The ENO polynomials evaluated at x_{n+1/2}.
   """
   if len(u_bar) != order:
-    raise ValueError(f"Input size ({len(u_bar)}) and polynomial order ",
-                     f"({order}) do not match.")
+    raise ValueError(
+        f"Input size ({len(u_bar)}) and polynomial order ({order}) do not"
+        " match."
+    )
 
-  eno_polynomials = jnp.array([0., 0.])
+  eno_polynomials = jnp.array([0.0, 0.0])
 
   if order == 3:
     # u^0_{i+1/2} = 0.5( -u_{i-1} + 3 u_{i}).
@@ -166,11 +174,11 @@ def interpolants_plus(u_bar: Array, order: int = 3) -> Array:
   elif order == 5:
 
     # u^0_{i+1/2} = ( -2 u_{i-2} - 7 u_{i-1} + 11 * u_{0}) / 6.
-    u_plus_0 = (2 * u_bar[0] - 7 * u_bar[1] + 11 * u_bar[2]) / 6.
+    u_plus_0 = (2 * u_bar[0] - 7 * u_bar[1] + 11 * u_bar[2]) / 6.0
     # u^1_{i+1/2} = ( - u_{i-1} + 5 u_{i} + 2 * u_{i+1}) / 6.
-    u_plus_1 = (-u_bar[1] + 5 * u_bar[2] + 2 * u_bar[3]) / 6.
+    u_plus_1 = (-u_bar[1] + 5 * u_bar[2] + 2 * u_bar[3]) / 6.0
     # u^1_{i+1/2} = ( 2 u_{i} + 5 u_{i+1} -1 u_{i+2}) / 6.
-    u_plus_2 = (2 * u_bar[2] + 5 * u_bar[3] - u_bar[4]) / 6.
+    u_plus_2 = (2 * u_bar[2] + 5 * u_bar[3] - u_bar[4]) / 6.0
 
     eno_polynomials = jnp.array([u_plus_0, u_plus_1, u_plus_2])
 
@@ -189,10 +197,12 @@ def interpolants_minus(u_bar: Array, order: int = 3) -> Array:
   """
 
   if len(u_bar) != order:
-    raise ValueError(f"Input size ({len(u_bar)}) and polynomial order ",
-                     f"({order}) do not match.")
+    raise ValueError(
+        f"Input size ({len(u_bar)}) and polynomial order ({order}) do not"
+        " match."
+    )
 
-  eno_polynomials = jnp.array([0., 0.])
+  eno_polynomials = jnp.array([0.0, 0.0])
 
   if order == 3:
     # u^1_{i-1/2} = 0.5(u_{i-1} + u_{i}).
@@ -204,11 +214,11 @@ def interpolants_minus(u_bar: Array, order: int = 3) -> Array:
 
   elif order == 5:
     # u^1_{i-1/2} = ( 2 u_{i} + 5 u_{i+1} -1 u_{i+2}) / 6.
-    u_minus_0 = (- u_bar[0] + 5 * u_bar[1] + 2 * u_bar[2]) / 6.
+    u_minus_0 = (-u_bar[0] + 5 * u_bar[1] + 2 * u_bar[2]) / 6.0
     # u^1_{i-1/2} = ( - u_{i-1} + 5 u_{i} + 2 * u_{i+1}) / 6.
-    u_minus_1 = (2 * u_bar[1] + 5 * u_bar[2] - u_bar[3]) / 6.
+    u_minus_1 = (2 * u_bar[1] + 5 * u_bar[2] - u_bar[3]) / 6.0
     # u^0_{i-1/2} = ( -2 u_{i-2} - 7 u_{i-1} + 11 * u_{0}) / 6.
-    u_minus_2 = (11 * u_bar[2] - 7 * u_bar[3] + 2 * u_bar[4]) / 6.
+    u_minus_2 = (11 * u_bar[2] - 7 * u_bar[3] + 2 * u_bar[4]) / 6.0
 
     eno_polynomials = jnp.array([u_minus_2, u_minus_1, u_minus_0])
 
@@ -216,10 +226,10 @@ def interpolants_minus(u_bar: Array, order: int = 3) -> Array:
 
 
 def weno_interpolation_plus(
-    u_bar: Array,
-    omega_fun: Callable[[Array, Optional[int]], Array],
+    u_bar: jax.typing.ArrayLike,
+    omega_fun: Callable[..., Array],
     order: int = 3,
-) -> jnp.float64:  # pyrefly: ignore[not-a-type]
+) -> Array:
   """Interpolation to u_{i+1/2}.
 
   Args:
@@ -230,9 +240,12 @@ def weno_interpolation_plus(
   Returns:
     The value of u interpolated to x_{i+1/2}.
   """
-  assert len(u_bar) == order, ("Input size and order do not match. They should",
-                               "be equal. Instead they are :",
-                               f"input shape {len(u_bar)} and order {order}.")
+  u_bar = jnp.asarray(u_bar)
+  if len(u_bar) != order:
+    raise ValueError(
+        "Input size and order do not match. They should be equal. Instead they"
+        f" are: input shape {len(u_bar)} and order {order}."
+    )
 
   # Computing ω.
   omega = omega_fun(u_bar, order)
@@ -247,8 +260,8 @@ def weno_interpolation_plus(
 
 
 def weno_interpolation(
-    u_bar: Array,
-    omega_fun: Callable[[Array, Optional[int]], Array],
+    u_bar: jax.typing.ArrayLike,
+    omega_fun: Callable[..., Array],
     order: int = 3,
 ) -> Array:
   """Interpolation to u_{i-1/2} and u_{i+1/2}.
@@ -261,9 +274,12 @@ def weno_interpolation(
   Returns:
     The value of u interpolated to x_{i-1/2} and x_{i+1/2}.
   """
+  u_bar = jnp.asarray(u_bar)
   if len(u_bar) != order:
-    raise ValueError(f"Input size ({len(u_bar)}) and polynomial order ",
-                     f"({order}) do not match.")
+    raise ValueError(
+        f"Input size ({len(u_bar)}) and polynomial order ({order}) do not"
+        " match."
+    )
 
   # Computing ω.
   omega_p = omega_fun(u_bar, order)
