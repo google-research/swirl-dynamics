@@ -133,15 +133,16 @@ class DenoisingModel(models.BaseModel):
     vmapped_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     noised = batch["x"] + vmapped_mult(noise, sigma)
     cond = batch["cond"] if self.cond_shape else None
-    denoised = self.denoiser.apply(
-        {"params": params},
+    denoised, mutables = self.denoiser.apply(
+        {"params": params, **mutables},
         x=noised,
         sigma=sigma,
         cond=cond,
         is_training=True,
         rngs={"dropout": rng3},  # TODO: refactor this.
+        mutable=list(mutables.keys()),
     )
-    loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))  # pyrefly: ignore[unsupported-operation]
+    loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 

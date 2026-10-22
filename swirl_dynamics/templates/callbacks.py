@@ -133,10 +133,32 @@ class TrainStateCheckpoint(Callback):
         item_handlers={self.train_state_field: ocp.StandardCheckpointHandler()},
         options=options,
     )
+    self.last_eval_metric: dict[str, float] = {}
+    self._last_train_metric: dict[str, float] = {}
+    self._pending_save_step: int | None = None
+    self._eval_scheduled_steps: set[int] = set()
+
+  def _save_checkpoint(
+      self, trainer: Trainer, step: int, force: bool = False
+  ) -> None:
+    self.ckpt_manager.save(
+        step=step,
+        # This always saves the unreplicated train state.
+        # Converting to np array seems necessary for multi-host environments.
+        args=ocp.args.Composite(**{
+            self.train_state_field: ocp.args.StandardSave(
+                jax.tree.map(np.array, trainer.unreplicated_train_state)
+            )
+        }),
+        metrics=dict(**self._last_train_metric, **self.last_eval_metric),
+        force=force,
+    )
 
   def on_train_begin(self, trainer: Trainer) -> None:
     """Sets up directory, saves initial or restore the most recent state."""
     self.last_eval_metric = {}
+    self._last_train_metric = {}
+    self._pending_save_step = None
     # retrieve from existing checkpoints if possible
     if self.ckpt_manager.latest_step() is not None:
       # Load a single shard and then replicate explicitly.
@@ -161,42 +183,43 @@ class TrainStateCheckpoint(Callback):
   ) -> None:
     assert self.last_eval_metric is not None
     cur_step = trainer.train_state.int_step
-    scalar_train_metrics = {
-        k: float(v) for k, v in train_metrics.items() if utils.is_scalar(v)  # pyrefly: ignore[bad-argument-type]
+    self._last_train_metric = {
+        k: float(np.asarray(v).item())
+        for k, v in train_metrics.items()
+        if utils.is_scalar(v)
     }
-    if self.ckpt_manager.should_save(cur_step):
-      self.ckpt_manager.save(
-          step=cur_step,
-          # This always saves the unreplicated train state.
-          # Converting to np array seems necessary for multi-host environments.
-          args=ocp.args.Composite(**{
-              self.train_state_field: ocp.args.StandardSave(
-                  jax.tree.map(np.array, trainer.unreplicated_train_state)
-              )
-          }),
-          metrics=dict(**scalar_train_metrics, **self.last_eval_metric),
-      )
+    self._pending_save_step = (
+        cur_step if self.ckpt_manager.should_save(cur_step) else None
+    )
+    if (
+        self._pending_save_step is not None
+        and cur_step not in self._eval_scheduled_steps
+    ):
+      self._save_checkpoint(trainer, cur_step)
+      self._pending_save_step = None
 
   def on_eval_batches_end(
       self, trainer: Trainer, eval_metrics: ComputedMetrics
   ) -> None:
-    del trainer
+    cur_step = trainer.train_state.int_step
     self.last_eval_metric = {
-        k: float(v) for k, v in eval_metrics.items() if utils.is_scalar(v)  # pyrefly: ignore[bad-argument-type]
+        k: float(np.asarray(v).item())
+        for k, v in eval_metrics.items()
+        if utils.is_scalar(v)
     }
+    if self._pending_save_step == cur_step:
+      self._save_checkpoint(trainer, cur_step)
+      self._pending_save_step = None
 
   def on_train_end(self, trainer: Trainer) -> None:
     # Always save a checkpoint at the end of training.
-    if self.ckpt_manager.latest_step() != trainer.train_state.int_step:
-      self.ckpt_manager.save(
-          trainer.train_state.int_step,
-          args=ocp.args.Composite(**{
-              self.train_state_field: ocp.args.StandardSave(
-                  jax.tree.map(np.array, trainer.unreplicated_train_state)
-              )
-          }),
-          force=True,
-      )
+    cur_step = trainer.train_state.int_step
+    if (
+        self._pending_save_step == cur_step
+        or self.ckpt_manager.latest_step() != cur_step
+    ):
+      self._save_checkpoint(trainer, cur_step, force=True)
+      self._pending_save_step = None
     self.ckpt_manager.wait_until_finished()
 
 
@@ -446,7 +469,11 @@ class LogLearningRateToTensorBoard(Callback):
   ) -> None:
     self.metric_writer.write_scalars(
         trainer.train_state.int_step,
-        {"learning_rate": self.lr_schedule(trainer.train_state.int_step)},  # pyrefly: ignore[bad-assignment]
+        {
+            "learning_rate": np.asarray(
+                self.lr_schedule(trainer.train_state.int_step)
+            )
+        },
     )
 
 
