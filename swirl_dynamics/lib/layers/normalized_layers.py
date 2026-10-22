@@ -20,16 +20,20 @@ diffusion models." Proceedings of the IEEE/CVF Conference on Computer Vision and
 Pattern Recognition. 2024.
 """
 
+import math
+from typing import TypeAlias
+
 import jax
 import jax.numpy as jnp
 
 Array = jax.Array
+DTypeLike: TypeAlias = jax.typing.DTypeLike
 
 
 def compute_norm(
     x: Array,
     axis: tuple[int, ...] | int = (1, 2, 3),
-    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
+    dtype: DTypeLike = jnp.float32,
 ) -> Array:
   """Computes the normalization of the input array along the specified axes.
 
@@ -42,10 +46,8 @@ def compute_norm(
     The norm of the input array along the specified axes, with a zero
     subgradient for zero-norm groups.
   """
-
-  # The input is casted to a float32 to avoid precision loss in the
-  # normalization.
-  x = x.astype(dtype)
+  calc_dtype = jnp.result_type(x, dtype)
+  x = x.astype(calc_dtype)
   squared_norm = jnp.sum(jnp.square(x), axis=axis, keepdims=True)
   is_zero = squared_norm == 0
   # Avoid differentiating sqrt at zero, even in the inactive where branch.
@@ -57,25 +59,20 @@ def normalize(
     x: Array,
     axis: tuple[int, ...] | int | None = None,
     eps: float = 1e-6,
-    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
+    dtype: DTypeLike = jnp.float32,
 ) -> Array:
   """Computes the normalization of the input array along the specified axes."""
-  # If axis is not specified, normalize along all but the batch dimension.
   if axis is None:
     axis = tuple(range(1, x.ndim))
 
-  # Compute the normalization factor, by default it is computed in float32.
-  norm = compute_norm(x, axis=axis, dtype=dtype)
+  calc_dtype = jnp.result_type(x, dtype)
+  norm = compute_norm(x, axis=axis, dtype=calc_dtype)
+  if x.size == 0:
+    return x.astype(calc_dtype)
 
-  # Compute the number of elements in the input array and the norm.
-  # Recall that the norm is computed along the specified axes, while the number
-  # of elements is computed over the entire array.
-  num_elements_x = jnp.prod(jnp.array(x.shape)).astype(dtype)
-  num_elements_norm = jnp.prod(jnp.array(norm.shape)).astype(dtype)
-
-  rescaled_norm = eps + jnp.sqrt(num_elements_norm / num_elements_x) * norm
-
-  return x / rescaled_norm
+  scale = math.sqrt(math.prod(norm.shape) / math.prod(x.shape))
+  rescaled_norm = eps + scale * norm
+  return x.astype(calc_dtype) / rescaled_norm
 
 
 def mp_silu(x: Array) -> Array:
@@ -112,8 +109,8 @@ def mp_cat(x: Array, y: Array, dim: int = 1, t: float = 0.5) -> Array:
     x: The first input array.
     y: The second input array.
     dim: The dimension to concatenate along.
-    t: The mixing parameter, must be in [0, 1]. If t=0, the output is x, if
-      t=1, the output is y.
+    t: The mixing parameter, must be in [0, 1]. If t=0, the output is x, if t=1,
+      the output is y.
 
   Returns:
     A magnitude-preserving concatenation of two vectors along the specified
