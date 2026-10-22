@@ -46,7 +46,6 @@ from swirl_dynamics.projects.distillation.flow_map_matching import backbones
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
-
 # Defining aliases for the types.
 Array: TypeAlias = jax.Array
 ArrayLike: TypeAlias = jax.typing.ArrayLike  # This is for the keys.
@@ -101,7 +100,8 @@ class LagrangianFlowMapModel(models.BaseModel):
   interpolant: interpolants.StochasticInterpolant
   noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
   time_sampling: Callable[[Array, int, float, float], tuple[Array, Array]] = (
-      backbones.time_sampler_mean_flow)
+      backbones.time_sampler_mean_flow
+  )
 
   min_train_time: float = 1e-4  # This should be close to 0.
   max_train_time: float = 1.0 - 1e-4  # It should be close to 1.
@@ -142,9 +142,7 @@ class LagrangianFlowMapModel(models.BaseModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=3)
-    )
+    time_sample_rng_t, dropout_rng, noise_rng = jax.random.split(rng, num=3)
     # Sampling the time.
     time_t, time_s = self.time_sampling(
         time_sample_rng_t,
@@ -212,9 +210,7 @@ class LagrangianFlowMapModel(models.BaseModel):
     # We bootstrap the samples from the batch, but we keep them paired by using
     # the same random number generator seed.
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=3)
-    )
+    time_sample_rng_t, dropout_rng, noise_rng = jax.random.split(rng, num=3)
     # Sampling the time.
     time_t, time_s = self.time_sampling(
         time_sample_rng_t,
@@ -256,6 +252,7 @@ class LagrangianFlowMapModel(models.BaseModel):
 
     # Evaluation samples to be used for visualization.
     eval_samples = {}
+
     def body_for_loop(i, x, delta_t):
       return partial_flow_map(
           x,
@@ -264,9 +261,9 @@ class LagrangianFlowMapModel(models.BaseModel):
       )
 
     for num_steps in self.number_of_eval_steps:
-      delta_t = 1./ num_steps
-      body_for_loop = functools.partial(body_for_loop, delta_t=delta_t)
-      samples = jax.lax.fori_loop(0, num_steps, body_for_loop, batch["x_0"])
+      delta_t = 1.0 / num_steps
+      step_fn = functools.partial(body_for_loop, delta_t=delta_t)
+      samples = jax.lax.fori_loop(0, num_steps, step_fn, batch["x_0"])
       # Using the casting to jnp.array to avoid a type error.
       eval_samples[f"{num_steps}"] = jnp.array(samples)
 
@@ -279,11 +276,12 @@ class LagrangianFlowMapModel(models.BaseModel):
     """Returns the inference flow function."""
 
     def _flow(x: Array, t: float | Array, s: float | Array) -> Array:
-      # This is a wrapper to vectorize time if it is a float.
-      if not jnp.shape(jnp.asarray(t)):
-        t *= jnp.ones((x.shape[0],))
-        s *= jnp.ones((x.shape[0],))
-      return flow_map_model.apply(variables, x_s=x, t=t, s=s, is_training=False)  # pyrefly: ignore[bad-return]
+      # Vectorize time arguments independently if either is a scalar.
+      t_arr = jnp.broadcast_to(jnp.asarray(t), (x.shape[0],))
+      s_arr = jnp.broadcast_to(jnp.asarray(s), (x.shape[0],))
+      return flow_map_model.apply(  # pyrefly: ignore[bad-return]
+          variables, x_s=x, t=t_arr, s=s_arr, is_training=False
+      )
 
     return _flow
 
@@ -296,6 +294,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     cond_shape: Shape of the conditional input.
     number_of_eval_steps: Number of steps to take in the evaluation loop.
   """
+
   cond_shape: ShapeDict | None = None
   number_of_eval_steps: tuple[int, ...] = (1,)
 
@@ -334,9 +333,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=3)
-    )
+    time_sample_rng_t, dropout_rng, noise_rng = jax.random.split(rng, num=3)
     # Sampling the time.
     time_t, time_s = self.time_sampling(
         time_sample_rng_t,
@@ -413,9 +410,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     # the same random number generator seed.
     # TODO: Avoid repeated code in here.
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=3)
-    )
+    time_sample_rng_t, dropout_rng, noise_rng = jax.random.split(rng, num=3)
     # Sampling the time.
     time_t, time_s = self.time_sampling(
         time_sample_rng_t,
@@ -442,7 +437,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
           t,
           s,
           cond=cond,
-          is_training=True,
+          is_training=False,
           rngs={"dropout": dropout_rng},
       )
 
@@ -464,6 +459,7 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
     loss = jnp.mean(jnp.abs(dt_x_st - v_t))
 
     eval_samples = {}
+
     def body_for_loop(i, x, delta_t):
       return partial_flow_map(
           x,
@@ -472,9 +468,9 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
       )
 
     for num_steps in self.number_of_eval_steps:
-      delta_t = 1./ num_steps
-      body_for_loop = functools.partial(body_for_loop, delta_t=delta_t)
-      samples = jax.lax.fori_loop(0, num_steps, body_for_loop, batch["x_0"])
+      delta_t = 1.0 / num_steps
+      step_fn = functools.partial(body_for_loop, delta_t=delta_t)
+      samples = jax.lax.fori_loop(0, num_steps, step_fn, batch["x_0"])
       # Using the casting to jnp.array to avoid a type error.
       eval_samples[f"{num_steps}"] = jnp.array(samples)
 
@@ -492,12 +488,11 @@ class ConditionalLagrangianFlowMapModel(LagrangianFlowMapModel):
         s: float | Array,
         cond: CondDict | None = None,
     ) -> Array:
-      # This is a wrapper to vectorize time if it is a float.
-      if not jnp.shape(jnp.asarray(t)):
-        t *= jnp.ones((x.shape[0],))
-        s *= jnp.ones((x.shape[0],))
+      # Vectorize time arguments independently if either is a scalar.
+      t_arr = jnp.broadcast_to(jnp.asarray(t), (x.shape[0],))
+      s_arr = jnp.broadcast_to(jnp.asarray(s), (x.shape[0],))
       return flow_map_model.apply(  # pyrefly: ignore[bad-return]
-          variables, x_s=x, t=t, s=s, cond=cond, is_training=False
+          variables, x_s=x, t=t_arr, s=s_arr, cond=cond, is_training=False
       )
 
     return _flow
@@ -523,8 +518,8 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       training.
     number_of_eval_steps: Number of steps for the evaluation.
     cond_shape: Shape of the conditional input.
-    weight_v: Weight of the v-term in the Lagrangian self-distillation loss.
-      The term for x is defined as 1 - weight_v.
+    weight_v: Weight of the v-term in the Lagrangian self-distillation loss. The
+      term for x is defined as 1 - weight_v.
     use_adaptive_norm: Whether to use adaptive normalization in each loss as
       defined in [4].
     norm_power: Power of the adaptive normalization.
@@ -536,7 +531,8 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
   interpolant: interpolants.StochasticInterpolant
   noising_process: Callable[[Array, ArrayShape], Array] = jax.random.normal
   time_sampling: Callable[[Array, int, float, float], tuple[Array, Array]] = (
-      backbones.time_sampler_mean_flow)
+      backbones.time_sampler_mean_flow
+  )
 
   min_train_time: float = 1e-4  # This should be close to 0.
   max_train_time: float = 1.0 - 1e-4  # It should be close to 1.
@@ -593,9 +589,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=3)
-    )
+    time_sample_rng_t, dropout_rng, noise_rng = jax.random.split(rng, num=3)
     # Sampling the time.
     time_t, time_s = self.time_sampling(
         time_sample_rng_t,
@@ -646,15 +640,18 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
         # Broadcast the delta time to the spatial dimensions.
         delta_time = t - s
         delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
-        return x_s + delta_time * self.mean_flow_model.apply(  # pyrefly: ignore[unsupported-operation]
-            {"params": params},
-            x_s,
-            t,
-            s,
-            cond=cond,
-            is_training=True,
-            rngs={"dropout": dropout_rng},
+        u_st = jnp.asarray(
+            self.mean_flow_model.apply(
+                {"params": params},
+                x_s,
+                t,
+                s,
+                cond=cond,
+                is_training=True,
+                rngs={"dropout": dropout_rng},
+            )
         )
+        return x_s + delta_time * u_st
 
       # Partial derivate with respect to s of the flow map.
       x_st, dt_x_st = jax.jvp(
@@ -689,7 +686,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       loss_v = loss_v / jax.lax.stop_gradient(adaptive_weight_v)
 
     # Adding the two losses. This is the loss as defined in Eq. 11 in [1].
-    loss = self.weight_v * loss_v + (1. - self.weight_v) * loss_x
+    loss = self.weight_v * loss_v + (1.0 - self.weight_v) * loss_x
     metric = dict(loss=loss, loss_v=loss_v, loss_x=loss_x)
     return loss, (metric, mutables)
 
@@ -718,9 +715,7 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     # We bootstrap the samples from the batch, but we keep them paired by using
     # the same random number generator seed.
     batch_size = len(batch["x_0"])
-    time_sample_rng_t, dropout_rng, noise_rng = (
-        jax.random.split(rng, num=3)
-    )
+    time_sample_rng_t, dropout_rng, noise_rng = jax.random.split(rng, num=3)
     # Sampling the time.
     time_t, time_s = self.time_sampling(
         time_sample_rng_t,
@@ -745,15 +740,18 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       # Broadcast the delta time to the spatial dimensions.
       delta_time = t - s
       delta_time = delta_time.reshape((x_s.shape[0],) + (x_s.ndim - 1) * (1,))
-      return x_s + delta_time * self.mean_flow_model.apply(  # pyrefly: ignore[unsupported-operation]
-          variables,
-          x_s,
-          t,
-          s,
-          cond=cond,
-          is_training=False,
-          rngs={"dropout": dropout_rng},
+      u_st = jnp.asarray(
+          self.mean_flow_model.apply(
+              variables,
+              x_s,
+              t,
+              s,
+              cond=cond,
+              is_training=False,
+              rngs={"dropout": dropout_rng},
+          )
       )
+      return x_s + delta_time * u_st
 
     # Partial derivate with respect to s of the flow map.
     x_st, dt_x_st = jax.jvp(
@@ -791,9 +789,10 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     loss_x = jnp.mean(jnp.square(dt_x_st - v_tt_st))
     loss_v = jnp.mean(jnp.square(v_tt - dinterp_dt))  # pyrefly: ignore[unsupported-operation]
 
-    loss = self.weight_v * loss_v + (1. - self.weight_v) * loss_x
+    loss = self.weight_v * loss_v + (1.0 - self.weight_v) * loss_x
 
     eval_samples = {}
+
     def body_for_loop(i, x, delta_t):
       return partial_flow_map(
           x,
@@ -802,16 +801,18 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       )
 
     for num_steps in self.number_of_eval_steps:
-      delta_t = 1./ num_steps
-      body_for_loop = functools.partial(body_for_loop, delta_t=delta_t)
-      samples = jax.lax.fori_loop(0, num_steps, body_for_loop, batch["x_0"])
+      delta_t = 1.0 / num_steps
+      step_fn = functools.partial(body_for_loop, delta_t=delta_t)
+      samples = jax.lax.fori_loop(0, num_steps, step_fn, batch["x_0"])
       # Using the casting to jnp.array to avoid a type error.
       eval_samples[f"{num_steps}"] = jnp.array(samples)
 
-    eval_losses = {"eval_loss": loss,
-                   "eval_loss_v": loss_v,
-                   "eval_loss_x": loss_x,
-                   **eval_samples}
+    eval_losses = {
+        "eval_loss": loss,
+        "eval_loss_v": loss_v,
+        "eval_loss_x": loss_x,
+        **eval_samples,
+    }
 
     return eval_losses
 
@@ -836,9 +837,12 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
       # Broadcast the delta time to the spatial dimensions.
       delta_time = t - s
       delta_time = delta_time.reshape((x.shape[0],) + (x.ndim - 1) * (1,))
-      return x + delta_time * mean_flow_model.apply(  # pyrefly: ignore[unsupported-operation]
-          variables, x_s=x, t=t, s=s, cond=cond, is_training=False
+      u_st = jnp.asarray(
+          mean_flow_model.apply(
+              variables, x_s=x, t=t, s=s, cond=cond, is_training=False
+          )
       )
+      return x + delta_time * u_st
 
     return _flow
 
@@ -872,9 +876,7 @@ class RescaledFlowMapUNet(backbones.FlowMapUNet):
           f"{self.out_channels})."
       )
     if t.ndim != s.ndim:
-      raise ValueError(
-          f"Time dimensions must be equal ({t.ndim} != {s.ndim})."
-      )
+      raise ValueError(f"Time dimensions must be equal ({t.ndim} != {s.ndim}).")
 
     if s.ndim < 1:
       s = jnp.broadcast_to(s, (x_s.shape[0],))
