@@ -41,7 +41,6 @@ from swirl_dynamics.projects.debiasing.stochastic_interpolants import losses
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
-
 # Defining aliases for the types.
 Array: TypeAlias = jax.Array
 ArrayShape: TypeAlias = Sequence[int]
@@ -169,16 +168,17 @@ class StochasticInterpolantModel(models.BaseModel):
     noise_flow = self.noising_process_flow(noise_flow_rng, batch["x_0"].shape)
     x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp)  # pyrefly: ignore[bad-argument-type]
 
-    v_t = self.flow_model.apply(
-        {"params": params},
+    v_t, mutables = self.flow_model.apply(
+        {"params": params, **mutables},
         x=x_t,
         sigma=time,
         is_training=True,
         rngs={"dropout": dropout_rng},
+        mutable=list(mutables.keys()),
     )
 
     loss = self.loss_stochastic_interpolant(
-        v_t,  # pyrefly: ignore[bad-argument-type]
+        v_t,
         time,
         batch["x_0"],  # pyrefly: ignore[bad-argument-type]
         batch["x_1"],  # pyrefly: ignore[bad-argument-type]
@@ -349,9 +349,15 @@ class StochasticInterpolantCRPSModel(models.BaseModel):
       The loss value and a tuple of training metric and mutables.
     """
     batch_size = len(batch["x_0"])
-    time_sample_rng, dropout_rng, noise_rng, noise_rng_2, noise_flow_rng = (
-        jax.random.split(rng, num=5)
-    )
+    (
+        time_sample_rng,
+        dropout_rng,
+        noise_rng,
+        noise_rng_2,
+        noise_flow_rng_1,
+        noise_flow_rng_2,
+    ) = jax.random.split(rng, num=6)
+    dropout_rng_1, dropout_rng_2 = jax.random.split(dropout_rng)
 
     time_range = self.max_train_time - self.min_train_time
     time = (
@@ -359,45 +365,52 @@ class StochasticInterpolantCRPSModel(models.BaseModel):
         + self.min_train_time
     )
 
-    # Interpolation between x_0 and x_1 (check the interpolant)
-    # Check the dimensions here.
     noise_interp_1 = self.noising_process_interp(noise_rng, batch["x_0"].shape)
     noise_interp_2 = self.noising_process_interp(
         noise_rng_2, batch["x_1"].shape
     )
-    if self.use_same_noise_rng:
-      noise_flow_rng = noise_rng
-    noise_flow = self.noising_process_flow(noise_flow_rng, batch["x_0"].shape)
+    noise_flow_1 = (
+        noise_interp_1
+        if self.use_same_noise_rng
+        else self.noising_process_flow(noise_flow_rng_1, batch["x_0"].shape)
+    )
+    noise_flow_2 = (
+        noise_interp_2
+        if self.use_same_noise_rng
+        else self.noising_process_flow(noise_flow_rng_2, batch["x_1"].shape)
+    )
 
-    # We prepate two samples for the CRPS loss.
-    # TODO: Add a feature of adding more samples to CRPS loss.
     x_t = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp_1)  # pyrefly: ignore[bad-argument-type]
     x_t_2 = self.interpolant(time, batch["x_0"], batch["x_1"], noise_interp_2)  # pyrefly: ignore[bad-argument-type]
 
-    v_t = self.flow_model.apply(
-        {"params": params},
+    v_t, mutables = self.flow_model.apply(
+        {"params": params, **mutables},
         x=x_t,
         sigma=time,
         is_training=True,
-        rngs={"dropout": dropout_rng},
+        rngs={"dropout": dropout_rng_1},
+        mutable=list(mutables.keys()),
     )
-    v_t_2 = self.flow_model.apply(
-        {"params": params},
+    v_t_2, mutables = self.flow_model.apply(
+        {"params": params, **mutables},
         x=x_t_2,
         sigma=time,
         is_training=True,
-        rngs={"dropout": dropout_rng},
+        rngs={"dropout": dropout_rng_2},
+        mutable=list(mutables.keys()),
     )
 
-    # Compute the reference flow.
-    v_ref = self.interpolant.calculate_time_derivative_interpolant(
-        time, batch["x_0"], batch["x_1"], noise_flow  # pyrefly: ignore[bad-argument-type]
+    v_ref_1 = self.interpolant.calculate_time_derivative_interpolant(
+        time, batch["x_0"], batch["x_1"], noise_flow_1  # pyrefly: ignore[bad-argument-type]
+    )
+    v_ref_2 = self.interpolant.calculate_time_derivative_interpolant(
+        time, batch["x_0"], batch["x_1"], noise_flow_2  # pyrefly: ignore[bad-argument-type]
     )
 
-    # Compute CRPS loss
+    # Compute symmetric fair-CRPS loss
     loss = 0.5 * jnp.mean(
-        jnp.abs(v_t - v_ref) + jnp.abs(v_t_2 - v_ref)  # pyrefly: ignore[unsupported-operation]
-    ) - 0.25 * jnp.mean(jnp.abs(v_t - v_t_2))  # pyrefly: ignore[unsupported-operation]
+        jnp.abs(v_t - v_ref_1) + jnp.abs(v_t_2 - v_ref_2)
+    ) - 0.5 * jnp.mean(jnp.abs(v_t - v_t_2))
 
     metric = dict(loss=loss)
     return loss, (metric, mutables)
@@ -568,12 +581,13 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
 
     # Here we assume that the flow model has two outputs, one for the flow and
     # one for the score (or the denoised sample if using a denoising loss).
-    v_t, s_t = self.flow_score_model.apply(
-        {"params": params},
+    (v_t, s_t), mutables = self.flow_score_model.apply(
+        {"params": params, **mutables},
         x=x_t,
         sigma=time,
         is_training=True,
         rngs={"dropout": dropout_rng},
+        mutable=list(mutables.keys()),
     )
 
     loss_flow = self.loss_stochastic_interpolant_flow(
@@ -585,7 +599,7 @@ class StochasticInterpolantFlowScoreModel(models.BaseModel):
         self.interpolant,
     )
     loss_score = self.loss_stochastic_interpolant_score(
-        s_t,  # pyrefly: ignore[bad-argument-type]
+        s_t,
         time,
         batch["x_0"],  # pyrefly: ignore[bad-argument-type]
         batch["x_1"],  # pyrefly: ignore[bad-argument-type]
@@ -746,18 +760,19 @@ class ConditionalStochasticInterpolantModel(StochasticInterpolantModel):
     else:
       cond = None
 
-    v_t = self.flow_model.apply(
-        {"params": params},
+    v_t, mutables = self.flow_model.apply(
+        {"params": params, **mutables},
         x=x_t,
         sigma=time,
         cond=cond,
         is_training=True,
         rngs={"dropout": dropout_rng},
+        mutable=list(mutables.keys()),
     )
 
     # Eq. (1) in [1], but with a possibly weighted norm.
     loss = self.loss_stochastic_interpolant(
-        v_t,  # pyrefly: ignore[bad-argument-type]
+        v_t,
         time,
         batch["x_0"],  # pyrefly: ignore[bad-argument-type]
         batch["x_1"],  # pyrefly: ignore[bad-argument-type]
