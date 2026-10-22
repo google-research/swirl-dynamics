@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Tests for the Non-Linear Fourier networks."""
+
 # pylint: disable=undefined-variable, g-complex-comprehension
 
 from absl.testing import absltest
