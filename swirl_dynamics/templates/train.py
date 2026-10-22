@@ -28,7 +28,7 @@ from swirl_dynamics.templates import utils
 filesys = epath.backend.tf_backend
 
 
-# TODO: package parameters into logical groupings (see cl/497196196)
+# TODO: package parameters into logical groupings.
 def run(
     *,
     train_dataloader: Iterable[Any],
@@ -89,7 +89,7 @@ def run(
       raise ValueError(
           f"`eval_every_steps` ({eval_every_steps}) "
           "must be an integer multiple of "
-          "`metric_aggregation_steps` ({metric_aggregation_steps})"
+          f"`metric_aggregation_steps` ({metric_aggregation_steps})"
       )
     eval_iter = iter(eval_dataloader)
     if run_sanity_eval_batch:
@@ -114,28 +114,35 @@ def run(
     cur_step += num_steps
     metric_writer.write_scalars(cur_step, train_metrics)
 
+    is_eval_step = run_evaluation and (
+        cur_step == total_train_steps or cur_step % eval_every_steps == 0
+    )
+    if is_eval_step:
+      for callback in callbacks:
+        if isinstance(callback, cb.TrainStateCheckpoint):
+          callback._eval_scheduled_steps.add(cur_step)  # pylint: disable=protected-access
+
     # At train/eval batch end, callbacks are called in reverse order so that
     # they are last-in-first-out, loosely resembling nested python contexts.
     for callback in reversed(callbacks):
       callback.on_train_batches_end(trainer, train_metrics)
 
-    if run_evaluation:
-      if cur_step == total_train_steps or cur_step % eval_every_steps == 0:
-        for callback in callbacks:
-          callback.on_eval_batches_begin(trainer)
+    if is_eval_step:
+      for callback in callbacks:
+        callback.on_eval_batches_begin(trainer)
 
-        assert eval_iter is not None
-        eval_metrics = trainer.eval(eval_iter, num_batches_per_eval).compute()
-        # Handle nested dicts.
-        eval_metrics_to_log = {
-            "/".join(k): v
-            for k, v in flax.traverse_util.flatten_dict(eval_metrics).items()
-            if utils.is_scalar(v)
-        }
-        metric_writer.write_scalars(cur_step, eval_metrics_to_log)
+      assert eval_iter is not None
+      eval_metrics = trainer.eval(eval_iter, num_batches_per_eval).compute()
+      # Handle nested dicts.
+      eval_metrics_to_log = {
+          "/".join(k): v
+          for k, v in flax.traverse_util.flatten_dict(eval_metrics).items()
+          if utils.is_scalar(v)
+      }
+      metric_writer.write_scalars(cur_step, eval_metrics_to_log)
 
-        for callback in reversed(callbacks):
-          callback.on_eval_batches_end(trainer, eval_metrics)
+      for callback in reversed(callbacks):
+        callback.on_eval_batches_end(trainer, eval_metrics)
 
   for callback in reversed(callbacks):
     callback.on_train_end(trainer)
