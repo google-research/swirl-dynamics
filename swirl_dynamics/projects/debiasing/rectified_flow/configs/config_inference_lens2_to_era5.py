@@ -18,7 +18,6 @@ We bias correct selected variables from LENS2 to ERA5. from 1960 to 2099.
 
 """
 
-
 import ml_collections
 
 _ERA5_VARIABLES = {
@@ -31,18 +30,20 @@ _ERA5_VARIABLES = {
     "v_component_of_wind": {"level": [200, 850]},
 }
 
-# Cell where the data is located.
-cell_data = "eb"  # "eb" for VF and "oa" for A100 and ta for H100.
-
-_ERA5_DATASET_PATH = f"/data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
-_ERA5_STATS_PATH = f"/data/era5/climat/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
-
+# pylint: disable=line-too-long,invalid-name
+_ERA5_DATASET_PATH = "data/era5/era5_240x121_lonlat_1980-2020_10_vars.zarr"
+_ERA5_STATS_PATH = "data/era5/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 _LENS2_DATASET_PATH = (
-    f"/data/lens2/lens2_240x121_lonlat.zarr"
+    "data/lens2/lens2_240x121_lonlat_1960-2020_10_vars_4_train_members.zarr"
 )
-_LENS2_STATS_PATH = f"/data/lens2/climat/lens2_240x121_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
-_LENS2_MEAN_CLIMATOLOGY_PATH = f"/data/lens2/climat/mean_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
-_LENS2_STD_CLIMATOLOGY_PATH = f"/data/lens2/climat/std_lens2_240x121_lonlat_clim_daily_1961_to_2000.zarr"
+_LENS2_STATS_PATH = "data/lens2/lens2_240x121_10_vars_4_members_lonlat_clim_daily_1961_to_2000_31_dw.zarr"
+_LENS2_MEAN_CLIMATOLOGY_PATH = (
+    "data/lens2/mean_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
+)
+_LENS2_STD_CLIMATOLOGY_PATH = (
+    "data/lens2/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
+)
+
 
 _LENS2_MEMBER_INDEXER = ("cmip6_1001_001",)
 
@@ -59,7 +60,7 @@ _LENS2_VARIABLE_NAMES = (
     "V850",
 )
 _LENS2_VARIABLES = {v: _LENS2_MEMBER_INDEXER[0] for v in _LENS2_VARIABLE_NAMES}
-# pylint: enable=line-too-long
+# pylint: enable=line-too-long,invalid-name
 
 
 def get_config():
