@@ -118,12 +118,15 @@ class LatLonConv(nn.Module):
     if inputs.ndim < 4:
       raise ValueError(f"Input must be 4D or higher: {inputs.shape}.")
 
+    # `nn.Conv` applies `kernel_size[0]` along axis -3 and `kernel_size[1]`
+    # along axis -2 regardless of `order`, so each axis is padded by half of
+    # the kernel extent that is applied along it.
     if self.order == "latlon":
       lat_axes, lon_axes = (-3, -2)
       lat_pad, lon_pad = self.kernel_size[0] // 2, self.kernel_size[1] // 2
     elif self.order == "lonlat":
       lon_axes, lat_axes = (-3, -2)
-      lon_pad, lat_pad = self.kernel_size[1] // 2, self.kernel_size[0] // 2
+      lon_pad, lat_pad = self.kernel_size[0] // 2, self.kernel_size[1] // 2
     else:
       raise ValueError(
           f"Unrecognized order {self.order} - 'latlon' or 'lonlat' expected."

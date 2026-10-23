@@ -57,6 +57,41 @@ class ConvLayersTest(parameterized.TestCase):
     out, _ = model.init_with_output(jax.random.PRNGKey(42), inputs=inputs)
     self.assertEqual(out.shape, expected_output_shape[:-1] + (num_features,))
 
+  @parameterized.parameters(((5, 3),), ((3, 5),))
+  def test_latlon_conv_rectangular_kernel_orders_are_consistent(
+      self, kernel_size_latlon
+  ):
+    # Transposing the spatial axes, the kernel and the kernel parameters must
+    # map the "latlon" convolution onto the "lonlat" one exactly; in particular
+    # both orders must preserve the spatial shape.
+    num_features = 3
+    inputs_latlon = jax.random.normal(jax.random.PRNGKey(0), (2, 16, 9, 3))
+    inputs_lonlat = jnp.swapaxes(inputs_latlon, 1, 2)
+    kernel_size_lonlat = kernel_size_latlon[::-1]
+
+    model_latlon = convolutions.LatLonConv(
+        features=num_features, kernel_size=kernel_size_latlon, order="latlon"
+    )
+    model_lonlat = convolutions.LatLonConv(
+        features=num_features, kernel_size=kernel_size_lonlat, order="lonlat"
+    )
+    out_latlon, variables = model_latlon.init_with_output(
+        jax.random.PRNGKey(42), inputs_latlon
+    )
+    variables_lonlat = jax.tree_util.tree_map(
+        lambda leaf: jnp.swapaxes(leaf, 0, 1) if leaf.ndim == 4 else leaf,
+        variables,
+    )
+    out_lonlat = jnp.asarray(
+        model_lonlat.apply(variables_lonlat, inputs_lonlat)
+    )
+
+    self.assertEqual(out_latlon.shape, (2, 16, 9, num_features))
+    self.assertEqual(out_lonlat.shape, (2, 9, 16, num_features))
+    np.testing.assert_allclose(
+        jnp.swapaxes(out_latlon, 1, 2), out_lonlat, atol=1e-5
+    )
+
   @parameterized.product(
       order=("latlon", "lonlat"),
       dtype=(jnp.float32, jnp.bfloat16),
