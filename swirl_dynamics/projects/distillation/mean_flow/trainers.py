@@ -63,6 +63,8 @@ class MeanFlowTrainer(trainers.BasicTrainer[models.MeanFlowModel, TrainState]):
   class TrainMetrics(clu_metrics.Collection):  # pyrefly: ignore[bad-override]
     train_loss: clu_metrics.Average.from_output("loss")  # pyrefly: ignore[invalid-annotation]
     train_loss_std: clu_metrics.Std.from_output("loss")  # pyrefly: ignore[invalid-annotation]
+    train_raw_mse: clu_metrics.Average.from_output("raw_mse")  # pyrefly: ignore[invalid-annotation]
+    train_raw_mse_std: clu_metrics.Std.from_output("raw_mse")  # pyrefly: ignore[invalid-annotation]
 
   @functools.cached_property
   def EvalMetrics(self) -> Collection:  # pyrefly: ignore[bad-override]
