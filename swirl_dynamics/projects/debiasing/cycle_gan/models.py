@@ -18,9 +18,8 @@ References:
 [1] Zhu, J.Y., Park, T., Isola, P. and Efros, A.A., "Unpaired image-to-image
     translation using cycle-consistent adversarial networks". In Proceedings of
     the IEEE international conference on computer vision (pp. 2223-2232) 2017.
-[2]
-https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190#issuecomment-358546675
-# pylint: disable=unused-argument: disable=line-too-long
+[2] Reference implementation (loss conventions):
+    https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix
 """
 
 import dataclasses
@@ -29,7 +28,6 @@ from typing import Any
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.lib.networks import cycle_gan
 from swirl_dynamics.projects.debiasing.cycle_gan import loss_functions
 from swirl_dynamics.templates import models as swirl_models
 
@@ -43,27 +41,36 @@ class CycleGANModelConfig:
   """Config used by cycleGAN model.
 
   Attributes:
-    lambda_a: Weight for the generator/discriminator loss for A.
-    lambda_b: Weight for the generator/discriminator loss for B.
-    lambda_id: Weight for the identiy loss as defined in [1].
-    gan_mode: Type of loss, it currently accepts 3 types, least squares gan
-      ("lsgan"), the vanilla gan with BCE loss ("bce_with_logits"), and
-      Wasserstein gan ("wganp").
+    lambda_a: Weight of the cycle-consistency loss of samples from A, and (times
+      `lambda_id`) of the identity loss of `generator_b2a`.
+    lambda_b: Weight of the cycle-consistency loss of samples from B, and (times
+      `lambda_id`) of the identity loss of `generator_a2b`.
+    lambda_id: Relative weight of the identity losses as defined in [1]. The
+      identity forward passes are skipped when it is not positive.
+    gan_mode: Type of adversarial loss: least squares GAN ("lsgan"), the vanilla
+      GAN with BCE loss ("bce_with_logits"), or the Wasserstein critic loss
+      ("wgangp").
     use_cycle_loss: Option to use the cycle loss as defined in [1].
-    same_dimension: Option so the dimensions of elements of A and B matches.
-    use_crossed_dis_loss: Use a crossed loss. Basically
-    internal_shape_dims: Shape dimensions in which the Cycle-GAN networks
-      operates. This is necessary when we interpolate the inputs/outputs.
+    same_dimension: Whether samples of A and B have the same shape, which is
+      required by the identity losses.
+    use_crossed_dis_loss: Additionally train each discriminator to classify real
+      samples of the *other* domain as fake, so that the discriminators also
+      tell A from B.
+
+  The defaults `lambda_a = lambda_b = lambda_id = 1` differ from the paper
+  defaults (`lambda_a = lambda_b = 10`, `lambda_id = 0.5`).
   """
 
   lambda_a: float = 1.0
   lambda_b: float = 1.0
   lambda_id: float = 1.0
-  gan_mode: loss_functions.GanMode = loss_functions.GanMode.LSGAN
+  gan_mode: loss_functions.GanMode | str = loss_functions.GanMode.LSGAN
   use_cycle_loss: bool = True
   same_dimension: bool = True
   use_crossed_dis_loss: bool = False
-  internal_shape_dims: tuple[int, ...] | None = None
+
+  def __post_init__(self):
+    self.gan_mode = loss_functions.GanMode(self.gan_mode)
 
 
 class CycleGAN(nn.Module):
@@ -277,13 +284,13 @@ class CycleGAN(nn.Module):
 
     # Compute 3-criteria loss function.
 
-    # Generator loss dis_a(gen_a2b(u_a)).
-    disc_a_gen_a2b = self.dis_a.apply({"params": params_d_a}, fake_a)
-    loss_gen_a = self.criterion_gan(disc_a_gen_a2b, True)  # pyrefly: ignore[bad-argument-type]
+    # Adversarial loss of the fakes in A: dis_a(gen_b2a(u_b)).
+    disc_a_fake_a = self.dis_a.apply({"params": params_d_a}, fake_a)
+    loss_gen_a = self.criterion_gan(disc_a_fake_a, True)  # pyrefly: ignore[bad-argument-type]
 
-    # Generator loss dis_b(gen_b2a(u_b)).
-    disc_b_gen_b2a = self.dis_b.apply({"params": params_d_b}, fake_b)
-    loss_gen_b = self.criterion_gan(disc_b_gen_b2a, True)  # pyrefly: ignore[bad-argument-type]
+    # Adversarial loss of the fakes in B: dis_b(gen_a2b(u_a)).
+    disc_b_fake_b = self.dis_b.apply({"params": params_d_b}, fake_b)
+    loss_gen_b = self.criterion_gan(disc_b_fake_b, True)  # pyrefly: ignore[bad-argument-type]
 
     if self.config.use_cycle_loss:
       # Cycle loss ||gen_b2a(gen_a2b(u_a)) - u_a||.
@@ -291,15 +298,16 @@ class CycleGAN(nn.Module):
       # Cycle loss ||gen_a2b(gen_b2a(u_b)) - u_b||.
       loss_cycle_b = self.criterion_cycle(recover_b, real_b) * self.lambda_b
     else:
-      loss_cycle_a, loss_cycle_b = 0.0, 0.0
+      loss_cycle_a = loss_cycle_b = jnp.zeros(())
 
-    # Identity losses only if the dimensions of a and b are the same.
-    if self.config.same_dimension:
-      # G_A should be identity if real_b is fed: ||gen_a2b(u_b) - u_b||.
+    # Identity losses need samples of A and B with the same shape, and cost two
+    # generator passes, which are skipped when their weight vanishes.
+    if self.config.same_dimension and self.lambda_id > 0.0:
+      # gen_a2b should be the identity on samples of B: ||gen_a2b(u_b) - u_b||.
       id_a = self.generator_a2b.apply(
           {"params": params_g_a2b}, real_b, is_training=is_training, rngs=rngs
       )
-      # G_B should be identity if real_a is fed: ||gen_b2a(u_a) - u_a||.
+      # gen_b2a should be the identity on samples of A: ||gen_b2a(u_a) - u_a||.
       id_b = self.generator_b2a.apply(
           {"params": params_g_b2a}, real_a, is_training=is_training, rngs=rngs
       )
@@ -310,10 +318,8 @@ class CycleGAN(nn.Module):
       loss_id_b = (
           self.lambda_a * self.lambda_id * self.criterion_id(id_b, real_a)  # pyrefly: ignore[bad-argument-type]
       )
-
     else:
-
-      loss_id_a, loss_id_b = 0.0, 0.0
+      loss_id_a = loss_id_b = jnp.zeros(())
 
     return dict(
         loss_gen_a=jnp.array(loss_gen_a),
@@ -410,32 +416,13 @@ class CycleGAN(nn.Module):
 
 
 @dataclasses.dataclass(kw_only=True)
-class CycleGANConfig:
-  """Config used by cycleGAN models."""
-
-  generator_a2b: cycle_gan.Generator
-  generator_b2a: cycle_gan.Generator
-
-  dims_a: tuple[int, ...]
-  dims_b: tuple[int, ...]
-
-  discriminator_a: cycle_gan.Discriminator
-  discriminator_b: cycle_gan.Discriminator
-
-  lambda_a: float
-  lambda_b: float
-  lambda_id: float
-
-
-@dataclasses.dataclass(kw_only=True)
 class CycleGANModel(swirl_models.BaseModel):
-  """Model used storing cycleGan information.
+  """Model wrapping a `CycleGAN` for the swirl_dynamics trainers.
 
   Attributes:
-    cycle_gan: Flax Module containing all the functionatly for CycleGAN.
-    dim_inputs: The dimension of the inputs for both samples from A and B. These
-      shapes may de different from the ones inside the model due to an
-      interpolation step.
+    cycle_gan: Container of the four networks and the loss computations.
+    dim_inputs: The shapes (including the batch axis) of samples from A and from
+      B, used to initialise the networks.
   """
 
   cycle_gan: CycleGAN
@@ -590,22 +577,21 @@ class CycleGANModel(swirl_models.BaseModel):
       rng: Array,
       **kwargs,
   ) -> swirl_models.ArrayDict:
-    """Eval function for the generator and discriminator.
+    """Evaluation metrics of the generators and discriminators.
 
     Args:
-      variables: Parameters of the different neural networks within the cycle-
-        gan class.
-      batch: Data as a dictionary with keys  ['real_data_a', 'real_data_b',
-        'fake_data_a', 'fake_data_b'].
-      rng: Random seed.
-      **kwargs: Additional keyed arguments.
+      variables: Variables of the four networks, in the order `(gen_a2b,
+        gen_b2a, dis_a, dis_b)`; only their `"params"` collections are used.
+      batch: Dictionary with keys `"real_data_a"` and `"real_data_b"`.
+      rng: Random key (dropout is disabled, so it only seeds the split).
+      **kwargs: Unused additional keyword arguments.
 
     Returns:
-      A dictionary with the evaluation metrics.
+      A dictionary of scalar metrics: the generator losses (`loss` and its
+      components, see `run_generator_backward`) and the discriminator losses
+      `loss_dis_a` and `loss_dis_b`.
     """
-
-    # The variables is a tuple of dicts containing the params and the mutables
-    # we are not using the mutables, so we only extract the parameters.
+    del kwargs  # Unused.
     params_gen_a2b = variables[0]["params"]
     params_gen_b2a = variables[1]["params"]
     params_dis_a = variables[2]["params"]
@@ -656,11 +642,4 @@ class CycleGANModel(swirl_models.BaseModel):
         params_dis_b, real_data_b, fake_data_b  # pyrefly: ignore[bad-argument-type]
     )
 
-    return dict(
-        loss=loss,
-        loss_dis_a=loss_a,
-        loss_dis_b=loss_b,
-        u_lf=real_data_a,  # pyrefly: ignore[bad-assignment]
-        u_hf=fake_data_b,
-        **loss_dict,
-    )
+    return dict(loss=loss, loss_dis_a=loss_a, loss_dis_b=loss_b, **loss_dict)
