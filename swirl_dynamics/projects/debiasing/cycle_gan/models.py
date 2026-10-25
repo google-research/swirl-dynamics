@@ -449,35 +449,31 @@ class CycleGANModel(swirl_models.BaseModel):
         self.cycle_gan.run_discriminator_backward_b
     )
 
-  def loss_fn(  # pyrefly: ignore[bad-override]
+  def generator_loss_and_samples(
       self,
-      params: tuple[PyTree, ...],  # this would be a tuple of parameters.
+      params: tuple[PyTree, ...],
       batch: swirl_models.BatchType,
       rng: Array,
       mutables: PyTree,
-  ) -> tuple[
-      jax.Array, tuple[swirl_models.ArrayDict, PyTree, tuple[Array, ...]]
-  ]:
-    """Loss function for the generator.
+  ) -> tuple[Array, tuple[swirl_models.ArrayDict, PyTree, tuple[Array, ...]]]:
+    """Generator loss together with the generated samples.
+
+    Trainers differentiate this function in the generator phase and feed the
+    returned samples to the discriminator phase, which avoids a second
+    generator forward pass.
 
     Args:
-      params: Parameters for the neural networks within the CycleGAN module.
-      batch: Batch dictionary with containing the real data.
-      rng: Random seed.
-      mutables: The rest of the mutables in the flax modules.
+      params: Parameters of the four networks, in the order `(gen_a2b, gen_b2a,
+        dis_a, dis_b)`. The discriminator parameters are stop-gradiented.
+      batch: Dictionary with keys `"real_data_a"` and `"real_data_b"`.
+      rng: Random key for dropout.
+      mutables: Mutable variable collections, returned unchanged.
 
     Returns:
-      The loss and auxiliary fields. In this case we add an extra field that
-      stores the values of the generated samples, which will be used later for
-      computing the discriminators loss.
-
-    The generator is updated by generating data and letting the discriminator
-    critique it. It's loss goes down if the discriminator wrongly predicts it to
-    to be real data.
+      `(loss, (metrics, mutables, generated_data))` where `metrics` contains
+      the total `loss` and its components (see `run_generator_backward`) and
+      `generated_data` is `(fake_b, recover_a, fake_a, recover_b)`.
     """
-    # Split the States.
-    # TODO: specify how to split the parameters.
-
     params_gen_a2b = params[0]
     params_gen_b2a = params[1]
     params_dis_a = params[2]
@@ -495,8 +491,8 @@ class CycleGANModel(swirl_models.BaseModel):
         is_training=True,
     )
     backward_params = (
-        params[0],
-        params[1],
+        params_gen_a2b,
+        params_gen_b2a,
         jax.lax.stop_gradient(params_dis_a),
         jax.lax.stop_gradient(params_dis_b),
     )
@@ -509,12 +505,60 @@ class CycleGANModel(swirl_models.BaseModel):
         is_training=True,
     )
 
-    loss = jnp.sum(jnp.array([loss_dict[key] for key in loss_dict.keys()]))
+    loss = sum(loss_dict.values(), start=jnp.zeros(()))
 
     # Add all the metrics from run generator backwards.
     metrics = dict(loss=loss, **loss_dict)
 
-    return jnp.array(loss), (metrics, mutables, generated_data)
+    return loss, (metrics, mutables, generated_data)
+
+  def loss_fn(
+      self,
+      params: tuple[PyTree, ...],
+      batch: swirl_models.BatchType,
+      rng: Array,
+      mutables: PyTree,
+      **kwargs,
+  ) -> swirl_models.LossAndAux:
+    """Generator loss in the `BaseModel` format `(loss, (metrics, mutables))`.
+
+    The generators are updated by generating data and letting the (frozen)
+    discriminators critique it: the loss decreases when a discriminator
+    wrongly predicts the generated data to be real.
+
+    Args:
+      params: See `generator_loss_and_samples`.
+      batch: See `generator_loss_and_samples`.
+      rng: See `generator_loss_and_samples`.
+      mutables: See `generator_loss_and_samples`.
+      **kwargs: Unused additional keyword arguments.
+
+    Returns:
+      The loss and the `(metrics, mutables)` auxiliary pair.
+    """
+    del kwargs  # Unused.
+    loss, (metrics, mutables, _) = self.generator_loss_and_samples(
+        params, batch, rng, mutables
+    )
+    return loss, (metrics, mutables)
+
+  @staticmethod
+  def inference_fn(variables: PyTree, generator: nn.Module):  # pyrefly: ignore[bad-override]
+    """Returns the deterministic generator map `x -> generator(x)`.
+
+    Args:
+      variables: Variables of `generator`, e.g. `{"params": ...}`.
+      generator: One of the two generators of the model.
+
+    Returns:
+      A function mapping a batch of samples to their translations, with
+      dropout disabled.
+    """
+
+    def _translate(x: Array):
+      return generator.apply(variables, x, is_training=False)
+
+    return _translate
 
   def loss_fn_discriminator(
       self,
@@ -589,7 +633,8 @@ class CycleGANModel(swirl_models.BaseModel):
     Returns:
       A dictionary of scalar metrics: the generator losses (`loss` and its
       components, see `run_generator_backward`) and the discriminator losses
-      `loss_dis_a` and `loss_dis_b`.
+      `loss_dis_a` and `loss_dis_b` (the optional crossed discriminator term
+      is a training-only objective and is not reported here).
     """
     del kwargs  # Unused.
     params_gen_a2b = variables[0]["params"]
