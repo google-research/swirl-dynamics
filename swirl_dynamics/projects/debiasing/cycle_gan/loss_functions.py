@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Define different GAN loss functions.
+"""GAN loss functions for the CycleGAN debiasing package.
 
-This code is inspired by the pytorch code in
-https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/e2c7618a2f2bf4ee012f43f96d1f62fd3c3bec89/models/networks.py#L210
+The loss conventions follow the PyTorch CycleGAN reference implementation
+(`GANLoss` in `models/networks.py` of
+https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix).
 """
 
+from collections.abc import Callable
 import dataclasses
 import enum
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -28,7 +29,9 @@ import jax.numpy as jnp
 Array = jax.Array
 
 
-class GanMode(enum.Enum):
+class GanMode(enum.StrEnum):
+  """Adversarial criteria that can be applied to discriminator outputs."""
+
   LSGAN = "lsgan"
   BCE_WITH_LOGITS = "bce_with_logits"
   WGANGP = "wgangp"
@@ -36,96 +39,110 @@ class GanMode(enum.Enum):
 
 @dataclasses.dataclass(frozen=True)
 class GanLoss:
-  """Define different GAN objectives.
+  """Adversarial criterion `loss(prediction, target_is_real)` for a `GanMode`.
+
+  The criterion is applied to a discriminator prediction map of arbitrary
+  shape; the scalar target label is broadcast to that shape and every mode
+  returns the mean over the map, i.e. a shape-`()` array:
+
+  * `LSGAN`: mean squared error `mean((p - t)^2)` (Mao et al., 2017).
+  * `BCE_WITH_LOGITS`: binary cross-entropy on logits, in the numerically
+    stable form `mean((1 - t) p + softplus(-p))`.
+  * `WGANGP`: Wasserstein critic loss, `-mean(p)` for real targets and
+    `mean(p)` for fake targets, without a gradient penalty term.
 
   Attributes:
-    gan_mode: Specifies the type of loss function to be used.
-    target_real_label: the label for data in the target distribution that will
-      be compared against.
-    target_fake_label: label of the data out of the target distribution.
-
-  The GANLoss class abstracts away the need to create the target label tensor
-  that has the same size as the input.
+    gan_mode: The adversarial criterion, as a `GanMode` or its string value.
+      Normalized to the enum at construction; unknown modes raise `ValueError`.
+    target_real_label: Label of samples from the target distribution. Values
+      below 1.0 implement one-sided label smoothing.
+    target_fake_label: Label of generated samples.
   """
-  gan_mode: GanMode
+
+  gan_mode: GanMode | str
   target_real_label: float = 1.0
   target_fake_label: float = 0.0
 
-  def setup(self):
-    if self.gan_mode not in [
-        GanMode.LSGAN,
-        GanMode.BCE_WITH_LOGITS,
-        GanMode.WGANGP,
-    ]:
-      raise NotImplementedError(
-          "gan loss %s is not implemented" % self.gan_mode
+  def __post_init__(self):
+    """Normalizes `gan_mode` to the enum and rejects unknown modes."""
+    mode = self.gan_mode
+    if isinstance(mode, str):
+      try:
+        mode = GanMode(mode)
+      except ValueError as err:
+        raise ValueError(
+            f"Unknown gan_mode {mode!r}; expected one of"
+            f" {[m.value for m in GanMode]}."
+        ) from err
+    if not isinstance(mode, GanMode):
+      raise ValueError(
+          "gan_mode must be a GanMode or one of"
+          f" {[m.value for m in GanMode]}, got {mode!r}."
       )
+    object.__setattr__(self, "gan_mode", mode)
 
   def get_target_tensor(self, prediction: Array, target_is_real: bool) -> Array:
-    """Create label arrays with the same size as the input.
+    """Creates the label array matching the shape of `prediction`.
 
     Args:
-      prediction: The prediction from a discriminator.
-      target_is_real: if the ground truth label is for real images or fake
-        images
+      prediction: The prediction map of a discriminator.
+      target_is_real: Static Python `bool` (not a traced JAX scalar) indicating
+        whether the ground-truth label is the real or the fake label.
 
     Returns:
-        A label array filled with ground truth label with the same shape as the
-        input.
+      An array of the same shape as `prediction` filled with the target label.
     """
     if target_is_real:
       target_label = self.target_real_label
     else:
       target_label = self.target_fake_label
-    target = jnp.ones_like(a=prediction)
-    return target_label * target
+    return jnp.full_like(prediction, target_label)
 
   def __call__(self) -> Callable[[Array, bool], Array]:
+    """Returns the criterion `loss(prediction, target_is_real)`.
+
+    `target_is_real` must be a static Python `bool` (not a traced JAX scalar).
+    """
 
     def _loss(prediction: Array, target_is_real: bool) -> Array:
-      # Creating the target labels.
-      target_array = self.get_target_tensor(prediction, target_is_real)
-
-      # Dummy value of the loss.
-      loss_value = jnp.array([-1.0])
-
-      if self.gan_mode in [GanMode.LSGAN, GanMode.BCE_WITH_LOGITS]:
-        if target_array.shape != prediction.shape:
-          raise ValueError(
-              f"Target shapes ({target_array.shape}) must coincide with the",
-              f" input shapes ({prediction.shape})",
-          )
-        # Using Mean Square Error (MSE) loss.
-        if self.gan_mode == GanMode.LSGAN:
-          loss_value = jnp.mean((prediction - target_array) ** 2)
-
-        # Using BCEWithLogitsLoss.
-        elif self.gan_mode == GanMode.BCE_WITH_LOGITS:
-          max_val = jnp.clip(-prediction, 0, None)
-          loss_value = (
-              prediction * (1 - target_array)
-              + max_val
-              + jnp.log(jnp.exp(-max_val) + jnp.exp((-prediction - max_val)))
-          )
-          loss_value = jnp.mean(loss_value)  # default to mean loss
-
-      # Using the loss by Wasserstein GAN.
+      if self.gan_mode == GanMode.LSGAN:
+        target = self.get_target_tensor(prediction, target_is_real)
+        return jnp.mean(jnp.square(prediction - target))
+      elif self.gan_mode == GanMode.BCE_WITH_LOGITS:
+        target = self.get_target_tensor(prediction, target_is_real)
+        # Stable rewrite of -[t log(sigmoid(p)) + (1 - t) log(1 - sigmoid(p))]
+        # as (1 - t) p + softplus(-p), with softplus computed as
+        # max(-p, 0) + log(exp(-max(-p, 0)) + exp(-p - max(-p, 0))).
+        max_val = jnp.clip(-prediction, 0, None)
+        softplus_neg = max_val + jnp.log(
+            jnp.exp(-max_val) + jnp.exp(-prediction - max_val)
+        )
+        return jnp.mean((1.0 - target) * prediction + softplus_neg)
       elif self.gan_mode == GanMode.WGANGP:
-        if target_is_real:
-          loss_value = -jnp.mean(prediction)
-        else:
-          loss_value = jnp.mean(prediction)
-
-      return loss_value
+        sign = -1.0 if target_is_real else 1.0
+        return sign * jnp.mean(prediction)
+      else:
+        raise ValueError(f"Unsupported gan_mode {self.gan_mode!r}.")
 
     return _loss
 
 
-def l1_loss(prediction: Array, target_array: Array) -> Array:
-  if target_array.shape != prediction.shape:
+def l1_loss(prediction: Array, target: Array) -> Array:
+  """Mean absolute error between `prediction` and `target`.
+
+  Args:
+    prediction: Predicted array.
+    target: Target array of the same shape as `prediction`.
+
+  Returns:
+    The mean of `|prediction - target|` over all entries (a shape-`()` array).
+
+  Raises:
+    ValueError: If the two shapes differ.
+  """
+  if target.shape != prediction.shape:
     raise ValueError(
-        f"Target shapes ({target_array.shape}) must coincide with the input",
-        f" shapes ({prediction.shape})",
+        f"Target shape {target.shape} must coincide with the prediction shape"
+        f" {prediction.shape}."
     )
-  absolute = jnp.abs(target_array - prediction)
-  return jnp.mean(absolute)
+  return jnp.mean(jnp.abs(prediction - target))
