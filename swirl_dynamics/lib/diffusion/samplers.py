@@ -116,7 +116,7 @@ def eval_fn_and_trace_jac(
 
   if num_probes is None:
     # Exact trace computation.
-    eye = jnp.stack([jnp.eye(y.shape[1])] * x.shape[0], axis=0)
+    eye = jnp.stack([jnp.eye(y.shape[1], dtype=y.dtype)] * x.shape[0], axis=0)
     (dfndx,) = jax.vmap(vjp_fn, in_axes=1, out_axes=1)(eye)
     trace_jac = jnp.trace(dfndx, axis1=1, axis2=2)
   else:
@@ -130,8 +130,10 @@ def eval_fn_and_trace_jac(
 
 
 def array_to_int(data: Array) -> Array:
-  """Hashes an arbitrary array to an integer."""
-  bits = jax.lax.bitcast_convert_type(data.ravel(), jnp.uint32)
+  """Hashes an arbitrary array to an integer across float16/bf16/f32/f64."""
+  if jnp.dtype(data.dtype).itemsize < 4:
+    data = data.astype(jnp.float32)
+  bits = jax.lax.bitcast_convert_type(data, jnp.uint32).ravel()
   primes = jnp.arange(1, bits.size + 1, dtype=jnp.uint32) * 63689
   return jnp.sum(bits * primes).astype(jnp.uint64)
 
@@ -174,25 +176,31 @@ def uniform_time(
 def exponential_noise_decay(
     scheme: diffusion.Diffusion,
     num_steps: int = 256,
-    end_sigma: float | None = 1e-3,
+    end_sigma: float | Array = 1e-3,
 ) -> Array:
   """Time steps corresponding to exponentially decaying sigma."""
+  if num_steps < 2:
+    raise ValueError(f"`num_steps` must be at least 2, got {num_steps}.")
   exponent = jnp.arange(num_steps) / (num_steps - 1)
-  r = end_sigma / scheme.sigma_max  # pyrefly: ignore[unsupported-operation]
+  r = end_sigma / scheme.sigma_max
   sigma_schedule = scheme.sigma_max * jnp.power(r, exponent)
   return jnp.asarray(scheme.sigma.inverse(sigma_schedule))
 
 
 def edm_noise_decay(
     scheme: diffusion.Diffusion,
-    rho: int = 7,
+    rho: float = 7.0,
     num_steps: int = 256,
-    end_sigma: float | None = 1e-3,
+    end_sigma: float | Array = 1e-3,
 ) -> Array:
   """Time steps corresponding to Eq. 5 in Karras et al."""
-  rho_inv = 1 / rho
+  if num_steps < 2:
+    raise ValueError(f"`num_steps` must be at least 2, got {num_steps}.")
+  if rho <= 0:
+    raise ValueError(f"`rho` must be positive, got {rho}.")
+  rho_inv = 1.0 / rho
   sigma_schedule = jnp.arange(num_steps) / (num_steps - 1)
-  sigma_schedule *= jnp.power(end_sigma, rho_inv) - jnp.power(  # pyrefly: ignore[bad-argument-type]
+  sigma_schedule *= jnp.power(end_sigma, rho_inv) - jnp.power(
       scheme.sigma_max, rho_inv
   )
   sigma_schedule += jnp.power(scheme.sigma_max, rho_inv)
@@ -379,6 +387,15 @@ class OdeSampler(Sampler):
 
     return _dynamics
 
+  def _terminal_log_prior(self, x1: Array, sigma1: Array) -> Array:
+    """Evaluates log p1(x1) under the Gaussian prior N(0, sigma1^2 I)."""
+    dim = np.prod(self.input_shape)
+    return (
+        -dim / 2 * jnp.log(2 * jnp.pi)
+        - dim * jnp.log(sigma1)
+        - 0.5 * jnp.einsum("nd,nd->n", x1, x1) / jnp.square(sigma1)
+    )
+
   def compute_log_likelihood(
       self,
       inputs: Array,
@@ -412,15 +429,19 @@ class OdeSampler(Sampler):
           "`inputs` is expected to have shape (batch_size,) +"
           f" {self.input_shape}, but has shape {inputs.shape} instead."
       )
+    if self.num_probes is not None and rng is None:
+      raise ValueError("`rng` must be provided when `num_probes` is not None.")
 
     batch_size = inputs.shape[0]
-    dim = np.prod(self.input_shape)
     params = dict(cond=cond, guidance_inputs=guidance_inputs, rng=rng)
 
     dynamics_fn = self.log_likelihood_augmented_dynamics
 
     q0 = jnp.concatenate(
-        [jnp.reshape(inputs, (batch_size, -1)), jnp.zeros((batch_size, 1))],
+        [
+            jnp.reshape(inputs, (batch_size, -1)),
+            jnp.zeros((batch_size, 1), dtype=inputs.dtype),
+        ],
         axis=-1,
     )
     q_paths = self.integrator(
@@ -428,12 +449,10 @@ class OdeSampler(Sampler):
     )
     x1, dlogp01 = q_paths[-1, :, :-1], q_paths[-1, :, -1]
 
-    sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
-    log_p1 = (
-        -dim / 2 * jnp.log(2 * jnp.pi)
-        - dim * jnp.log(sigma1)
-        - 0.5 * jnp.einsum("nd,nd->n", x1, x1) / jnp.square(sigma1)
+    sigma1 = jnp.asarray(
+        self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
     )
+    log_p1 = self._terminal_log_prior(x1, sigma1)
     # The sign before `dlogp01` is minus because the integration limits are
     # reversed compared to eq. 3 in https://arxiv.org/abs/1810.01367
     return log_p1 - dlogp01
@@ -454,7 +473,15 @@ class OdeSampler(Sampler):
     def _augmented_dynamics(x: Array, t: Array, params: Params) -> Array:
       x = x[:, :-1]
       fn = functools.partial(self.dynamics, t=t, params=params)
-      rng = jax.random.fold_in(params["rng"], array_to_int(t))
+      if self.num_probes is not None and params["rng"] is None:
+        raise ValueError(
+            "`rng` must be provided when `num_probes` is not None."
+        )
+      rng = (
+          jax.random.fold_in(params["rng"], array_to_int(t))
+          if params["rng"] is not None
+          else None
+      )
       dxdt, trace_jac = eval_fn_and_trace_jac(
           fn, x.reshape(x.shape[0], *self.input_shape), self.num_probes, rng
       )
@@ -505,7 +532,7 @@ class ExponentialOdeSampler(Sampler):
       x_next = self.backward_step(
           x1=xi, t1=tspan[i], t0=tspan[i + 1], params=params
       )
-      return i + 1, x_next
+      return i + 1, x_next.astype(xi.dtype)
 
     _, samples = jax.lax.while_loop(cond_fn, body_fn, (0, noisy))
     return samples
@@ -640,10 +667,13 @@ class ExponentialOdeSampler(Sampler):
           "`inputs` is expected to have shape (batch_size,) +"
           f" {self.input_shape}, but has shape {inputs.shape} instead."
       )
+    if self.num_probes is not None and rng is None:
+      raise ValueError("`rng` must be provided when `num_probes` is not None.")
 
     batch_size = inputs.shape[0]
     dim = np.prod(self.input_shape)
     params = dict(cond=cond, guidance_inputs=guidance_inputs)
+    logp_dtype = jnp.result_type(inputs, jnp.float32)
 
     def cond_fn(loop_state: tuple[int, Array, Array]) -> bool:
       return loop_state[0] < len(self.tspan) - 1
@@ -661,10 +691,12 @@ class ExponentialOdeSampler(Sampler):
           logp0=logpi,
           rng=step_rng,
       )
-      return i + 1, x_next, logp_next
+      return i + 1, x_next.astype(xi.dtype), logp_next.astype(logpi.dtype)
 
     _, x1, dlogp01 = jax.lax.while_loop(
-        cond_fn, body_fn, (0, inputs, jnp.zeros((batch_size,)))
+        cond_fn,
+        body_fn,
+        (0, inputs, jnp.zeros((batch_size,), dtype=logp_dtype)),
     )
 
     sigma1 = self.scheme.sigma(self.tspan[0]) * self.scheme.scale(self.tspan[0])
@@ -796,7 +828,7 @@ class ExponentialSdeSampler(Sampler):
       x_next = self.backward_step(
           x1=xi, t1=tspan[i], t0=tspan[i + 1], rng=rngs[i], params=params
       )
-      return i + 1, x_next
+      return i + 1, x_next.astype(xi.dtype)
 
     _, samples = jax.lax.while_loop(cond_fn, body_fn, (0, noisy))
     return samples
@@ -845,6 +877,23 @@ class ExponentialSdeSampler(Sampler):
     return x0  # pyrefly: ignore[bad-return]
 
 
+def _make_student_t_noise_dist(df: int, isotropic: bool) -> NoiseDist:
+  """Constructs coordinate-wise or isotropic multivariate Student-t sampler."""
+  if df <= 2:
+    raise ValueError(f"`df` must be greater than 2, got {df}.")
+  if not isotropic:
+    return functools.partial(jax.random.t, df=df)
+
+  def _isotropic_t(rng: Array, *, shape: Shape) -> Array:
+    z_rng, chi2_rng = jax.random.split(rng)
+    z = jax.random.normal(z_rng, shape=shape)
+    chi2 = 2.0 * jax.random.gamma(chi2_rng, df / 2.0, shape=(shape[0],))
+    scale = jnp.sqrt(df / chi2).reshape((shape[0],) + (1,) * (len(shape) - 1))
+    return z * scale
+
+  return _isotropic_t
+
+
 @flax.struct.dataclass
 class TStudentOdeSampler(OdeSampler):
   """Draw samples by solving an ODE from a t-student initial draw.
@@ -853,13 +902,33 @@ class TStudentOdeSampler(OdeSampler):
 
   Attributes:
     df: The degrees of freedom of the t-Student distribution.
+    isotropic: Whether to sample from an isotropic multivariate Student-t
+      distribution (sharing a radial chi-squared draw per sample) instead of
+      independent coordinate-wise Student-t draws.
   """
 
   df: int = 3
+  isotropic: bool = False
 
   def __post_init__(self):
-    noise_dist = functools.partial(jax.random.t, df=self.df)
+    noise_dist = _make_student_t_noise_dist(self.df, self.isotropic)
     object.__setattr__(self, "noise_dist", noise_dist)
+
+  def _terminal_log_prior(self, x1: Array, sigma1: Array) -> Array:
+    """Evaluates log p1(x1) under the Student-t prior."""
+    dim = np.prod(self.input_shape)
+    if not self.isotropic:
+      return jnp.sum(
+          jax.scipy.stats.t.logpdf(x1, df=self.df, scale=sigma1), axis=-1
+      )
+    quad = jnp.einsum("nd,nd->n", x1, x1) / (self.df * jnp.square(sigma1))
+    return (
+        jax.scipy.special.gammaln((self.df + dim) / 2.0)
+        - jax.scipy.special.gammaln(self.df / 2.0)
+        - (dim / 2.0) * jnp.log(self.df * jnp.pi)
+        - dim * jnp.log(sigma1)
+        - ((self.df + dim) / 2.0) * jnp.log1p(quad)
+    )
 
 
 @flax.struct.dataclass
@@ -868,10 +937,13 @@ class TStudentSdeSampler(SdeSampler):
 
   Attributes:
     df: The degrees of freedom of the t-student distribution.
+    isotropic: Whether to sample from an isotropic multivariate Student-t
+      distribution instead of independent coordinate-wise Student-t draws.
   """
 
   df: int = 3
+  isotropic: bool = False
 
   def __post_init__(self):
-    noise_dist = functools.partial(jax.random.t, df=self.df)
+    noise_dist = _make_student_t_noise_dist(self.df, self.isotropic)
     object.__setattr__(self, "noise_dist", noise_dist)
