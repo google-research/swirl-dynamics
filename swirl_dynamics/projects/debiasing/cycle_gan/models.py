@@ -22,6 +22,7 @@ References:
     https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix
 """
 
+from collections.abc import Callable
 import dataclasses
 from typing import Any
 
@@ -30,6 +31,7 @@ import jax
 import jax.numpy as jnp
 from swirl_dynamics.projects.debiasing.cycle_gan import loss_functions
 from swirl_dynamics.templates import models as swirl_models
+
 
 PyTree = Any
 Array = jax.Array
@@ -73,84 +75,111 @@ class CycleGANModelConfig:
     self.gan_mode = loss_functions.GanMode(self.gan_mode)
 
 
-class CycleGAN(nn.Module):
-  """Module encapsulating the CycleGAN framework.
+def _apply(module: nn.Module, params: PyTree, *args, **kwargs) -> Array:
+  """Applies a stateless parameter-only `module` with `{"params": params}`."""
+  return jnp.asarray(module.apply({"params": params}, *args, **kwargs))
+
+
+def _split_rngs(rngs: dict[str, Array], num: int) -> list[dict[str, Array]]:
+  """Splits every key of `rngs` into `num` independent keys.
+
+  Args:
+    rngs: Random keys per collection, e.g. `{"dropout": key}`.
+    num: Number of independent copies.
+
+  Returns:
+    `num` dictionaries with the same collections and independent keys, so that
+    successive network applications do not share e.g. dropout masks.
+  """
+  split = {name: jax.random.split(key, num) for name, key in rngs.items()}
+  return [{name: keys[i] for name, keys in split.items()} for i in range(num)]
+
+
+@dataclasses.dataclass(frozen=True)
+class CycleGAN:
+  """Container of the four CycleGAN networks and their loss computations.
+
+  Sub-networks must be stateless parameter-only Flax modules (no mutable state
+  collections such as `batch_stats`), as forward passes wrap parameters directly
+  as `{"params": params}`.
 
   Attributes:
-    config: Configuration file.
+    config: Loss weights and options, see `CycleGANModelConfig`.
     generator_a2b: Generator for samples from A to B.
     generator_b2a: Generator for samples from B to A.
-    dis_a: discriminator for samples in A.
-    dis_b: Discriminator for samples in B.
-    lambda_a: weight for losses with respect to A.
-    lambda_b: weight for losses with respect to B.
-    lambda_id: weight for the identity losses.
+    discriminator_a: Discriminator of samples in A.
+    discriminator_b: Discriminator of samples in B.
   """
 
   config: CycleGANModelConfig
+  generator_a2b: nn.Module
+  generator_b2a: nn.Module
+  discriminator_a: nn.Module
+  discriminator_b: nn.Module
 
-  def __init__(
+  @property
+  def dis_a(self) -> nn.Module:
+    """Alias of `discriminator_a`."""
+    return self.discriminator_a
+
+  @property
+  def dis_b(self) -> nn.Module:
+    """Alias of `discriminator_b`."""
+    return self.discriminator_b
+
+  @property
+  def criterion_gan(self) -> Callable[[Array, bool], Array]:
+    """Adversarial criterion `loss(prediction, target_is_real)`."""
+    return loss_functions.GanLoss(gan_mode=self.config.gan_mode)()
+
+  @property
+  def criterion_cycle(self) -> Callable[[Array, Array], Array]:
+    """Cycle-consistency criterion."""
+    return loss_functions.l1_loss
+
+  @property
+  def criterion_id(self) -> Callable[[Array, Array], Array]:
+    """Identity criterion."""
+    return loss_functions.l1_loss
+
+  @property
+  def lambda_a(self) -> float:
+    """Weight of the cycle (and identity) loss of samples from A."""
+    return self.config.lambda_a
+
+  @property
+  def lambda_b(self) -> float:
+    """Weight of the cycle (and identity) loss of samples from B."""
+    return self.config.lambda_b
+
+  @property
+  def lambda_id(self) -> float:
+    """Relative weight of the identity losses."""
+    return self.config.lambda_id
+
+  @property
+  def use_crossed_dis_loss(self) -> bool:
+    """Whether the discriminators are also trained to tell A from B."""
+    return self.config.use_crossed_dis_loss
+
+  def init(
       self,
-      config: CycleGANModelConfig,
-      generator_a2b: nn.Module,
-      generator_b2a: nn.Module,
-      discriminator_a: nn.Module,
-      discriminator_b: nn.Module,
-  ):
-    """Initializes the CycleGAN module.
-
-    Args:
-      config: Configuration dictionary.
-      generator_a2b: Generator from distribution A to distribution B.
-      generator_b2a: Generator from distribution B to distribution A.
-      discriminator_a: Network to gauge if a sample is in distribution a.
-      discriminator_b: Network to gauge if a sample is in distribution b.
-
-    Returns:
-      A class of the CycleGAN
-
-    Config needs to have at least neural networks in the config dictionary.
-    Namely two for the generators A -> B and B -> A, and two for the
-    discriminators, one for A, and the other for B. We assume that the
-    dimensions of elements in A and B are the same.
-    """
-
-    self.config = config
-
-    self.generator_a2b = generator_a2b
-    self.generator_b2a = generator_b2a
-
-    self.dis_a = discriminator_a
-    self.dis_b = discriminator_b
-
-    self.criterion_gan = loss_functions.GanLoss(gan_mode=config.gan_mode)()
-    self.criterion_cycle = loss_functions.l1_loss
-    self.criterion_id = loss_functions.l1_loss
-
-    self.lambda_a = config.lambda_a  # weight of loss on inputs from set A
-    self.lambda_b = config.lambda_b  # weight of loss on inputs from set B
-    self.lambda_id = config.lambda_id  # weight of identity loss
-
-    # Using cross loss for the discriminant so they can differentiate A from B.
-    self.use_crossed_dis_loss = config.use_crossed_dis_loss
-
-  def init(  # pyrefly: ignore[bad-override]
-      self, rng: Array, *args, **kwargs
+      rng: Array,
+      dummy_input_a: jax.typing.ArrayLike,
+      dummy_input_b: jax.typing.ArrayLike,
   ) -> tuple[PyTree, PyTree, PyTree, PyTree]:
-    """Initialize the weights of all the networks.
+    """Initializes the variables of the four networks.
 
     Args:
-      rng: Random generator key.
-      *args: The dimension of samples in a and b.
-      **kwargs: Extra key arguments.
+      rng: Random key.
+      dummy_input_a: Batch of samples of A used to infer the shapes.
+      dummy_input_b: Batch of samples of B used to infer the shapes.
 
     Returns:
-      The weights of the given network.
+      The variables of `(generator_a2b, generator_b2a, discriminator_a,
+      discriminator_b)`.
     """
-
     rng_array = jax.random.split(rng, num=4)
-
-    dummy_input_a, dummy_input_b = args
 
     params_a2b = self.generator_a2b.init(
         rng_array[0], dummy_input_a, is_training=False
@@ -158,11 +187,10 @@ class CycleGAN(nn.Module):
     params_b2a = self.generator_b2a.init(
         rng_array[1], dummy_input_b, is_training=False
     )
+    params_dis_a = self.discriminator_a.init(rng_array[2], dummy_input_a)
+    params_dis_b = self.discriminator_b.init(rng_array[3], dummy_input_b)
 
-    params_dist_a = self.dis_a.init(rng_array[2], dummy_input_a)
-    params_dist_b = self.dis_b.init(rng_array[3], dummy_input_b)
-
-    return params_a2b, params_b2a, params_dist_a, params_dist_b
+    return params_a2b, params_b2a, params_dis_a, params_dis_b
 
   def run_generator_forward(
       self,
@@ -171,50 +199,61 @@ class CycleGAN(nn.Module):
       real_data: tuple[Array, Array],
       is_training: bool = True,
   ) -> tuple[Array, Array, Array, Array]:
-    """We run the generator forward.
+    """Runs both generators forward, including the cycle reconstructions.
 
     Args:
-      rngs: Random seeds for the dropout layers within a dictionary following
-        '{"dropout": ...}'.
-      params_gen: Parameters of the generators only, following '(params_gen_a2b,
-        params_gen_b2a)'.
-      real_data: Data to generate samples from A to B and B to A. The data
-        follows '(real_a, real_b)'
-      is_training: toggle that affects dropout layer.
+      rngs: Random keys of the dropout layers, `{"dropout": ...}`.
+      params_gen: Parameters of the generators, `(params_gen_a2b,
+        params_gen_b2a)`.
+      real_data: Batches of real samples, `(real_a, real_b)`.
+      is_training: Whether dropout is active.
 
     Returns:
-      A tuple containing the generated samples.
+      The generated samples `(fake_b, recover_a, fake_a, recover_b)`.
     """
-
     # TODO: perhaps use dictionaries instead of positional tuples.
-    params_gen_a2b = params_gen[0]
-    params_gen_b2a = params_gen[1]
+    params_gen_a2b, params_gen_b2a = params_gen
+    real_a, real_b = real_data
+    # Independent keys, so that the two applications of each generator do not
+    # share dropout masks.
+    rngs_fake_b, rngs_recover_a, rngs_fake_a, rngs_recover_b = _split_rngs(
+        rngs, 4
+    )
 
-    real_a = real_data[0]
-    real_b = real_data[1]
-
-    # Forward through the generator.
     # fake_b = gen_a2b(u_a).
-    fake_b = self.generator_a2b.apply(
-        {"params": params_gen_a2b}, real_a, is_training=is_training, rngs=rngs
+    fake_b = _apply(
+        self.generator_a2b,
+        params_gen_a2b,
+        real_a,
+        is_training=is_training,
+        rngs=rngs_fake_b,
     )
-
     # recover_a = gen_b2a(gen_a2b(u_a)).
-    recover_a = self.generator_b2a.apply(
-        {"params": params_gen_b2a}, fake_b, is_training=is_training, rngs=rngs
+    recover_a = _apply(
+        self.generator_b2a,
+        params_gen_b2a,
+        fake_b,
+        is_training=is_training,
+        rngs=rngs_recover_a,
     )
-
     # fake_a = gen_b2a(u_b).
-    fake_a = self.generator_b2a.apply(
-        {"params": params_gen_b2a}, real_b, is_training=is_training, rngs=rngs
+    fake_a = _apply(
+        self.generator_b2a,
+        params_gen_b2a,
+        real_b,
+        is_training=is_training,
+        rngs=rngs_fake_a,
     )
-
     # recover_b = gen_a2b(gen_b2a(u_b)).
-    recover_b = self.generator_a2b.apply(
-        {"params": params_gen_a2b}, fake_a, is_training=is_training, rngs=rngs
+    recover_b = _apply(
+        self.generator_a2b,
+        params_gen_a2b,
+        fake_a,
+        is_training=is_training,
+        rngs=rngs_recover_b,
     )
 
-    return (fake_b, recover_a, fake_a, recover_b)  # pyrefly: ignore[bad-return]
+    return fake_b, recover_a, fake_a, recover_b
 
   def run_generator_forward_a2b(
       self,
@@ -223,28 +262,24 @@ class CycleGAN(nn.Module):
       real_data_a: Array,
       is_training: bool = False,
   ) -> Array:
-    """We run the generator forward to translate samples from A to B.
+    """Translates samples from A to B.
 
     Args:
-      rngs: {"dropout": ...}
-      params_gen_a2b: Parameters of for the a2b generator.
-      real_data_a: Data from distribution a.
-      is_training: toggle that affects dropout layer
+      rngs: Random keys of the dropout layers, `{"dropout": ...}`.
+      params_gen_a2b: Parameters of the A-to-B generator.
+      real_data_a: Batch of samples of A.
+      is_training: Whether dropout is active.
 
     Returns:
-      A tuple containing the generated samples.
+      The generated samples `gen_a2b(u_a)`.
     """
-
-    # Forward through the generator
-    # fake_b = gen_a2b(u_a)
-    fake_b = self.generator_a2b.apply(
-        {"params": params_gen_a2b},
+    return _apply(
+        self.generator_a2b,
+        params_gen_a2b,
         real_data_a,
         is_training=is_training,
         rngs=rngs,
     )
-
-    return fake_b  # pyrefly: ignore[bad-return]
 
   def run_generator_backward(
       self,
@@ -254,43 +289,31 @@ class CycleGAN(nn.Module):
       real_data: tuple[Array, Array],
       is_training: bool = True,
   ) -> dict[str, Array]:
-    """Run the generator backwards.
+    """Computes the generator losses.
 
     Args:
-      rngs: Random seed for the dropout functions.
-      params: (params_g_a2b, params_g_b2a, params_d_a, params_d_b)
-      generated_data: (fake_b, recover_a, fake_a, recover_b)
-      real_data: (real_a, real_b)
-      is_training: if the applicaton of the networks is supposed to be used for
-        training.
+      rngs: Random keys of the dropout layers, `{"dropout": ...}`.
+      params: `(params_g_a2b, params_g_b2a, params_d_a, params_d_b)`.
+      generated_data: `(fake_b, recover_a, fake_a, recover_b)`.
+      real_data: `(real_a, real_b)`.
+      is_training: Whether dropout is active in the identity passes.
 
     Returns:
-      A tuple containing the different losses.
+      A dictionary with the adversarial (`loss_gen_a`, `loss_gen_b`), cycle
+      (`loss_cycle_a`, `loss_cycle_b`) and identity (`loss_id_a`, `loss_id_b`)
+      losses; disabled terms are zero.
     """
-    # Parameters for the generators.
-    params_g_a2b = params[0]
-    params_g_b2a = params[1]
-    # Parameters for the discriminators.
-    params_d_a = params[2]
-    params_d_b = params[3]
-
-    fake_b = generated_data[0]
-    recover_a = generated_data[1]
-    fake_a = generated_data[2]
-    recover_b = generated_data[3]
-
-    real_a = real_data[0]
-    real_b = real_data[1]
-
-    # Compute 3-criteria loss function.
+    params_g_a2b, params_g_b2a, params_d_a, params_d_b = params
+    fake_b, recover_a, fake_a, recover_b = generated_data
+    real_a, real_b = real_data
 
     # Adversarial loss of the fakes in A: dis_a(gen_b2a(u_b)).
-    disc_a_fake_a = self.dis_a.apply({"params": params_d_a}, fake_a)
-    loss_gen_a = self.criterion_gan(disc_a_fake_a, True)  # pyrefly: ignore[bad-argument-type]
+    disc_a_fake_a = _apply(self.discriminator_a, params_d_a, fake_a)
+    loss_gen_a = self.criterion_gan(disc_a_fake_a, True)
 
     # Adversarial loss of the fakes in B: dis_b(gen_a2b(u_a)).
-    disc_b_fake_b = self.dis_b.apply({"params": params_d_b}, fake_b)
-    loss_gen_b = self.criterion_gan(disc_b_fake_b, True)  # pyrefly: ignore[bad-argument-type]
+    disc_b_fake_b = _apply(self.discriminator_b, params_d_b, fake_b)
+    loss_gen_b = self.criterion_gan(disc_b_fake_b, True)
 
     if self.config.use_cycle_loss:
       # Cycle loss ||gen_b2a(gen_a2b(u_a)) - u_a||.
@@ -303,116 +326,109 @@ class CycleGAN(nn.Module):
     # Identity losses need samples of A and B with the same shape, and cost two
     # generator passes, which are skipped when their weight vanishes.
     if self.config.same_dimension and self.lambda_id > 0.0:
+      rngs_id_a, rngs_id_b = _split_rngs(rngs, 2)
       # gen_a2b should be the identity on samples of B: ||gen_a2b(u_b) - u_b||.
-      id_a = self.generator_a2b.apply(
-          {"params": params_g_a2b}, real_b, is_training=is_training, rngs=rngs
+      id_a = _apply(
+          self.generator_a2b,
+          params_g_a2b,
+          real_b,
+          is_training=is_training,
+          rngs=rngs_id_a,
       )
       # gen_b2a should be the identity on samples of A: ||gen_b2a(u_a) - u_a||.
-      id_b = self.generator_b2a.apply(
-          {"params": params_g_b2a}, real_a, is_training=is_training, rngs=rngs
+      id_b = _apply(
+          self.generator_b2a,
+          params_g_b2a,
+          real_a,
+          is_training=is_training,
+          rngs=rngs_id_b,
       )
-
-      loss_id_a = (
-          self.lambda_b * self.lambda_id * self.criterion_id(id_a, real_b)  # pyrefly: ignore[bad-argument-type]
-      )
-      loss_id_b = (
-          self.lambda_a * self.lambda_id * self.criterion_id(id_b, real_a)  # pyrefly: ignore[bad-argument-type]
-      )
+      weight_id_a = self.lambda_b * self.lambda_id
+      weight_id_b = self.lambda_a * self.lambda_id
+      loss_id_a = weight_id_a * self.criterion_id(id_a, real_b)
+      loss_id_b = weight_id_b * self.criterion_id(id_b, real_a)
     else:
       loss_id_a = loss_id_b = jnp.zeros(())
 
     return dict(
-        loss_gen_a=jnp.array(loss_gen_a),
-        loss_gen_b=jnp.array(loss_gen_b),
-        loss_cycle_a=jnp.array(loss_cycle_a),
-        loss_cycle_b=jnp.array(loss_cycle_b),
-        loss_id_a=jnp.array(loss_id_a),
-        loss_id_b=jnp.array(loss_id_b),
+        loss_gen_a=loss_gen_a,
+        loss_gen_b=loss_gen_b,
+        loss_cycle_a=loss_cycle_a,
+        loss_cycle_b=loss_cycle_b,
+        loss_id_a=loss_id_a,
+        loss_id_b=loss_id_b,
     )
 
   def run_discriminator_backward_a(
       self, params: PyTree, real_a: Array, fake_a: Array
   ) -> Array:
-    """Running the disctriminator loss on samples from A.
+    """Loss of the discriminator of A on real and generated samples.
 
     Args:
-        params: Parameters for one discriminator for samples from A.
-        real_a: Real image from dataset A.
-        fake_a: Generated image from the generator.
+      params: Parameters of `discriminator_a`.
+      real_a: Batch of real samples of A.
+      fake_a: Batch of generated samples of A (gradients are stopped).
 
     Returns:
-      The average of the losses from the discriminator in A.
+      The average of the real and fake losses of the discriminator of A.
     """
-    # Real data being discriminated.
-    pred_real = self.dis_a.apply({"params": params}, real_a)
-    loss_dis_real = self.criterion_gan(pred_real, True)  # pyrefly: ignore[bad-argument-type]
+    pred_real = _apply(self.discriminator_a, params, real_a)
+    loss_dis_real = self.criterion_gan(pred_real, True)
 
-    # Fake data, i.e, generated by generator_b2a being discriminated.
-    # Here we stop the gradient to we don't update the generator_b2a.
-    pred_fake = self.dis_a.apply(
-        {"params": params}, jax.lax.stop_gradient(fake_a)
+    # The generator is not updated through the discriminator loss.
+    pred_fake = _apply(
+        self.discriminator_a, params, jax.lax.stop_gradient(fake_a)
     )
-    loss_dis_fake = self.criterion_gan(pred_fake, False)  # pyrefly: ignore[bad-argument-type]
+    loss_dis_fake = self.criterion_gan(pred_fake, False)
 
-    # Combined loss to calculate gradients.
-    loss = (loss_dis_real + loss_dis_fake) * 0.5
-
-    return loss
+    return (loss_dis_real + loss_dis_fake) * 0.5
 
   def run_discriminator_backward_b(
       self, params: PyTree, real_b: Array, fake_b: Array
   ) -> Array:
-    """Running the disctriminator backwards on samples from B.
+    """Loss of the discriminator of B on real and generated samples.
 
     Args:
-        params: Parameters for the discriminator for samples from B.
-        real_b: Real image from dataset B.
-        fake_b: G.nerated image from the generator.
+      params: Parameters of `discriminator_b`.
+      real_b: Batch of real samples of B.
+      fake_b: Batch of generated samples of B (gradients are stopped).
 
     Returns:
-      The average of the losses from the discriminator in B.
+      The average of the real and fake losses of the discriminator of B.
     """
-    # Real data being discriminated.
-    pred_real = self.dis_b.apply({"params": params}, real_b)
-    loss_dis_real = self.criterion_gan(pred_real, True)  # pyrefly: ignore[bad-argument-type]
+    pred_real = _apply(self.discriminator_b, params, real_b)
+    loss_dis_real = self.criterion_gan(pred_real, True)
 
-    # Fake data, i.e, generated by generator_a2b being discriminated.
-    # Here we stop the gradient to we don't update the generator_a2b.
-    pred_fake = self.dis_b.apply(
-        {"params": params}, jax.lax.stop_gradient(fake_b)
+    # The generator is not updated through the discriminator loss.
+    pred_fake = _apply(
+        self.discriminator_b, params, jax.lax.stop_gradient(fake_b)
     )
-    loss_dis_fake = self.criterion_gan(pred_fake, False)  # pyrefly: ignore[bad-argument-type]
+    loss_dis_fake = self.criterion_gan(pred_fake, False)
 
-    # Combined loss to calculate gradients.
-    loss = (loss_dis_real + loss_dis_fake) * 0.5
+    return (loss_dis_real + loss_dis_fake) * 0.5
 
-    return jnp.array(loss)
-
-  def run_discriminators_crossed(self, params, real_a, real_b) -> Array:
-    """Running the disctriminators backwards on samples from A and B.
+  def run_discriminators_crossed(
+      self, params: tuple[PyTree, PyTree], real_a: Array, real_b: Array
+  ) -> Array:
+    """Loss of the discriminators on real samples of the other domain.
 
     Args:
-        params: Parameters for one discriminator.
-        real_a: Real image from dataset A.
-        real_b: Real image from dataset B.
+      params: `(params_dis_a, params_dis_b)`.
+      real_a: Batch of real samples of A.
+      real_b: Batch of real samples of B.
 
     Returns:
-      The average of the losses using the wrong datasets for each discriminator.
+      The average of the losses classifying the other domain as fake.
     """
+    params_dis_a, params_dis_b = params
 
-    params_dis_a = params[0]
-    params_dis_b = params[1]
+    pred_a_on_b = _apply(self.discriminator_a, params_dis_a, real_b)
+    loss_dis_a = self.criterion_gan(pred_a_on_b, False)
 
-    pred_real_a = self.dis_a.apply({"params": params_dis_a}, real_b)
-    loss_dis_real_a = self.criterion_gan(pred_real_a, False)  # pyrefly: ignore[bad-argument-type]
+    pred_b_on_a = _apply(self.discriminator_b, params_dis_b, real_a)
+    loss_dis_b = self.criterion_gan(pred_b_on_a, False)
 
-    pred_real_b = self.dis_b.apply({"params": params_dis_b}, real_a)
-    loss_dis_real_b = self.criterion_gan(pred_real_b, False)  # pyrefly: ignore[bad-argument-type]
-
-    # Combined loss to calculate gradients.
-    loss = (loss_dis_real_a + loss_dis_real_b) * 0.5
-
-    return loss
+    return (loss_dis_a + loss_dis_b) * 0.5
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -479,7 +495,10 @@ class CycleGANModel(swirl_models.BaseModel):
     params_dis_a = params[2]
     params_dis_b = params[3]
 
-    real_data = (batch["real_data_a"], batch["real_data_b"])
+    real_data = (
+        jnp.asarray(batch["real_data_a"]),
+        jnp.asarray(batch["real_data_b"]),
+    )
 
     rng_forward, rng_backward = jax.random.split(rng)
 
@@ -487,7 +506,7 @@ class CycleGANModel(swirl_models.BaseModel):
     generated_data = self.run_generator_forward(
         {"dropout": rng_forward},
         (params_gen_a2b, params_gen_b2a),
-        real_data,  # pyrefly: ignore[bad-argument-type]
+        real_data,
         is_training=True,
     )
     backward_params = (
@@ -501,7 +520,7 @@ class CycleGANModel(swirl_models.BaseModel):
         {"dropout": rng_backward},
         backward_params,
         generated_data,
-        real_data,  # pyrefly: ignore[bad-argument-type]
+        real_data,
         is_training=True,
     )
 
@@ -585,23 +604,23 @@ class CycleGANModel(swirl_models.BaseModel):
       The value of the loss decreased as it predicts correctly if images are
       real (part of the training set) or generated by the neural network.
     """
-    real_data_a = batch["real_data_a"]
-    real_data_b = batch["real_data_b"]
+    real_data_a = jnp.asarray(batch["real_data_a"])
+    real_data_b = jnp.asarray(batch["real_data_b"])
 
-    fake_data_a = batch["fake_data_a"]
-    fake_data_b = batch["fake_data_b"]
+    fake_data_a = jnp.asarray(batch["fake_data_a"])
+    fake_data_b = jnp.asarray(batch["fake_data_b"])
 
     params_dis_a = params[2]
     params_dis_b = params[3]
 
     # Loss for the discriminator of A.
     loss_a = self.cycle_gan.run_discriminator_backward_a(
-        params_dis_a, real_data_a, fake_data_a  # pyrefly: ignore[bad-argument-type]
+        params_dis_a, real_data_a, fake_data_a
     )
 
-    # Step for D_B
+    # Loss for the discriminator of B.
     loss_b = self.cycle_gan.run_discriminator_backward_b(
-        params_dis_b, real_data_b, fake_data_b  # pyrefly: ignore[bad-argument-type]
+        params_dis_b, real_data_b, fake_data_b
     )
 
     # Training discriminators to discriminate samples from A and B.
@@ -642,7 +661,10 @@ class CycleGANModel(swirl_models.BaseModel):
     params_dis_a = variables[2]["params"]
     params_dis_b = variables[3]["params"]
 
-    real_data = (batch["real_data_a"], batch["real_data_b"])
+    real_data = (
+        jnp.asarray(batch["real_data_a"]),
+        jnp.asarray(batch["real_data_b"]),
+    )
 
     rng_forward, rng_backward = jax.random.split(rng)
 
@@ -650,7 +672,7 @@ class CycleGANModel(swirl_models.BaseModel):
     generated_data = self.run_generator_forward(
         {"dropout": rng_forward},
         (params_gen_a2b, params_gen_b2a),
-        real_data,  # pyrefly: ignore[bad-argument-type]
+        real_data,
         is_training=False,
     )
 
@@ -665,11 +687,11 @@ class CycleGANModel(swirl_models.BaseModel):
         {"dropout": rng_backward},
         backward_params,
         generated_data,
-        real_data,  # pyrefly: ignore[bad-argument-type]
+        real_data,
         is_training=False,
     )
 
-    loss = jnp.sum(jnp.array([loss_dict[key] for key in loss_dict.keys()]))
+    loss = sum(loss_dict.values(), start=jnp.zeros(()))
 
     real_data_a = real_data[0]
     real_data_b = real_data[1]
@@ -679,12 +701,12 @@ class CycleGANModel(swirl_models.BaseModel):
 
     # Loss for the discriminator of A.
     loss_a = self.cycle_gan.run_discriminator_backward_a(
-        params_dis_a, real_data_a, fake_data_a  # pyrefly: ignore[bad-argument-type]
+        params_dis_a, real_data_a, fake_data_a
     )
 
     # Loss for the discriminator of B.
     loss_b = self.cycle_gan.run_discriminator_backward_b(
-        params_dis_b, real_data_b, fake_data_b  # pyrefly: ignore[bad-argument-type]
+        params_dis_b, real_data_b, fake_data_b
     )
 
     return dict(loss=loss, loss_dis_a=loss_a, loss_dis_b=loss_b, **loss_dict)
