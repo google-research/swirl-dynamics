@@ -18,8 +18,8 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-
 Array = jax.Array
+DTypeLike = jax.typing.DTypeLike
 PrecisionLike = (
     None
     | str
@@ -39,14 +39,14 @@ class AddAxialPositionEmbedding(nn.Module):
   def __call__(self, inputs: Array) -> Array:
     pos_axis = self.position_axis
     pos_axis = pos_axis if pos_axis >= 0 else pos_axis + inputs.ndim
+    feat_axis = inputs.ndim - 1
 
     if not 0 <= pos_axis < inputs.ndim:
       raise ValueError(
           f"Invalid position ({self.position_axis}) or feature axis"
-          f" ({self.feature_axis})!"
+          f" ({feat_axis})!"
       )
 
-    feat_axis = inputs.ndim - 1
     if pos_axis == feat_axis:
       raise ValueError(
           f"Position axis ({self.position_axis}) must not coincide with feature"
@@ -71,8 +71,8 @@ class AxialSelfAttention(nn.Module):
   deterministic: bool = True
   precision: PrecisionLike = None
   normalize_qk: bool = False
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
