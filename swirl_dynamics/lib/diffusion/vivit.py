@@ -81,15 +81,18 @@ def get_fixed_sincos_position_embedding(
     Matrix of position embeddings with shape [1, ...], where ... = x_shape[1:].
   """
   if len(x_shape) not in (4, 5):
-    raise ValueError(f'Unsupported input shape: {x_shape}. It should describe',
-                     ' either a four- or five-tensor.')
+    raise ValueError(
+        f'Unsupported input shape: {x_shape}. It should describe'
+        ' either a four- or five-tensor.'
+    )
 
   num_parts = 4 if len(x_shape) == 4 else 6
   channels = x_shape[-1]
   assert channels % num_parts == 0, f'Channels must be multiple of {num_parts}'
-  omega = jnp.arange(
-      channels // num_parts, dtype=jnp.float32) / (channels / num_parts)
-  omega = 1. / (temperature**omega)
+  omega = jnp.arange(channels // num_parts, dtype=jnp.float32) / (
+      channels / num_parts
+  )
+  omega = 1.0 / (temperature**omega)
 
   # Two-dimensional input.
   if len(x_shape) == 4:
@@ -106,9 +109,7 @@ def get_fixed_sincos_position_embedding(
     z = jnp.einsum('m,d->md', z.flatten(), omega)
     y = jnp.einsum('m,d->md', y.flatten(), omega)
     x = jnp.einsum('m,d->md', x.flatten(), omega)
-    p = [jnp.sin(z), jnp.cos(z),
-         jnp.sin(x), jnp.cos(x),
-         jnp.sin(y), jnp.cos(y)]
+    p = [jnp.sin(z), jnp.cos(z), jnp.sin(x), jnp.cos(x), jnp.sin(y), jnp.cos(y)]
     shape = (1, t, h, w, channels)
   else:
     raise ValueError(f'Unsupported input shape: {x_shape}')
@@ -130,6 +131,7 @@ class AddFixedSinCosPositionEmbedding(nn.Module):
     temperature: Temperature parameter.
     dtype: Data type of the positional encoding.
   """
+
   temperature: float = 10_000
   dtype: DTypeLike = jnp.float32
 
@@ -144,17 +146,17 @@ class AddFixedSinCosPositionEmbedding(nn.Module):
       inputs with position encodings added to them.
     """
     return inputs + get_fixed_sincos_position_embedding(
-        inputs.shape, self.temperature, self.dtype)
+        inputs.shape, self.temperature, self.dtype
+    )
 
 
 class MlpBlock(nn.Module):
   """Transformer MLP / feed-forward block.
 
   Attributes:
-    mlp_dim: Internal dimension, this is usual 4 times the input
-        dimension.
+    mlp_dim: Internal dimension, this is usual 4 times the input dimension.
     out_dim: The embedding dimension of the output, if None, the output
-        dimension is the same ast he input one.
+      dimension is the same ast he input one.
     dropout_rate: Rate for droping some of the values.
     kernel_init: Initializer for the kernel.
     bias_init: Initializer for the bias.
@@ -183,8 +185,8 @@ class MlpBlock(nn.Module):
         use_bias=self.use_bias,
         kernel_init=self.kernel_init,
         bias_init=self.bias_init,
-        precision=self.precision)(
-            inputs)
+        precision=self.precision,
+    )(inputs)
     x = self.activation_fn(x)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
     output = nn.Dense(
@@ -193,11 +195,12 @@ class MlpBlock(nn.Module):
         use_bias=self.use_bias,
         kernel_init=self.kernel_init,
         bias_init=self.bias_init,
-        precision=self.precision)(
-            x)
+        precision=self.precision,
+    )(x)
 
     output = nn.Dropout(rate=self.dropout_rate)(
-        output, deterministic=deterministic)
+        output, deterministic=deterministic
+    )
     return output
 
 
@@ -215,15 +218,17 @@ def central_frame_initializer():
   def init(key: Array, shape: Sequence[int], dtype=jnp.float32):
 
     if len(shape) != 5:
-      raise ValueError('This function should initializing 5-dimensional',
-                       'kernels whose shapes follow (num_time_frames, height,'
-                       'with, emd_dim_in, emb_dim_out), instead the shapes of'
-                       f' the input are {shape}')
+      raise ValueError(
+          'This function should initializing 5-dimensional '
+          'kernels whose shapes follow (num_time_frames, height, '
+          'with, emd_dim_in, emb_dim_out), instead the shapes of'
+          f' the input are {shape}'
+      )
 
     init_kernel = linear.default_kernel_init(key, shape, dtype)
     central_time_index = shape[0] // 2
-    init_kernel = init_kernel.at[:, :, :central_time_index, :, :].set(0.0)
-    init_kernel = init_kernel.at[:, :, central_time_index + 1:, :, :].set(0.0)
+    init_kernel = init_kernel.at[:central_time_index, :, :, :, :].set(0.0)
+    init_kernel = init_kernel.at[central_time_index + 1 :, :, :, :, :].set(0.0)
 
     return init_kernel
 
@@ -245,10 +250,12 @@ def average_frame_initializer():
   def init(key: Array, shape: Sequence[int], dtype=jnp.float32) -> Array:
 
     if len(shape) != 5:
-      raise ValueError('This function should initializing 5-dimensional',
-                       'kernels whose shapes follow (num_time_frames, height,'
-                       'with, emd_dim_in, emb_dim_out), instead the shapes of'
-                       f' the input are {shape}')
+      raise ValueError(
+          'This function should initializing 5-dimensional '
+          'kernels whose shapes follow (num_time_frames, height, '
+          'with, emd_dim_in, emb_dim_out), instead the shapes of'
+          f' the input are {shape}'
+      )
 
     if shape[0] <= 1:
       raise ValueError('Temporal dimension should be > 1')
@@ -256,8 +263,9 @@ def average_frame_initializer():
     # Tiling the temporal dimension of a larger kernel ensures that the
     # normalisation is handled by default_kernel_init().
     init_kernel = linear.default_kernel_init(key, shape, dtype)
-    init_kernel = jnp.tile(init_kernel[0:1, :, :, :, :],
-                           [init_kernel.shape[0], 1, 1, 1, 1])
+    init_kernel = jnp.tile(
+        init_kernel[0:1, :, :, :, :], [init_kernel.shape[0], 1, 1, 1, 1]
+    )
 
     return init_kernel
 
@@ -269,12 +277,12 @@ class Embedding3D(nn.Module):
 
   Attributes:
     patches: The size of each patch used for the temporal embedding in time,
-        height and width, respectively.
+      height and width, respectively.
     embedding_dim: Number of features in the output.
     kernel_init_method: Shape in time, height, and width of the encoded inputs.
   """
 
-  patches: tuple[int, int, int]
+  patches: tuple[int, ...]
   embedding_dim: int
   kernel_init_method: str
 
@@ -282,8 +290,10 @@ class Embedding3D(nn.Module):
   def __call__(self, x: Array, *, train: bool) -> Array:
 
     if len(self.patches) != 3:
-      raise ValueError('patches.size must have 3 elements, instead the path ',
-                       f'size provided was {self.patches}')
+      raise ValueError(
+          'patches.size must have 3 elements, instead the path '
+          f'size provided was {self.patches}'
+      )
 
     ft, fh, fw = self.patches
 
@@ -324,12 +334,15 @@ class TemporalEncoder(nn.Module):
   @nn.compact
   def __call__(self, inputs: Array, *, train: bool) -> tuple[Array, int]:
 
-    kernel_init_method = self.temporal_encoding_config.get('kernel_init_method',
-                                                           None)
+    kernel_init_method = self.temporal_encoding_config.get(
+        'kernel_init_method', None
+    )
 
-    x = Embedding3D(patches=self.patches,  # pyrefly: ignore[bad-argument-type]
-                    embedding_dim=self.hidden_size,
-                    kernel_init_method=kernel_init_method)(inputs, train=train)
+    x = Embedding3D(
+        patches=self.patches,
+        embedding_dim=self.hidden_size,
+        kernel_init_method=kernel_init_method,
+    )(inputs, train=train)
 
     temporal_dims = x.shape[1]
 
@@ -337,9 +350,11 @@ class TemporalEncoder(nn.Module):
       batch_size, t, h, w, c = x.shape
       x = jnp.reshape(x, [batch_size, t * h * w, c])
 
-    assert x.size > 0, ('Found zero tokens after temporal encoding. '
-                        'Perhaps one of the patch sizes is such that '
-                        'floor(dim_size / patch_size) = 0?')
+    assert x.size > 0, (
+        'Found zero tokens after temporal encoding. '
+        'Perhaps one of the patch sizes is such that '
+        'floor(dim_size / patch_size) = 0?'
+    )
 
     return x, temporal_dims
 
@@ -352,6 +367,7 @@ class TemporalDecoder(nn.Module):
     features_out: Number of features in the output.
     encoded_shapes: Shape of the encoded input following [time, height, width].
   """
+
   patches: tuple[int, ...]
   features_out: int
   encoded_shapes: tuple[int, ...]
