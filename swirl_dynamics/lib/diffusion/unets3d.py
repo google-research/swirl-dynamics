@@ -31,6 +31,7 @@ from swirl_dynamics.lib.diffusion import unets
 from swirl_dynamics.lib.networks import rational_networks
 
 Array = jax.Array
+DTypeLike = jax.typing.DTypeLike
 PrecisionLike = (
     None
     | str
@@ -61,8 +62,8 @@ class AxialSelfAttentionBlock(nn.Module):
   precision: PrecisionLike = None
   normalize_qk: bool = False
   ffn_type: Literal["dense", "swiglu", "geglu", "rational_glu"] = "dense"
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -170,8 +171,8 @@ class DStack(nn.Module):
   num_heads: int = 8
   normalize_qk: bool = False
   ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array, emb: Array, is_training: bool) -> list[Array]:
@@ -296,8 +297,8 @@ class UStack(nn.Module):
   precision: PrecisionLike = None
   normalize_qk: bool = False
   ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
@@ -476,8 +477,8 @@ class UNet3d(nn.Module):
   cond_embed_dim: int = 128
   ffn_type: Literal["dense", "swiglu", "geglu"] = "dense"
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
