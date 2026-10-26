@@ -30,9 +30,9 @@ import jax.numpy as jnp
 from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
 
-
 Pytree = Any
 Array = jax.Array
+DTypeLike = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 
 
@@ -57,7 +57,7 @@ class FilteredInterpolation(nn.Module):
   padding: str = "CIRCULAR"
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
   use_local: bool = False
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -103,7 +103,7 @@ class ResnetBlock(nn.Module):
   padding: str = "CIRCULAR"
   kernel_size: tuple[int, int] = (3, 3)
   act_fun: Callable[[Array], Array] | Any = nn.relu
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
   use_bias: bool = True
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
   normalization_layer: Callable[..., Any] = functools.partial(
@@ -114,8 +114,8 @@ class ResnetBlock(nn.Module):
   def __call__(self, x: Array) -> Array:
     x = x.astype(self.dtype)
     assert x.shape[-1] == self.features, (
-        "Input and ouput features don't match. Input number of features is",
-        f"{x.shape[-1]}, while output is {self.features}",
+        "Input and ouput features don't match. Input number of features is "
+        f"{x.shape[-1]}, while output is {self.features}"
     )
 
     # Skip connection.
@@ -137,6 +137,7 @@ class ResnetBlock(nn.Module):
         kernel_size=self.kernel_size,
         padding=self.padding,
         kernel_init=self.initializer,
+        use_bias=self.use_bias,
     )(x)
 
     x = self.normalization_layer()(x)
@@ -201,7 +202,7 @@ class Generator(nn.Module):
   n_upsample_layers: int = 2
   use_skips: bool = True
   use_global_skip: bool = True
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
   padding: str = "CIRCULAR"  # TODO: Add one adapted for ERA5.
   padding_transpose: str = "CIRCULAR"
   use_weight_global_skip: bool = False
