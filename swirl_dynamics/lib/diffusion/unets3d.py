@@ -95,7 +95,7 @@ class AxialSelfAttentionBlock(nn.Module):
         )(h)
       # Normalization layers are processed in float32 to avoid numerical issues.
       h = nn.GroupNorm(
-          min(h.shape[-1] // 4, 32),
+          unets._safe_num_groups(h.shape[-1]),
           name=f"attn_prenorm_axis{axis}",
           dtype=jnp.float32,
           param_dtype=jnp.float32,
@@ -112,7 +112,7 @@ class AxialSelfAttentionBlock(nn.Module):
           name=f"axial_attn_axis{axis}",
       )(h)
       h = nn.GroupNorm(
-          min(h.shape[-1] // 4, 32),
+          unets._safe_num_groups(h.shape[-1]),
           name=f"dense_prenorm_axis{axis}",
           dtype=jnp.float32,  # Normalization is done in float32.
           param_dtype=jnp.float32,
@@ -611,7 +611,7 @@ class UNet3d(nn.Module):
     # Final convolution.
     h = nn.swish(
         nn.GroupNorm(
-            min(h.shape[-1] // 4, 32),
+            unets._safe_num_groups(h.shape[-1]),
             dtype=jnp.float32,
             param_dtype=jnp.float32,
         )(h)
