@@ -19,35 +19,30 @@ References:
     neural networks, arXiv preprint, arXiv:2004.01902 (2020).
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
 
 Scalar = Any
-Array = Any
+Array = jax.Array
+DTypeLike = jax.typing.DTypeLike
 ModuleDef = Any
 
 
-def zero_cutoff(x: jnp.float64, epsilon: jnp.float64) -> jnp.float64:  # pyrefly: ignore[not-a-type]
+def zero_cutoff(x: Array, epsilon: float | Array) -> Array:
   """Limits absolute value to always be larger than epsilon and preserves sign.
 
   Args:
-    x: Input.
+    x: Input array or scalar.
     epsilon: Small positive number to avoid the output being close to zero.
 
   Returns:
-    x if abs(x) > epsilon, epsilon*sign(x) otherwise. It is assumed that the
-    input x is a scalar.
+    `x` where `abs(x) >= epsilon`, and `epsilon * sign(x)` (with `0 -> +`)
+    otherwise.
   """
-  sign_x = jax.lax.cond(x >= 0.0, lambda x: 1.0, lambda x: -1.0, x)
-  return jax.lax.cond(
-      jnp.abs(x) < epsilon,
-      lambda x: epsilon * sign_x,
-      lambda x: x,
-      x,
-  )
+  return jnp.where(x >= 0, jnp.maximum(x, epsilon), jnp.minimum(x, -epsilon))
 
 
 class RationalLayer(nn.Module):
@@ -74,8 +69,8 @@ class RationalLayer(nn.Module):
   """
 
   deg_pols: tuple[int, int] = (3, 2)
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  cutoff: jnp.float32 | jnp.float64 | None = None  # pyrefly: ignore[unsupported-operation]
+  dtype: DTypeLike = jnp.float32
+  cutoff: float | Array | None = None
 
   def setup(self):
     """Initializes the parameters for a type (3,2) rational activation."""
@@ -116,8 +111,8 @@ class RationalLayer(nn.Module):
     p = jnp.polyval(self.p_params, x)
     q = jnp.polyval(self.q_params, x)
 
-    if self.cutoff:
-      q = jax.vmap(zero_cutoff, in_axes=(0, None))(q, self.cutoff)
+    if self.cutoff is not None:
+      q = zero_cutoff(q, self.cutoff)
 
     return p / q
 
@@ -136,8 +131,8 @@ class UnsharedRationalLayer(nn.Module):
     cutoff: Shift for the thresholding.
   """
 
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  cutoff: Optional[jnp.float32 | jnp.float64 | None] = None  # pyrefly: ignore[unsupported-operation]
+  dtype: DTypeLike = jnp.float32
+  cutoff: float | Array | None = None
 
   @nn.compact
   def __call__(self, inputs: Array) -> Array:
@@ -171,8 +166,8 @@ class UnsharedRationalLayer(nn.Module):
     p = pol_fun(p_params, x_i)
     q = pol_fun(q_params, x_i)
 
-    if self.cutoff:
-      q = jax.vmap(zero_cutoff, in_axes=(0, None))(q, self.cutoff)
+    if self.cutoff is not None:
+      q = zero_cutoff(q, self.cutoff)
 
     return p / q
 
@@ -187,7 +182,7 @@ class RationalMLP(nn.Module):
   """
 
   features: tuple[int, ...]
-  dtype: Any = jnp.float32
+  dtype: DTypeLike = jnp.float32
   multi_rational: bool = False
   use_bias: bool = True
   # TODO: add precision flag to have more granular control
@@ -232,7 +227,8 @@ class NonLinearFourierRational(nn.Module):
   num_freqs: int = 3
   dyadic: bool = False
   zero_freq: bool = False
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  train_freqs: bool = False
+  dtype: DTypeLike = jnp.float32
   multi_rational: bool = False
 
   @nn.compact
