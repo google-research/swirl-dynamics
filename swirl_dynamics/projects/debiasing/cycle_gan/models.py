@@ -50,8 +50,12 @@ class CycleGANModelConfig:
     lambda_id: Relative weight of the identity losses as defined in [1]. The
       identity forward passes are skipped when it is not positive.
     gan_mode: Type of adversarial loss: least squares GAN ("lsgan"), the vanilla
-      GAN with BCE loss ("bce_with_logits"), or the Wasserstein critic loss
-      ("wgangp").
+      GAN with BCE loss ("bce_with_logits"), or the Wasserstein critic loss with
+      gradient penalty ("wgangp").
+    lambda_gp: Weight of the gradient penalty, used only for "wgangp". The
+      discriminator terms carry a factor 1/2 (as in the reference
+      implementation) which is also applied to the penalty, so the default `10`
+      keeps the critic-to-penalty ratio of Gulrajani et al. (2017).
     use_cycle_loss: Option to use the cycle loss as defined in [1].
     same_dimension: Whether samples of A and B have the same shape, which is
       required by the identity losses.
@@ -67,6 +71,7 @@ class CycleGANModelConfig:
   lambda_b: float = 1.0
   lambda_id: float = 1.0
   gan_mode: loss_functions.GanMode | str = loss_functions.GanMode.LSGAN
+  lambda_gp: float = 10.0
   use_cycle_loss: bool = True
   same_dimension: bool = True
   use_crossed_dis_loss: bool = False
@@ -161,6 +166,55 @@ class CycleGAN:
   def use_crossed_dis_loss(self) -> bool:
     """Whether the discriminators are also trained to tell A from B."""
     return self.config.use_crossed_dis_loss
+
+  @property
+  def uses_gradient_penalty(self) -> bool:
+    """Whether the discriminator losses include the WGAN gradient penalty."""
+    return self.config.gan_mode == loss_functions.GanMode.WGANGP
+
+  def discriminator_loss_and_gp(
+      self,
+      discriminator: nn.Module,
+      params: PyTree,
+      real: Array,
+      fake: Array,
+      rng: Array | None,
+  ) -> tuple[Array, Array]:
+    """Returns `(loss_dis, loss_gp)` for one discriminator."""
+    pred_real = _apply(discriminator, params, real)
+    loss_dis_real = self.criterion_gan(pred_real, True)
+
+    # The generator is not updated through the discriminator loss.
+    fake = jax.lax.stop_gradient(fake)
+    pred_fake = _apply(discriminator, params, fake)
+    loss_dis_fake = self.criterion_gan(pred_fake, False)
+
+    loss = 0.5 * (loss_dis_real + loss_dis_fake)
+    if self.uses_gradient_penalty:
+      if rng is None:
+        raise ValueError("The WGAN gradient penalty needs a random key.")
+      critic = lambda x: _apply(discriminator, params, x)
+      gp = (
+          0.5
+          * self.config.lambda_gp
+          * loss_functions.gradient_penalty(critic, real, fake, rng)
+      )
+    else:
+      gp = jnp.zeros_like(loss)
+    return loss + gp, gp
+
+  def _discriminator_loss(
+      self,
+      discriminator: nn.Module,
+      params: PyTree,
+      real: Array,
+      fake: Array,
+      rng: Array | None,
+  ) -> Array:
+    """Shared body of `run_discriminator_backward_{a,b}`."""
+    return self.discriminator_loss_and_gp(
+        discriminator, params, real, fake, rng
+    )[0]
 
   def init(
       self,
@@ -360,7 +414,11 @@ class CycleGAN:
     )
 
   def run_discriminator_backward_a(
-      self, params: PyTree, real_a: Array, fake_a: Array
+      self,
+      params: PyTree,
+      real_a: Array,
+      fake_a: Array,
+      rng: Array | None = None,
   ) -> Array:
     """Loss of the discriminator of A on real and generated samples.
 
@@ -368,23 +426,23 @@ class CycleGAN:
       params: Parameters of `discriminator_a`.
       real_a: Batch of real samples of A.
       fake_a: Batch of generated samples of A (gradients are stopped).
+      rng: Random key for the gradient penalty interpolates; required for
+        `GanMode.WGANGP` and ignored otherwise.
 
     Returns:
-      The average of the real and fake losses of the discriminator of A.
+      Half the sum of the real and fake losses of the discriminator of A,
+      plus half the weighted gradient penalty for `GanMode.WGANGP`.
     """
-    pred_real = _apply(self.discriminator_a, params, real_a)
-    loss_dis_real = self.criterion_gan(pred_real, True)
-
-    # The generator is not updated through the discriminator loss.
-    pred_fake = _apply(
-        self.discriminator_a, params, jax.lax.stop_gradient(fake_a)
+    return self._discriminator_loss(
+        self.discriminator_a, params, real_a, fake_a, rng
     )
-    loss_dis_fake = self.criterion_gan(pred_fake, False)
-
-    return (loss_dis_real + loss_dis_fake) * 0.5
 
   def run_discriminator_backward_b(
-      self, params: PyTree, real_b: Array, fake_b: Array
+      self,
+      params: PyTree,
+      real_b: Array,
+      fake_b: Array,
+      rng: Array | None = None,
   ) -> Array:
     """Loss of the discriminator of B on real and generated samples.
 
@@ -392,20 +450,16 @@ class CycleGAN:
       params: Parameters of `discriminator_b`.
       real_b: Batch of real samples of B.
       fake_b: Batch of generated samples of B (gradients are stopped).
+      rng: Random key for the gradient penalty interpolates; required for
+        `GanMode.WGANGP` and ignored otherwise.
 
     Returns:
-      The average of the real and fake losses of the discriminator of B.
+      Half the sum of the real and fake losses of the discriminator of B,
+      plus half the weighted gradient penalty for `GanMode.WGANGP`.
     """
-    pred_real = _apply(self.discriminator_b, params, real_b)
-    loss_dis_real = self.criterion_gan(pred_real, True)
-
-    # The generator is not updated through the discriminator loss.
-    pred_fake = _apply(
-        self.discriminator_b, params, jax.lax.stop_gradient(fake_b)
+    return self._discriminator_loss(
+        self.discriminator_b, params, real_b, fake_b, rng
     )
-    loss_dis_fake = self.criterion_gan(pred_fake, False)
-
-    return (loss_dis_real + loss_dis_fake) * 0.5
 
   def run_discriminators_crossed(
       self, params: tuple[PyTree, PyTree], real_a: Array, real_b: Array
@@ -596,17 +650,17 @@ class CycleGANModel(swirl_models.BaseModel):
         dis_a, dis_b)`; only the discriminator parameters are used.
       batch: Dictionary with keys `"real_data_a"`, `"real_data_b"`,
         `"fake_data_a"` and `"fake_data_b"`.
-      rng: Random key, unused by the current criteria.
+      rng: Random key for the gradient penalty interpolates (WGAN-GP).
       mutables: Mutable variable collections, unused by the current networks.
 
     Returns:
       `(loss, metrics)` where `loss = loss_dis_a + loss_dis_b +
       loss_dis_crossed`
       (`loss_dis_crossed` is 0 when `use_crossed_dis_loss` is `False`), and
-      `metrics` holds `loss_dis`, `loss_dis_a`, `loss_dis_b` and
-      `loss_dis_crossed`.
+      `metrics` holds `loss_dis`, `loss_dis_a`, `loss_dis_b`,
+      `loss_dis_crossed`, `loss_gp_a` and `loss_gp_b`.
     """
-    del rng, mutables  # Unused.
+    del mutables  # Unused.
     real_data_a = jnp.asarray(batch["real_data_a"])
     real_data_b = jnp.asarray(batch["real_data_b"])
 
@@ -615,15 +669,24 @@ class CycleGANModel(swirl_models.BaseModel):
 
     params_dis_a = params[2]
     params_dis_b = params[3]
+    rng_a, rng_b = jax.random.split(rng)
 
     # Loss for the discriminator of A.
-    loss_a = self.cycle_gan.run_discriminator_backward_a(
-        params_dis_a, real_data_a, fake_data_a
+    loss_a, gp_a = self.cycle_gan.discriminator_loss_and_gp(
+        self.cycle_gan.discriminator_a,
+        params_dis_a,
+        real_data_a,
+        fake_data_a,
+        rng_a,
     )
 
     # Loss for the discriminator of B.
-    loss_b = self.cycle_gan.run_discriminator_backward_b(
-        params_dis_b, real_data_b, fake_data_b
+    loss_b, gp_b = self.cycle_gan.discriminator_loss_and_gp(
+        self.cycle_gan.discriminator_b,
+        params_dis_b,
+        real_data_b,
+        fake_data_b,
+        rng_b,
     )
 
     # Training discriminators to discriminate samples from A and B.
@@ -640,6 +703,8 @@ class CycleGANModel(swirl_models.BaseModel):
         loss_dis_a=loss_a,
         loss_dis_b=loss_b,
         loss_dis_crossed=loss_crossed,
+        loss_gp_a=gp_a,
+        loss_gp_b=gp_b,
     )
 
   def loss_fn_discriminator(
@@ -674,7 +739,8 @@ class CycleGANModel(swirl_models.BaseModel):
       variables: Variables of the four networks, in the order `(gen_a2b,
         gen_b2a, dis_a, dis_b)`; only their `"params"` collections are used.
       batch: Dictionary with keys `"real_data_a"` and `"real_data_b"`.
-      rng: Random key (dropout is disabled, so it only seeds the split).
+      rng: Random key for the gradient penalty interpolates (WGAN-GP); dropout
+        is disabled.
 
     Returns:
       `(metrics, generated_data)` where `metrics` holds the generator losses
@@ -693,7 +759,7 @@ class CycleGANModel(swirl_models.BaseModel):
         jnp.asarray(batch["real_data_b"]),
     )
 
-    rng_forward, rng_backward = jax.random.split(rng)
+    rng_forward, rng_backward, rng_dis_a, rng_dis_b = jax.random.split(rng, 4)
 
     # Run the model forward.
     generated_data = self.run_generator_forward(
@@ -728,12 +794,12 @@ class CycleGANModel(swirl_models.BaseModel):
 
     # Loss for the discriminator of A.
     loss_a = self.cycle_gan.run_discriminator_backward_a(
-        params_dis_a, real_data_a, fake_data_a
+        params_dis_a, real_data_a, fake_data_a, rng_dis_a
     )
 
     # Loss for the discriminator of B.
     loss_b = self.cycle_gan.run_discriminator_backward_b(
-        params_dis_b, real_data_b, fake_data_b
+        params_dis_b, real_data_b, fake_data_b, rng_dis_b
     )
 
     metrics = dict(loss=loss, loss_dis_a=loss_a, loss_dis_b=loss_b, **loss_dict)

@@ -49,7 +49,8 @@ class GanLoss:
   * `BCE_WITH_LOGITS`: binary cross-entropy on logits, in the numerically
     stable form `mean((1 - t) p + softplus(-p))`.
   * `WGANGP`: Wasserstein critic loss, `-mean(p)` for real targets and
-    `mean(p)` for fake targets, without a gradient penalty term.
+    `mean(p)` for fake targets; the gradient penalty is a separate term, see
+    `gradient_penalty`.
 
   Attributes:
     gan_mode: The adversarial criterion, as a `GanMode` or its string value.
@@ -146,3 +147,58 @@ def l1_loss(prediction: Array, target: Array) -> Array:
         f" {prediction.shape}."
     )
   return jnp.mean(jnp.abs(prediction - target))
+
+
+def gradient_penalty(
+    critic_fn: Callable[[Array], Array],
+    real: Array,
+    fake: Array,
+    rng: Array,
+    eps_stab: float = 1e-12,
+) -> Array:
+  """Gradient penalty of WGAN-GP (Gulrajani et al., 2017) on interpolates.
+
+  With per-sample interpolates `x_hat = alpha * real + (1 - alpha) * fake`,
+  `alpha ~ U(0, 1)`, and the per-sample critic score `s(x_hat)` (the mean of
+  the critic's prediction map), the penalty is
+
+    GP = mean_b [ (sqrt(||grad_x s(x_hat_b)||_2^2 + eps_stab) - 1)^2 ].
+
+  The per-sample gradients are obtained in a single backward pass of
+  `sum_b s(x_hat_b)`, which equals `vmap(grad(s))` if and only if the critic
+  has no cross-sample coupling (true for instance, group or no normalisation;
+  false for batch normalisation).
+
+  Args:
+    critic_fn: Maps a batch of samples to a prediction map with a leading batch
+      axis.
+    real: Batch of real samples.
+    fake: Batch of generated samples of the same shape (gradients through them
+      are stopped).
+    rng: Random key for the interpolation coefficients.
+    eps_stab: Stabiliser inside the square root, which keeps the gradient of the
+      penalty finite where the critic gradient vanishes.
+
+  Returns:
+    The scalar penalty.
+
+  Raises:
+    ValueError: If `real` and `fake` differ in shape.
+  """
+  if real.shape != fake.shape:
+    raise ValueError(
+        f"Real and fake batches must have the same shape, got {real.shape}"
+        f" and {fake.shape}."
+    )
+  alpha = jax.random.uniform(
+      rng, (real.shape[0],) + (1,) * (real.ndim - 1), dtype=real.dtype
+  )
+  interpolates = alpha * real + (1.0 - alpha) * jax.lax.stop_gradient(fake)
+
+  def _summed_scores(x: Array) -> Array:
+    scores = critic_fn(x)
+    return jnp.sum(jnp.mean(scores, axis=tuple(range(1, scores.ndim))))
+
+  grads = jax.grad(_summed_scores)(interpolates)
+  squared_norms = jnp.sum(jnp.square(grads), axis=tuple(range(1, grads.ndim)))
+  return jnp.mean(jnp.square(jnp.sqrt(squared_norms + eps_stab) - 1.0))

@@ -64,6 +64,8 @@ _DISCRIMINATOR_METRICS = (
     "loss_dis_a",
     "loss_dis_b",
     "loss_dis_crossed",
+    "loss_gp_a",
+    "loss_gp_b",
 )
 _SAMPLE_KEYS = ("real_data_a", "fake_data_b", "real_data_b", "fake_data_a")
 
@@ -528,7 +530,9 @@ class CycleGANTrainer(
     else:
       raise ValueError(f"direction must be 'a2b' or 'b2a', got {direction!r}.")
     if use_ema:
-      if state.ema_gen is None:
+      # A disabled EMA is `None` in a live state and an empty dictionary in
+      # a raw orbax restore.
+      if not state.ema_gen:
         raise ValueError("The train state has no EMA generator parameters.")
       ema_state = state.ema_gen
       # Raw orbax restores hold the EMA state as a dictionary.
