@@ -101,6 +101,43 @@ def _instance_norm(x: Array) -> Array:
   return nn.GroupNorm(num_groups=None, group_size=1)(x)
 
 
+_NORM_TYPES = ("instance", "none", "group")
+
+
+def _apply_norm(x: Array, norm_type: str) -> Array:
+  """Per-sample normalisation of a feature map (no cross-sample coupling).
+
+  Args:
+    x: Feature map of shape `(batch, *spatial, channels)`.
+    norm_type: `"instance"` (one channel per group, the historical default),
+      `"none"` (identity) or `"group"` (up to 8 groups of at least 4 channels).
+
+  Returns:
+    The normalised feature map.
+
+  Raises:
+    ValueError: For an unknown `norm_type`.
+  """
+  if norm_type == "none":
+    return x
+  if norm_type == "instance":
+    return _instance_norm(x)
+  if norm_type == "group":
+    num_groups = max(1, min(8, x.shape[-1] // 4))
+    while x.shape[-1] % num_groups:
+      num_groups -= 1
+    if math.prod(x.shape[1:-1]) * (x.shape[-1] // num_groups) == 1:
+      raise ValueError(
+          "Group normalisation of a feature map with a single element per"
+          f" group is identically 0 (shape {x.shape}); use fewer layers or a"
+          " larger input."
+      )
+    return nn.GroupNorm(num_groups=num_groups)(x)
+  raise ValueError(
+      f"Unsupported norm_type {norm_type!r}; expected one of {_NORM_TYPES}."
+  )
+
+
 class FilteredInterpolation(nn.Module):
   """Filtered interpolation layer to minimize spurious artifacts.
 
@@ -184,7 +221,9 @@ class ResnetBlock(nn.Module):
     dtype: Type of the inputs and weights.
     use_bias: Whether the first convolution has a bias.
     initializer: Initialization function.
-    normalization_layer: Factory of the normalisation layers.
+    normalization_layer: Factory of the normalisation layers used when
+      `norm_type == "instance"` (ignored for other `norm_type` values).
+    norm_type: Normalisation after each convolution, see `_apply_norm`.
   """
 
   features: int
@@ -198,6 +237,12 @@ class ResnetBlock(nn.Module):
   normalization_layer: Callable[..., Any] = functools.partial(
       nn.GroupNorm, num_groups=None, group_size=1
   )
+  norm_type: str = "instance"
+
+  def _normalize(self, x: Array) -> Array:
+    if self.norm_type == "instance":
+      return self.normalization_layer()(x)
+    return _apply_norm(x, self.norm_type)
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -219,7 +264,7 @@ class ResnetBlock(nn.Module):
         kernel_init=self.initializer,
         use_bias=self.use_bias,
     )(x)
-    x = self.normalization_layer()(x)
+    x = self._normalize(x)
     x = self.act_fun(x)
 
     x = self.dropout_layer()(x)
@@ -231,7 +276,7 @@ class ResnetBlock(nn.Module):
         use_bias=self.use_bias,
     )(x)
 
-    x = self.normalization_layer()(x)
+    x = self._normalize(x)
 
     return x + x_skip
 
@@ -283,6 +328,13 @@ class Generator(nn.Module):
       differs from the input shape; the output is interpolated back.
     interpolation_method: Interpolation scheme of `interpolated_shape`.
     initializer: Function for randomly initializing the parameters.
+    norm_type: Normalisation after every convolution of the trunk and inside the
+      ResNet blocks: `"instance"` (default), `"none"` or `"group"`. With
+      instance normalisation the first normalisation removes the per-channel
+      mean and scale of the stem output, so the trunk is insensitive to the
+      amplitude and the mean of its input up to the normalisation epsilon and
+      padding effects (the global skip passes both through unchanged); use
+      `"none"` for amplitude-aware generators, e.g. on physical fields.
   """
 
   output_nc: int = 1
@@ -312,6 +364,7 @@ class Generator(nn.Module):
   interpolated_shape: tuple[int, ...] | None = None
   interpolation_method: str = "bicubic"
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
+  norm_type: str = "instance"
 
   @nn.compact
   def __call__(self, x: Array, is_training: bool) -> Array:
@@ -360,7 +413,7 @@ class Generator(nn.Module):
         kernel_init=self.initializer,
         use_local=self.use_local,
     )(x)
-    x = _instance_norm(x)
+    x = _apply_norm(x, self.norm_type)
     x = self.act_fun(x)
 
     # Downsampling layers.
@@ -381,7 +434,7 @@ class Generator(nn.Module):
           padding=self.padding,
           kernel_init=self.initializer,
       )(x)
-      x = _instance_norm(x)
+      x = _apply_norm(x, self.norm_type)
       x = self.act_fun(x)
 
     # Core (lowest) level.
@@ -396,6 +449,7 @@ class Generator(nn.Module):
               nn.Dropout, rate=self.dropout_rate, deterministic=not is_training
           ),
           initializer=self.initializer,
+          norm_type=self.norm_type,
           name=f"resnet_block_core_number_{i}",
       )(x)
 
@@ -457,7 +511,7 @@ class Generator(nn.Module):
             kernel_init=self.initializer,
         )(x)
 
-      x = _instance_norm(x)
+      x = _apply_norm(x, self.norm_type)
       x = self.act_fun(x)
 
       if self.use_skips and i < len(horizontal_skips):
@@ -477,6 +531,7 @@ class Generator(nn.Module):
                   deterministic=not is_training,
               ),
               initializer=self.initializer,
+              norm_type=self.norm_type,
               name=f"resnet_level_{i}_number_{j}",
           )(y)
 
@@ -488,7 +543,7 @@ class Generator(nn.Module):
             padding=self.padding,
             kernel_init=self.initializer,
         )(x)
-        x = _instance_norm(x)
+        x = _apply_norm(x, self.norm_type)
         x = self.act_fun(x)
 
     # Last convolution layer to correct the number of output channels.
@@ -550,9 +605,25 @@ class Discriminator(nn.Module):
         of the input).
       padding: Type of padding. An integer input is translated to a uniform
         padding. A string argument means the type of padding.
-      use_bias: Flag for using biases after each convolutional layer.
+      use_bias: Flag for using biases in the normalised convolutions (the first
+        and the last convolution always have one).
       use_local: Flag for using locally connected layers (This has more dof).
       initializer: Initialization method.
+      norm_type: Normalisation after every convolution except the first and the
+        last: `"instance"` (default), `"none"` or `"group"`. With instance
+          normalisation the discriminator is, at initialisation, invariant to a
+          positive rescaling of its input up to the normalisation epsilon: the
+          first layer (zero bias, PReLU) is positively homogeneous and every
+          later layer is normalised per sample and channel, so `D(c u) = D(u)`
+          up to `O(eps / var)` where `var` is the per-channel activation
+          variance. Amplitude information can only enter through the bias and
+          PReLU of the first layer. Per-channel biases of the normalised
+          convolutions (`use_bias=True`) are cancelled algebraically by the mean
+          subtraction and, in float32 with the default fast variance estimate
+          `E[x^2] - E[x]^2`, biases much larger than the activations degrade the
+          normalisation numerically. Amplitude-aware discriminators (e.g. for
+          debiasing physical fields) therefore need `norm_type="none"`, not
+          `use_bias=True`.
   """
 
   base_features: int = 64
@@ -562,6 +633,7 @@ class Discriminator(nn.Module):
   use_bias: bool = False
   use_local: bool = False
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
+  norm_type: str = "instance"
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -591,7 +663,7 @@ class Discriminator(nn.Module):
           use_bias=self.use_bias,
           kernel_init=self.initializer,
       )(x)
-      x = _instance_norm(x)
+      x = _apply_norm(x, self.norm_type)
       x = nn.PReLU(negative_slope_init=0.2)(x)
 
     feature_multiplier = min(2**self.n_layers, 8)
@@ -603,7 +675,7 @@ class Discriminator(nn.Module):
         use_bias=self.use_bias,
         kernel_init=self.initializer,
     )(x)
-    x = _instance_norm(x)
+    x = _apply_norm(x, self.norm_type)
     x = nn.PReLU(negative_slope_init=0.2)(x)
 
     # The output should be just one channel.

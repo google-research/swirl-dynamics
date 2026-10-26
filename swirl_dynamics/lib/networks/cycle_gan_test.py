@@ -312,6 +312,140 @@ class NetworksTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, "spatial"):
       model.init(jax.random.PRNGKey(0), np.zeros((2, 4, 4, 1)))
 
+  def _discriminator_fixture(self, **kwargs):
+    """Returns a small discriminator, its params and a 32x32 input pair."""
+    model = cycle_gan.Discriminator(
+        base_features=4, n_layers=3, kernel_size=(3, 3), **kwargs
+    )
+    rng_u, rng_v = jax.random.split(jax.random.PRNGKey(1))
+    u = jax.random.normal(rng_u, (2, 32, 32, 1))
+    v = jax.random.normal(rng_v, (2, 32, 32, 1))
+    params = model.init(jax.random.PRNGKey(0), u)["params"]
+    return model, params, u, v
+
+  def _scale_to_input_response_ratio(self, model, params, u, v) -> float:
+    """max|D(3u) - D(u)| relative to max|D(v) - D(u)| for independent u, v."""
+    apply = jax.jit(lambda x: jnp.asarray(model.apply({"params": params}, x)))
+    scale_response = jnp.max(jnp.abs(apply(3.0 * u) - apply(u)))
+    input_response = jnp.max(jnp.abs(apply(v) - apply(u)))
+    return float(scale_response / input_response)
+
+  def test_default_discriminator_is_approximately_scale_blind_at_init(self):
+    # Zero stem bias + positively homogeneous PReLU + per-sample instance
+    # norms: D(3u) = D(u) up to the normalisation epsilon (measured ratio
+    # 5e-3 against the response to an independent input).
+    model, params, u, v = self._discriminator_fixture()
+
+    ratio = self._scale_to_input_response_ratio(model, params, u, v)
+
+    self.assertLess(ratio, 0.05)
+
+  def test_norm_none_with_bias_is_scale_sensitive(self):
+    # Without normalisation the network is close to affine at initialisation,
+    # so rescaling the input changes the output as much as a new input does.
+    model, params, u, v = self._discriminator_fixture(
+        norm_type="none", use_bias=True
+    )
+    params = jax.tree_util.tree_map_with_path(
+        lambda path, leaf: jnp.full_like(leaf, 0.05)
+        if path[-1].key == "bias"
+        else leaf,
+        params,
+    )
+
+    ratio = self._scale_to_input_response_ratio(model, params, u, v)
+
+    self.assertGreater(ratio, 0.5)
+
+  @parameterized.named_parameters(
+      ("activation_scale", 1e-2, True), ("large_scale", 5.0, False)
+  )
+  def test_bias_before_instance_norm_is_cancelled_only_at_small_scale(
+      self, bias_scale, expect_cancelled
+  ):
+    # A per-channel bias added before a per-channel mean subtraction cancels
+    # algebraically; in float32 the default fast variance E[x^2] - E[x]^2
+    # loses that cancellation once the bias dwarfs the activations.
+    model, params, u, _ = self._discriminator_fixture(use_bias=True)
+    normalised_convs = ("Conv_1", "Conv_2", "Conv_3")
+
+    def with_biases(biases):
+      new_params = dict(params)
+      for name in normalised_convs:
+        new_params[name] = dict(params[name], bias=biases[name])
+      return new_params
+
+    @jax.jit
+    def apply_with_biases(biases):
+      return jnp.asarray(model.apply({"params": with_biases(biases)}, u))
+
+    rngs = jax.random.split(jax.random.PRNGKey(2), len(normalised_convs))
+    zero_biases = {name: params[name]["bias"] for name in normalised_convs}
+    random_biases = {
+        name: bias_scale * jax.random.normal(rng, params[name]["bias"].shape)
+        for name, rng in zip(normalised_convs, rngs, strict=True)
+    }
+
+    delta = jnp.max(
+        jnp.abs(
+            apply_with_biases(random_biases) - apply_with_biases(zero_biases)
+        )
+    )
+    if expect_cancelled:
+      self.assertLess(float(delta), 1e-5)
+      bias_grads = jax.grad(lambda b: jnp.sum(apply_with_biases(b)))(
+          zero_biases
+      )
+      self.assertLess(
+          max(float(jnp.max(jnp.abs(g))) for g in bias_grads.values()), 1e-3
+      )
+    else:
+      self.assertGreater(float(delta), 1e-2)
+
+  @parameterized.named_parameters(
+      ("identity_head", lambda x: x, True), ("tanh_head", None, False)
+  )
+  def test_identity_head_preserves_large_amplitudes(
+      self, final_act_fun, expect_beyond_unit
+  ):
+    kwargs = {} if final_act_fun is None else {"final_act_fun": final_act_fun}
+    model = cycle_gan.Generator(ngf=2, n_res_blocks=1, **kwargs)
+    x = 5.5 * jnp.ones((1, 16, 16, 1))
+
+    out, _ = model.init_with_output(jax.random.PRNGKey(0), x, is_training=False)
+
+    self.assertEqual(float(jnp.max(jnp.abs(out))) > 1.0, expect_beyond_unit)
+
+  def test_non_uniform_kernel_spec_with_1d_input_raises(self):
+    model = cycle_gan.Generator(
+        ngf=2, n_res_blocks=1, kernel_size_downsampling=(3, 5)
+    )
+
+    with self.assertRaisesRegex(ValueError, "spatial rank"):
+      model.init(jax.random.PRNGKey(0), np.zeros((2, 48, 1)), is_training=False)
+
+  def test_filtered_interpolation_without_target_shape_raises(self):
+    with self.assertRaisesRegex(ValueError, "target_shape"):
+      cycle_gan.FilteredInterpolation().init(
+          jax.random.PRNGKey(0), np.zeros((2, 8, 8, 1))
+      )
+
+  def test_invalid_norm_type_raises(self):
+    model = cycle_gan.Discriminator(base_features=2, norm_type="batch")
+
+    with self.assertRaisesRegex(ValueError, "norm_type"):
+      model.init(jax.random.PRNGKey(0), np.zeros((2, 32, 32, 1)))
+
+  def test_degenerate_group_norm_raises(self):
+    model = cycle_gan.ResnetBlock(
+        features=1,
+        dropout_layer=lambda: (lambda x: x),
+        norm_type="group",
+    )
+
+    with self.assertRaisesRegex(ValueError, "single element per group"):
+      model.init(jax.random.PRNGKey(0), np.zeros((2, 1, 1, 1)))
+
 
 if __name__ == "__main__":
   absltest.main()
