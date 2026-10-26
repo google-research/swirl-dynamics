@@ -12,16 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CycleGAN module.
+"""CycleGAN networks (generator, discriminator and filtered interpolation).
+
+The networks accept inputs of shape `(batch, *spatial, channels)` with one or
+two spatial dimensions; every kernel or stride given as a 2-tuple is reduced to
+the spatial rank of the input (see `_spatial_tuple`), so 2-D callers keep
+their exact behaviour and 1-D signals work out of the box.
 
 References:
-[1]
-https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190#issuecomment-358546675
-# pylint: disable=line-too-long
+[1] Upsampling discussion of the reference implementation:
+    https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/issues/190
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import functools
+import math
 from typing import Any
 
 import flax.linen as nn
@@ -36,40 +41,120 @@ DTypeLike = jax.typing.DTypeLike
 Initializer = nn.initializers.Initializer
 
 
+def _check_spatial_ndim(x: Array) -> int:
+  """Returns the spatial rank of `x` (`x.ndim - 2`), validating 1-D or 2-D."""
+  ndim = x.ndim - 2
+  if ndim not in (1, 2):
+    raise ValueError(
+        f"Expected 1-D or 2-D spatial input (rank 3 or 4), got shape {x.shape}."
+    )
+  return ndim
+
+
+def _spatial_tuple(value: int | Sequence[int], ndim: int) -> tuple[int, ...]:
+  """Broadcasts a kernel or stride spec to the spatial rank `ndim`.
+
+  Legacy 2-D defaults such as `(k, k)` are accepted for `ndim == 1` and
+  reduced to `(k,)`, so existing callers do not have to change their configs.
+
+  Args:
+    value: An integer or a sequence of integers.
+    ndim: Number of spatial dimensions of the input.
+
+  Returns:
+    A tuple of length `ndim`.
+
+  Raises:
+    ValueError: If a non-uniform sequence cannot be matched to `ndim`.
+  """
+  if isinstance(value, int):
+    return (value,) * ndim
+  value = tuple(value)
+  if len(value) == ndim:
+    return value
+  if ndim == 1 and len(set(value)) == 1:
+    return value[:1]
+  raise ValueError(
+      f"Cannot use spatial spec {value!r} with an input of spatial rank {ndim}."
+  )
+
+
+def _instance_norm(x: Array) -> Array:
+  """Normalises each channel of each sample over its spatial axes.
+
+  Args:
+    x: Feature map of shape `(batch, *spatial, channels)`.
+
+  Returns:
+    The instance-normalised feature map.
+
+  Raises:
+    ValueError: If the map has a single spatial element in total, in which
+      case the normalised map (and anything computed from it) is identically 0.
+  """
+  if math.prod(x.shape[1:-1]) == 1:
+    raise ValueError(
+        "Instance normalisation of a feature map with a single spatial"
+        f" element is identically 0 (shape {x.shape}); use fewer layers or a"
+        " larger input."
+    )
+  return nn.GroupNorm(num_groups=None, group_size=1)(x)
+
+
 class FilteredInterpolation(nn.Module):
   """Filtered interpolation layer to minimize spurious artifacts.
 
   Attributes:
-    height: Target height (in number of pixels) of the output.
-    width: Target width (in number of pixels) of the output.
+    height: Deprecated 2-D alias of `target_shape`; target height (in number of
+      pixels).
+    width: Deprecated 2-D alias of `target_shape`; target width (in number of
+      pixels).
     output_nc: Number of features for the ouput (the same as the input).
     interpolation_method: Specific type of interpolation scheme.
     padding: Type of padding for the convolutions.
     initializer: Initialization function.
     use_local: Whether to use unshared weights in the filtering.
     dtype: Data type of the interpolation and neural networks weights.
+    target_shape: Target spatial shape of the output, one entry per spatial
+      dimension. Required unless `height` and `width` are given.
   """
 
-  height: int
-  width: int
+  height: int | None = None
+  width: int | None = None
   output_nc: int = 1
   interpolation_method: str = "bicubic"
   padding: str = "CIRCULAR"
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
   use_local: bool = False
   dtype: DTypeLike = jnp.float32
+  target_shape: tuple[int, ...] | None = None
+
+  def _resolved_target_shape(self) -> tuple[int, ...]:
+    """Returns `target_shape`, or `(height, width)` for legacy callers."""
+    if self.target_shape is not None:
+      return tuple(self.target_shape)
+    if self.height is None or self.width is None:
+      raise ValueError(
+          "FilteredInterpolation needs `target_shape` (or both `height` and"
+          " `width`)."
+      )
+    return (self.height, self.width)
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
+    target_shape = self._resolved_target_shape()
+    ndim = len(target_shape)
+    if x.ndim != ndim + 2:
+      raise ValueError(
+          f"Input of shape {x.shape} does not match the target spatial shape"
+          f" {target_shape}."
+      )
     x = x.astype(self.dtype)
+    # Only the spatial axes are interpolated; the convolution below maps the
+    # channels to `output_nc`.
     x = functools.partial(
         jax.image.resize,
-        shape=(
-            x.shape[0],
-            self.height,
-            self.width,
-            self.output_nc,
-        ),
+        shape=(x.shape[0], *target_shape, x.shape[-1]),
         method=self.interpolation_method,
     )(x)
 
@@ -77,8 +162,8 @@ class FilteredInterpolation(nn.Module):
     # been introduced by the interpolation step.
     x = layers.ConvLayer(
         features=self.output_nc,
-        kernel_size=(7, 7),
-        strides=[1, 1],
+        kernel_size=(7,) * ndim,
+        strides=(1,) * ndim,
         padding=self.padding,  # this is still a large convolutional layer.
         kernel_init=self.initializer,
         use_local=self.use_local,
@@ -93,15 +178,19 @@ class ResnetBlock(nn.Module):
     features: Number of features for the ouput (the same as the input).
     dropout_layer: Specific type of of dropout layer.
     padding: Type of padding for the convolutions.
+    kernel_size: Size of the convolutional kernels (reduced to the spatial rank
+      of the input).
     act_fun: Activation function.
     dtype: Type of the inputs and weights.
+    use_bias: Whether the first convolution has a bias.
     initializer: Initialization function.
+    normalization_layer: Factory of the normalisation layers.
   """
 
   features: int
   dropout_layer: Callable[..., Any]
   padding: str = "CIRCULAR"
-  kernel_size: tuple[int, int] = (3, 3)
+  kernel_size: int | Sequence[int] = (3, 3)
   act_fun: Callable[[Array], Array] | Any = nn.relu
   dtype: DTypeLike = jnp.float32
   use_bias: bool = True
@@ -113,17 +202,19 @@ class ResnetBlock(nn.Module):
   @nn.compact
   def __call__(self, x: Array) -> Array:
     x = x.astype(self.dtype)
-    assert x.shape[-1] == self.features, (
-        "Input and ouput features don't match. Input number of features is "
-        f"{x.shape[-1]}, while output is {self.features}"
-    )
+    if x.shape[-1] != self.features:
+      raise ValueError(
+          f"Input features ({x.shape[-1]}) must match the block features"
+          f" ({self.features})."
+      )
+    kernel_size = _spatial_tuple(self.kernel_size, x.ndim - 2)
 
     # Skip connection.
     x_skip = x
 
     x = layers.ConvLayer(
         features=self.features,
-        kernel_size=self.kernel_size,
+        kernel_size=kernel_size,
         padding=self.padding,
         kernel_init=self.initializer,
         use_bias=self.use_bias,
@@ -134,7 +225,7 @@ class ResnetBlock(nn.Module):
     x = self.dropout_layer()(x)
     x = layers.ConvLayer(
         features=self.features,
-        kernel_size=self.kernel_size,
+        kernel_size=kernel_size,
         padding=self.padding,
         kernel_init=self.initializer,
         use_bias=self.use_bias,
@@ -148,7 +239,8 @@ class ResnetBlock(nn.Module):
 class Generator(nn.Module):
   """The generator for the CycleGAN A->B.
 
-  See [1] for further details on the upsampling.
+  See [1] for further details on the upsampling. Inputs have shape
+  `(batch, *spatial, channels)` with one or two spatial dimensions.
 
   Attributes:
     output_nc: The number of channels in output images.
@@ -159,19 +251,27 @@ class Generator(nn.Module):
     dropout_rate: The rate for dropout sampling.
     upsample_mode: Modality of upsampling: deconvolution or bilinear
       interpolation.
-    n_downsample_layers: Number of dowsampling layers.
     act_fun: Activation functions.
     final_act_fun: Final activation function.
-    kernel_size_downsampling: Size of the kernel for the downsamplign layers.
+    kernel_size_downsampling: Size of the kernel for the downsampling layers
+      (reduced to the spatial rank of the input).
     kernel_size_upsampling: Size of the kernel for the upsampling layers.
+    kernel_size_core: Size of the kernel of the core ResNet blocks.
+    use_attention: Whether to add an attention block after each core ResNet
+      block.
+    use_position_encoding: Whether to add a positional encoding before the
+      attention blocks.
+    num_heads: Number of attention heads.
     n_downsample_layers: Number of downsampling levels, each level produces a
-      downsmapling of factor 2 in each dimension (x, y) while increasing the
+      downsmapling of factor 2 in each spatial dimension while increasing the
       number of channels by a factor 2.
-    n_upsample_layers: Number of downsampling levels, each level produces a
-      upsampling of factor 2 in each dimension (x, y) while decreasing the
+    n_upsample_layers: Number of upsampling levels, each level produces an
+      upsampling of factor 2 in each spatial dimension while decreasing the
       number of channels by a factor 2.
     use_skips: Using skip connections to have a U-net type network.
-    use_global_skip: Using a skip connection between input and output.
+    use_global_skip: Using a skip connection between input and output. Requires
+      as many input channels as `output_nc`.
+    dtype: Data type of the parameters.
     padding: Type of padding used in the convolutional layers.
     padding_transpose: Type of padding used for the tranpose convolutional
       layers when performing the upsampling.
@@ -179,8 +279,9 @@ class Generator(nn.Module):
     weight_skip: To either weight the skip or the output of the network.
     use_local: Use locally connected convolutional layers, i.e., with unshared
       weights. This only used for the projection to/from tokens.
-    interpolated_shape: Shapes in the case we need to change the spatial
-      dimensions of the input.
+    interpolated_shape: Spatial shape on which the network operates when it
+      differs from the input shape; the output is interpolated back.
+    interpolation_method: Interpolation scheme of `interpolated_shape`.
     initializer: Function for randomly initializing the parameters.
   """
 
@@ -192,9 +293,9 @@ class Generator(nn.Module):
   upsample_mode: str = "deconv"
   act_fun: Callable[[Array], Array] = nn.relu
   final_act_fun: Callable[[Array], Array] = nn.activation.tanh
-  kernel_size_downsampling: tuple[int, int] = (3, 3)
-  kernel_size_upsampling: tuple[int, int] = (3, 3)
-  kernel_size_core: tuple[int, int] = (3, 3)
+  kernel_size_downsampling: int | Sequence[int] = (3, 3)
+  kernel_size_upsampling: int | Sequence[int] = (3, 3)
+  kernel_size_core: int | Sequence[int] = (3, 3)
   use_attention: bool = False
   use_position_encoding: bool = False
   num_heads: int = 4
@@ -208,7 +309,7 @@ class Generator(nn.Module):
   use_weight_global_skip: bool = False
   weight_skip: bool = False
   use_local: bool = False
-  interpolated_shape: tuple[int, int] | None = None
+  interpolated_shape: tuple[int, ...] | None = None
   interpolation_method: str = "bicubic"
   initializer: Initializer = jax.nn.initializers.normal(stddev=0.02)
 
@@ -223,10 +324,20 @@ class Generator(nn.Module):
 
     # Saving for a skip connection.
     input_x = x
+    ndim = _check_spatial_ndim(x)
     # Kernel dimension for the positional embedding.
-    kernel_dim = x.ndim - 2
+    kernel_dim = ndim
 
-    batch_size, input_height, input_width, input_channels = x.shape
+    batch_size, *input_spatial, input_channels = x.shape
+    applies_global_skip = (
+        self.n_upsample_layers == self.n_downsample_layers
+        and self.use_global_skip
+    )
+    if applies_global_skip and input_channels != self.output_nc:
+      raise ValueError(
+          "use_global_skip requires as many input channels as output_nc, got"
+          f" {input_channels} != {self.output_nc}; set use_global_skip=False."
+      )
 
     # Interpolate the input to the desired shape.
     if self.interpolated_shape:
@@ -243,13 +354,13 @@ class Generator(nn.Module):
     # Projection layer.
     x = layers.ConvLayer(
         features=self.ngf,
-        kernel_size=(7, 7),
-        strides=[1, 1],
+        kernel_size=(7,) * ndim,
+        strides=(1,) * ndim,
         padding=self.padding,
         kernel_init=self.initializer,
         use_local=self.use_local,
     )(x)
-    x = nn.GroupNorm(num_groups=None, group_size=1)(x)
+    x = _instance_norm(x)
     x = self.act_fun(x)
 
     # Downsampling layers.
@@ -265,12 +376,12 @@ class Generator(nn.Module):
       mult = 2 ** (i + 1)
       x = layers.ConvLayer(
           features=self.ngf * mult,
-          kernel_size=self.kernel_size_downsampling,
-          strides=[2, 2],
+          kernel_size=_spatial_tuple(self.kernel_size_downsampling, ndim),
+          strides=(2,) * ndim,
           padding=self.padding,
           kernel_init=self.initializer,
       )(x)
-      x = nn.GroupNorm(num_groups=None, group_size=1)(x)
+      x = _instance_norm(x)
       x = self.act_fun(x)
 
     # Core (lowest) level.
@@ -279,7 +390,7 @@ class Generator(nn.Module):
     for i in range(self.n_res_blocks):
       x = ResnetBlock(
           features=self.ngf * mult,
-          kernel_size=self.kernel_size_core,
+          kernel_size=_spatial_tuple(self.kernel_size_core, ndim),
           padding=self.padding,
           dropout_layer=functools.partial(
               nn.Dropout, rate=self.dropout_rate, deterministic=not is_training
@@ -289,7 +400,7 @@ class Generator(nn.Module):
       )(x)
 
       # Use a transformer core.
-      # TODO add a conformer model.
+      # TODO: add a conformer model.
       if self.use_attention:
         b, *hw, c = x.shape
         # Adding positional encoding.
@@ -318,21 +429,20 @@ class Generator(nn.Module):
 
       # Upsampling by a factor 2 in each spatial dimension.
       if self.upsample_mode == "bilinear":
-        # Upsampling using bilinear interpolation.
+        # Upsampling using (bi)linear interpolation.
         x = functools.partial(
             jax.image.resize,
             shape=(
                 x.shape[0],
-                x.shape[1] * 2,
-                x.shape[2] * 2,
-                x.shape[3],
+                *[2 * size for size in x.shape[1:-1]],
+                x.shape[-1],
             ),
-            method="bilinear",
+            method="linear",
         )(x)
         x = layers.ConvLayer(
             features=(self.ngf * mult) // 2,
-            kernel_size=self.kernel_size_upsampling,
-            strides=[1, 1],
+            kernel_size=_spatial_tuple(self.kernel_size_upsampling, ndim),
+            strides=(1,) * ndim,
             padding=self.padding,
             kernel_init=self.initializer,
         )(x)
@@ -341,13 +451,13 @@ class Generator(nn.Module):
         # TODO: use channel unrolling for the upsampling.
         x = nn.ConvTranspose(
             features=(self.ngf * mult) // 2,
-            kernel_size=self.kernel_size_upsampling,
-            strides=[2, 2],
+            kernel_size=_spatial_tuple(self.kernel_size_upsampling, ndim),
+            strides=(2,) * ndim,
             padding=self.padding_transpose,
             kernel_init=self.initializer,
         )(x)
 
-      x = nn.GroupNorm(num_groups=None, group_size=1)(x)
+      x = _instance_norm(x)
       x = self.act_fun(x)
 
       if self.use_skips and i < len(horizontal_skips):
@@ -359,7 +469,7 @@ class Generator(nn.Module):
         for j in range(self.n_res_blocks_level):
           y = ResnetBlock(
               features=y.shape[-1],
-              kernel_size=self.kernel_size_core,
+              kernel_size=_spatial_tuple(self.kernel_size_core, ndim),
               padding=self.padding,
               dropout_layer=functools.partial(
                   nn.Dropout,
@@ -373,19 +483,19 @@ class Generator(nn.Module):
         x = jnp.concatenate([x, y], axis=-1)
         x = layers.ConvLayer(
             features=(self.ngf * mult) // 2,
-            kernel_size=self.kernel_size_upsampling,
-            strides=[1, 1],
+            kernel_size=_spatial_tuple(self.kernel_size_upsampling, ndim),
+            strides=(1,) * ndim,
             padding=self.padding,
             kernel_init=self.initializer,
         )(x)
-        x = nn.GroupNorm(num_groups=None, group_size=1)(x)
+        x = _instance_norm(x)
         x = self.act_fun(x)
 
     # Last convolution layer to correct the number of output channels.
     x = layers.ConvLayer(
         features=self.output_nc,
-        kernel_size=(7, 7),
-        strides=[1, 1],
+        kernel_size=(7,) * ndim,
+        strides=(1,) * ndim,
         padding=self.padding,
         kernel_init=self.initializer,
         use_local=self.use_local,
@@ -394,8 +504,7 @@ class Generator(nn.Module):
     # Interpolating back to the original size.
     if self.interpolated_shape:
       x = FilteredInterpolation(
-          height=input_height,
-          width=input_width,
+          target_shape=tuple(input_spatial),
           output_nc=self.output_nc,
           interpolation_method=self.interpolation_method,
           padding=self.padding,
@@ -405,10 +514,7 @@ class Generator(nn.Module):
 
     # Add skip connection between generator input and output.
     # Reference: https://github.com/leehomyc/cyclegan-1
-    if (
-        self.n_upsample_layers == self.n_downsample_layers
-        and self.use_global_skip
-    ):
+    if applies_global_skip:
       if self.use_weight_global_skip:
         init_weight_global = jax.nn.initializers.constant(jnp.array([0.001]))
         # Initializing the weight.
@@ -433,12 +539,15 @@ class Discriminator(nn.Module):
   """Discriminator module to predict the class of the input.
 
   The discriminator would take an image input and predict if it's an original
-  or the output from the generator.
+  or the output from the generator. Inputs have shape
+  `(batch, *spatial, channels)` with one or two spatial dimensions; every
+  layer halves the spatial size.
 
   Attributes:
       base_features: Number of filters in the first conv layer
       n_layers: The number of conv layers in the discriminator.
-      kernel_size: Size of the convolutional kernel.
+      kernel_size: Size of the convolutional kernel (reduced to the spatial rank
+        of the input).
       padding: Type of padding. An integer input is translated to a uniform
         padding. A string argument means the type of padding.
       use_bias: Flag for using biases after each convolutional layer.
@@ -448,7 +557,7 @@ class Discriminator(nn.Module):
 
   base_features: int = 64
   n_layers: int = 3
-  kernel_size: tuple[int, int] = (5, 5)
+  kernel_size: tuple[int, ...] = (5, 5)
   padding: int | str = 1
   use_bias: bool = False
   use_local: bool = False
@@ -456,10 +565,13 @@ class Discriminator(nn.Module):
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
+    ndim = _check_spatial_ndim(x)
+    kernel_size = _spatial_tuple(self.kernel_size, ndim)
+
     x = layers.ConvLayer(
         features=self.base_features,
-        kernel_size=self.kernel_size,
-        strides=(2, 2),
+        kernel_size=kernel_size,
+        strides=(2,) * ndim,
         padding=self.padding,
         kernel_init=self.initializer,
         use_local=self.use_local,
@@ -473,32 +585,32 @@ class Discriminator(nn.Module):
       feature_multiplier = min(2**n, 8)
       x = layers.ConvLayer(
           features=self.base_features * feature_multiplier,
-          kernel_size=self.kernel_size,
-          strides=(2, 2),
+          kernel_size=kernel_size,
+          strides=(2,) * ndim,
           padding=self.padding,
           use_bias=self.use_bias,
           kernel_init=self.initializer,
       )(x)
-      x = nn.GroupNorm(num_groups=None, group_size=1)(x)
+      x = _instance_norm(x)
       x = nn.PReLU(negative_slope_init=0.2)(x)
 
     feature_multiplier = min(2**self.n_layers, 8)
     x = layers.ConvLayer(
         features=self.base_features * feature_multiplier,
-        kernel_size=self.kernel_size,
-        strides=(2, 2),
+        kernel_size=kernel_size,
+        strides=(2,) * ndim,
         padding=self.padding,
         use_bias=self.use_bias,
         kernel_init=self.initializer,
     )(x)
-    x = nn.GroupNorm(num_groups=None, group_size=1)(x)
+    x = _instance_norm(x)
     x = nn.PReLU(negative_slope_init=0.2)(x)
 
     # The output should be just one channel.
     x = layers.ConvLayer(
         features=1,
-        kernel_size=self.kernel_size,
-        strides=(1, 1),
+        kernel_size=kernel_size,
+        strides=(1,) * ndim,
         padding=self.padding,
         use_local=self.use_local,
     )(x)
