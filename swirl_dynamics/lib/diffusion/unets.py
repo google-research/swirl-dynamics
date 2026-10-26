@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from swirl_dynamics.lib import layers
+from swirl_dynamics.lib.diffusion import preconditioning
 
 Array = jax.Array
 DTypeLike = jax.typing.DTypeLike
@@ -1093,29 +1094,19 @@ class PreconditionedDenoiser(UNet):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    total_var = jnp.square(self.sigma_data) + jnp.square(sigma)
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = sigma * self.sigma_data / jnp.sqrt(total_var)
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
+    orig_dtype = x.dtype
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype), self.sigma_data, x.shape
+        )
     )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(self.dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
 
 
 class HeavyTailedDenoiser(UNet):
@@ -1141,33 +1132,19 @@ class HeavyTailedDenoiser(UNet):
       is_training: bool,
   ) -> Array:
     """Runs preconditioned denoising."""
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    total_var = (self.df / (self.df - 2)) * jnp.square(sigma) + jnp.square(
-        self.sigma_data
+    orig_dtype = x.dtype
+    calc_dtype = jnp.result_type(x, sigma, jnp.float32)
+    c_in, c_out, c_skip, c_noise = (
+        preconditioning.compute_denoising_preconditioners(
+            jnp.asarray(sigma, dtype=calc_dtype),
+            self.sigma_data,
+            x.shape,
+            df=self.df,
+        )
     )
-    c_skip = jnp.square(self.sigma_data) / total_var
-    c_out = (
-        jnp.sqrt(self.df / (self.df - 2))
-        * sigma
-        * self.sigma_data
-        / jnp.sqrt(total_var)
-    )
-    c_in = 1 / jnp.sqrt(total_var)
-    c_noise = 0.25 * jnp.log(sigma)
-
-    c_in = jnp.expand_dims(c_in, axis=np.arange(x.ndim - 1, dtype=np.int32) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_out = jnp.expand_dims(c_out, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-    c_skip = jnp.expand_dims(c_skip, axis=np.arange(x.ndim - 1) + 1)  # pyrefly: ignore[bad-argument-type]
-
-    f_x = super().__call__(
-        jnp.multiply(c_in, x), c_noise, cond, is_training=is_training
-    )
-    return jnp.multiply(c_skip, x) + jnp.multiply(c_out, f_x)
+    x_in = jnp.multiply(c_in, x.astype(calc_dtype)).astype(self.dtype)
+    f_x = super().__call__(x_in, c_noise, cond, is_training=is_training)
+    return (
+        jnp.multiply(c_skip, x.astype(calc_dtype))
+        + jnp.multiply(c_out, f_x.astype(calc_dtype))
+    ).astype(orig_dtype)
