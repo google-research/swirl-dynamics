@@ -46,12 +46,15 @@ class SinkhornOutput(NamedTuple):
     cost_matrix: The cost matrix of the Sinkhorn iteration, which is the
       distance between each pair of points.
     epsilon: The regularization parameter for the entropic regularization.
-    reg_ot_cost: The regularized optimal transport cost.
+    reg_ot_cost: Bare primal transport cost ``<P, C>`` (matching OTT-JAX
+      ``primal_cost``, without the entropic KL term; see ``entropic_ot_cost``
+      for the KL-regularized objective).
     threshold: The convergence threshold.
     converged: Whether the iteration converged.
     num_iterations: The number of iterations performed.
     marginal_error: Total L1 marginal violation ``||P 1 - a||_1 + ||P^T 1 -
       b||_1`` of the transport plan.
+    weights: Marginal probability weights ``(a, b)`` for sets A and B.
   """
 
   potentials: tuple[Array, Array]
@@ -62,6 +65,7 @@ class SinkhornOutput(NamedTuple):
   converged: Array | bool | None = None
   num_iterations: Array | int | None = None
   marginal_error: Array | None = None
+  weights: tuple[Array, Array] | None = None
   # TODO: Compute deviation from optimality in the solutions.
   # errors: jnp.ndarray | None = None
 
@@ -90,6 +94,92 @@ class SinkhornOutput(NamedTuple):
 
     return jnp.exp(kernel)
 
+  @property
+  def kantorovich_potentials(self) -> tuple[Array, Array]:
+    r"""Returns finite Kantorovich-gauge potentials ``(f, g)``.
+
+    The Kantorovich potentials satisfy
+    ``P_{ij} = exp((f_i + g_j - C_{ij}) / epsilon) * a_i * b_j``.
+    On positive-support entries (``a_i > 0`` / ``b_j > 0``),
+    ``f_i = u_i - epsilon * log(a_i)`` and ``g_j = v_j - epsilon * log(b_j)``.
+    On zero-weight entries where ``u_i = -inf`` or ``v_j = -inf``, the finite
+    entropic c-transform is evaluated using double-``jnp.where`` masking so
+    that ``f`` and ``g`` are finite at every index.
+    """
+    if not isinstance(self.epsilon, jax.core.Tracer) and self.epsilon <= 0:
+      raise ValueError("Epsilon should be positive.")
+    if self.weights is not None:
+      a, b = self.weights
+    else:
+      num_x = self.fu.shape[0]
+      num_y = self.gv.shape[0]
+      a = jnp.ones((num_x,), dtype=self.fu.dtype) / num_x
+      b = jnp.ones((num_y,), dtype=self.gv.dtype) / num_y
+
+    mask_a = jnp.logical_and(a > 0, jnp.isfinite(self.fu))
+    safe_a = jnp.where(mask_a, a, 1.0)
+    safe_u = jnp.where(mask_a, self.fu, 0.0)
+    f_pos = safe_u - self.epsilon * jnp.log(safe_a)
+
+    mask_v = jnp.isfinite(self.gv)[None, :]
+    safe_v_2d = jnp.where(mask_v, self.gv[None, :], 0.0)
+    logits_f = jnp.where(
+        mask_v, (safe_v_2d - self.cost_matrix) / self.epsilon, -jnp.inf
+    )
+    f_ctrans = -self.epsilon * jax.scipy.special.logsumexp(logits_f, axis=1)
+    f = jnp.where(mask_a, f_pos, f_ctrans)
+
+    mask_b = jnp.logical_and(b > 0, jnp.isfinite(self.gv))
+    safe_b = jnp.where(mask_b, b, 1.0)
+    safe_v = jnp.where(mask_b, self.gv, 0.0)
+    g_pos = safe_v - self.epsilon * jnp.log(safe_b)
+
+    mask_u = jnp.isfinite(self.fu)[:, None]
+    safe_u_2d = jnp.where(mask_u, self.fu[:, None], 0.0)
+    logits_g = jnp.where(
+        mask_u, (safe_u_2d - self.cost_matrix) / self.epsilon, -jnp.inf
+    )
+    g_ctrans = -self.epsilon * jax.scipy.special.logsumexp(logits_g, axis=0)
+    g = jnp.where(mask_b, g_pos, g_ctrans)
+    return f, g
+
+  @property
+  def entropic_ot_cost(self) -> Array:
+    """The entropic optimal transport cost (Fenchel-Rockafellar dual objective).
+
+    At marginal convergence, this equals the KL-regularized primal objective
+    ``<P, C> + epsilon * KL(P || a x b) = <f, a> + <g, b>``, matching OTT-JAX's
+    ``reg_ot_cost`` (``kl_reg_cost``), and differs from OTT-JAX's
+    ``ent_reg_cost`` by ``+epsilon * (H(a) + H(b))``.
+    """
+    if self.weights is not None:
+      a, b = self.weights
+    else:
+      num_x = self.fu.shape[0]
+      num_y = self.gv.shape[0]
+      a = jnp.ones((num_x,), dtype=self.fu.dtype) / num_x
+      b = jnp.ones((num_y,), dtype=self.gv.dtype) / num_y
+    mask_a = a > 0
+    mask_b = b > 0
+    safe_a = jnp.where(mask_a, a, 1.0)
+    safe_b = jnp.where(mask_b, b, 1.0)
+    safe_u = jnp.where(mask_a, self.fu, 0.0)
+    safe_v = jnp.where(mask_b, self.gv, 0.0)
+    term_a = jnp.sum(
+        jnp.where(
+            mask_a, safe_a * (safe_u - self.epsilon * jnp.log(safe_a)), 0.0
+        )
+    )
+    term_b = jnp.sum(
+        jnp.where(
+            mask_b, safe_b * (safe_v - self.epsilon * jnp.log(safe_b)), 0.0
+        )
+    )
+    legendre_gap = self.epsilon * (
+        jnp.sum(a) * jnp.sum(b) - jnp.sum(self.transport_plan)
+    )
+    return term_a + term_b + legendre_gap
+
 
 def _validate_potential_and_y(potential: Array, y: Array) -> None:
   """Validates shapes of dual potential vector and target point cloud."""
@@ -117,6 +207,52 @@ def _validate_query_points(x: Array, y: Array) -> None:
     raise ValueError(
         "x and y must have the same feature dimension, got"
         f" x.shape[-1]={x.shape[-1]} and y.shape[-1]={y.shape[-1]}."
+    )
+
+
+def _validate_solve_shapes(
+    x: Array, y: Array, a: Array | None, b: Array | None
+) -> None:
+  """Validates static shapes of point clouds and optional marginal weights."""
+  if x.ndim != 2 or y.ndim != 2:
+    raise ValueError(
+        "x and y should be 2d arrays, instead their dimensions are"
+        f" {x.ndim}, {y.ndim} respectively."
+    )
+  if x.shape[0] <= 0 or y.shape[0] <= 0:
+    raise ValueError(
+        "x and y must be non-empty along axis 0, got"
+        f" x.shape={x.shape} and y.shape={y.shape}."
+    )
+  if x.shape[1] != y.shape[1]:
+    raise ValueError(
+        "x and y must have the same feature dimension, got"
+        f" x.shape[1]={x.shape[1]} and y.shape[1]={y.shape[1]}."
+    )
+  if a is not None and (a.ndim != 1 or a.shape[0] != x.shape[0]):
+    raise ValueError(
+        f"a must be a 1D array of length x.shape[0]={x.shape[0]}, got"
+        f" a.ndim={a.ndim} and a.shape={a.shape}."
+    )
+  if b is not None and (b.ndim != 1 or b.shape[0] != y.shape[0]):
+    raise ValueError(
+        f"b must be a 1D array of length y.shape[0]={y.shape[0]}, got"
+        f" b.ndim={b.ndim} and b.shape={b.shape}."
+    )
+
+
+def _validate_weights(weights: Array, name: str) -> None:
+  """Validates concrete marginal probability weights outside of JIT."""
+  if isinstance(weights, jax.core.Tracer):
+    return
+  if not bool(jnp.all(jnp.isfinite(weights))):
+    raise ValueError(f"{name} must contain only finite values.")
+  if not bool(jnp.all(weights >= 0)):
+    raise ValueError(f"{name} must contain non-negative weights.")
+  total = float(jnp.sum(weights))
+  if abs(total - 1.0) > 1e-6:
+    raise ValueError(
+        f"{name} must sum to 1 within 1e-6, got sum({name})={total}."
     )
 
 
@@ -207,8 +343,40 @@ class SinkhornSolver:
     self.inner_iterations = inner_iterations
     self._solver = jax.jit(self._forward_solve)
 
-  def __call__(self, x: Array, y: Array) -> SinkhornOutput:
-    return self._solver(x, y)
+  def __call__(
+      self,
+      x: Array,
+      y: Array,
+      a: Array | None = None,
+      b: Array | None = None,
+  ) -> SinkhornOutput:
+    """Solves the entropic optimal transport problem between point clouds.
+
+    Args:
+      x: Source point cloud of shape ``(n, d)``.
+      y: Target point cloud of shape ``(m, d)``.
+      a: Optional non-negative source probability weights of shape ``(n,)``
+        summing to 1. If ``None``, uniform empirical weights ``1 / n`` are used.
+      b: Optional non-negative target probability weights of shape ``(m,)``
+        summing to 1. If ``None``, uniform empirical weights ``1 / m`` are used.
+
+    Returns:
+      A ``SinkhornOutput`` instance holding potentials, costs, and diagnostics.
+
+    Raises:
+      ValueError: If shapes or concrete probability weight invariants are
+        invalid.
+    """
+    if a is not None:
+      a = jnp.asarray(a)
+    if b is not None:
+      b = jnp.asarray(b)
+    _validate_solve_shapes(x, y, a, b)
+    if a is not None:
+      _validate_weights(a, "a")
+    if b is not None:
+      _validate_weights(b, "b")
+    return self._solver(x, y, a, b)
 
   def _marginal_error(
       self, u: Array, v: Array, cost_matrix: Array, a: Array, b: Array
@@ -221,40 +389,50 @@ class SinkhornSolver:
         jnp.abs(col_marginals - b)
     )
 
-  def _forward_solve(self, x: Array, y: Array) -> SinkhornOutput:
+  def _forward_solve(
+      self,
+      x: Array,
+      y: Array,
+      a: Array | None = None,
+      b: Array | None = None,
+  ) -> SinkhornOutput:
     """Computation of the cost and the coupling matrix.
 
     Args:
-      x: Collection of points of set A.
-      y: Collection of point of set B.
+      x: Collection of points of set A of shape ``(n, d)``.
+      y: Collection of points of set B of shape ``(m, d)``.
+      a: Optional marginal probability weights of set A of shape ``(n,)``.
+      b: Optional marginal probability weights of set B of shape ``(m,)``.
 
     Returns:
       An instance of SinkhornOutput, which is a named tuple containing the cost
       of the minimizer, the cost matrix, the potentials in log space, and the
       number of iterations required for convergence.
     """
-    # We assume that x and y are 2d arrays. First dimension is the number of
-    # points, and second dimension is the feature dimension.
-    if x.ndim != 2 or y.ndim != 2:
-      raise ValueError(
-          "x and y should be 2d arrays, instead their dimensions are"
-          f" {x.ndim}, {y.ndim} respectively."
-      )
+    if a is not None:
+      a = jnp.asarray(a)
+    if b is not None:
+      b = jnp.asarray(b)
+    _validate_solve_shapes(x, y, a, b)
 
     num_x = x.shape[0]
     num_y = y.shape[0]
-
-    # Defines the marginal densities as empirical measures.
-    a, b = jnp.ones((num_x,)) / num_x, jnp.ones((num_y,)) / num_y
-
-    # Initialises approximation vectors in log domain.
-    u, v = jnp.zeros_like(a), jnp.zeros_like(b)
 
     # Computes cost matrix.
     cost_matrix = self._compute_cost(x, y)
     # Adds sharding constraints, if sharding is provided.
     if self.sharding is not None:
       cost_matrix = jax.lax.with_sharding_constraint(cost_matrix, self.sharding)
+
+    # Defines the marginal densities as empirical measures when not provided.
+    if a is None:
+      a = jnp.ones((num_x,), dtype=cost_matrix.dtype) / num_x
+    else:
+      a = jnp.asarray(a, dtype=cost_matrix.dtype)
+    if b is None:
+      b = jnp.ones((num_y,), dtype=cost_matrix.dtype) / num_y
+    else:
+      b = jnp.asarray(b, dtype=cost_matrix.dtype)
 
     a_reg = a + self.eps_marginal
     b_reg = b + self.eps_marginal
@@ -264,6 +442,10 @@ class SinkhornSolver:
     safe_b = jnp.where(mask_b, b_reg, 1.0)
     safe_log_a = jnp.log(safe_a)
     safe_log_b = jnp.log(safe_b)
+
+    # Initialises approximation vectors in log domain (-inf on zero support).
+    u = jnp.where(mask_a, jnp.zeros_like(a), -jnp.inf)
+    v = jnp.where(mask_b, jnp.zeros_like(b), -jnp.inf)
 
     def _sweep(v_in: Array) -> tuple[Array, Array]:
       mask_v = jnp.isfinite(v_in)[None, :]
@@ -352,6 +534,7 @@ class SinkhornSolver:
         converged=converged,
         threshold=self.threshold,
         marginal_error=marginal_error,
+        weights=(a, b),
     )
 
   def _compute_cost(self, x: Array, y: Array) -> Array:
@@ -469,24 +652,31 @@ class SinkhornSolver:
       f_\varepsilon(x) = -\varepsilon \log \sum_{j=1}^m
         \exp\left(\frac{v_j - c(x, y_j)}{\varepsilon}\right)
 
-    When ``weights`` is ``None``, ``potential`` is treated in the scaling gauge
-    where ``\varepsilon \log b_j`` is already absorbed into ``v_j``.
+    where ``potential`` is in the scaling gauge so ``\varepsilon \log b_j`` is
+    already absorbed into ``v_j``.
 
     Args:
       x: Query point(s) of shape ``(d,)`` or ``(B, d)``.
-      potential: Dual potential of set B with shape ``(m,)``.
+      potential: Scaling-gauge dual potential of set B with shape ``(m,)``.
       y: Target points of set B with shape ``(m, d)``.
-      weights: Optional positive weights of shape ``(m,)`` when ``potential`` is
-        in the Kantorovich gauge rather than the scaling gauge.
+      weights: Must be ``None``. Passing explicit ``weights`` is disallowed
+        because ``potential`` already absorbs ``epsilon * log(b)``.
 
     Returns:
       Scalar potential when ``x.ndim == 1``, or 1-D array of shape ``(B,)`` when
       ``x.ndim == 2``.
 
     Raises:
-      ValueError: If ``x`` is not 1-D or 2-D, or if ``x`` and ``y`` have
-        different feature dimensions.
+      ValueError: If ``weights is not None``, if ``y.ndim != 2``, if
+        ``potential`` is not a 1-D vector of length ``y.shape[0]``, if ``x`` is
+        not 1-D or 2-D, or if ``x`` and ``y`` have different feature dimensions.
     """
+    if weights is not None:
+      raise ValueError(
+          "weights must be None in _potential_fn because Sinkhorn"
+          " scaling-gauge potentials already absorb epsilon * log(b)."
+      )
+    _validate_potential_and_y(potential, y)
     _validate_query_points(x, y)
 
     x_2d = x[None, :] if x.ndim == 1 else x
@@ -494,12 +684,7 @@ class SinkhornSolver:
     mask = jnp.isfinite(potential)[None, :]
     safe_potential = jnp.where(mask, potential[None, :], 0.0)
     z = jnp.where(mask, (safe_potential - cost) / self.epsilon, -jnp.inf)
-    if weights is None:
-      lse = -self.epsilon * jax.scipy.special.logsumexp(z, axis=-1)
-    else:
-      lse = -self.epsilon * jax.scipy.special.logsumexp(
-          z, b=weights[None, :], axis=-1
-      )
+    lse = -self.epsilon * jax.scipy.special.logsumexp(z, axis=-1)
     return lse[0] if x.ndim == 1 else lse
 
   def _gradient_transport_fn(
