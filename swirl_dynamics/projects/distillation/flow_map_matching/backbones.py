@@ -28,8 +28,10 @@ References:
 Karras, Miika Aittala, Jaakko Lehtinen, Janne Hellsten, Timo Aila, Samuli Laine.
 CVPR 2024.
 """
+
+from collections.abc import Callable, Mapping, Sequence
 import functools
-from typing import Any, Callable, Literal, Mapping, Sequence, TypeAlias
+from typing import Any, Literal
 
 from clu import metrics as clu_metrics
 import flax.linen as nn
@@ -38,21 +40,21 @@ import jax.numpy as jnp
 from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
 
-
-MergeChannelCond: TypeAlias = unets.MergeChannelCond
-PrecisionLike: TypeAlias = (
+MergeChannelCond = unets.MergeChannelCond
+DTypeLike = jax.typing.DTypeLike
+PrecisionLike = (
     None
     | str
     | jax.lax.Precision
     | tuple[str, str]
     | tuple[jax.lax.Precision, jax.lax.Precision]
 )
-Array: TypeAlias = jax.Array
-ArrayShape: TypeAlias = Sequence[int]
-CondDict: TypeAlias = Mapping[str, Array]
-Metrics: TypeAlias = clu_metrics.Collection
-ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
-PyTree: TypeAlias = Any
+Array = jax.Array
+ArrayShape = Sequence[int]
+CondDict = Mapping[str, Array]
+Metrics = clu_metrics.Collection
+ShapeDict = Mapping[str, Any]  # may be nested
+PyTree = Any
 
 
 def logit_normal_dist(
@@ -60,8 +62,8 @@ def logit_normal_dist(
     shape: ArrayShape,
     mean: float = 0.0,
     std: float = 1.0,
-    dtype: jnp.dtype = jnp.float32,  # pyrefly: ignore[bad-function-definition]
-):
+    dtype: DTypeLike = jnp.float32,
+) -> Array:
   rnd_normal = jax.random.normal(rng, shape, dtype=dtype)
   return nn.sigmoid(rnd_normal * std + mean)
 
@@ -89,9 +91,7 @@ def time_sampler_mean_flow(
   Returns:
     The sampled times t and s.
   """
-  time_sample_rng_t, time_sample_rng_s = jax.random.split(
-      rng, num=2
-  )
+  time_sample_rng_t, time_sample_rng_s = jax.random.split(rng, num=2)
 
   time_range = max_train_time - min_train_time
   time_t = (
@@ -150,8 +150,8 @@ class FourierEmbedding(nn.Module):
   frequency_shift: float = 0.0
   precision: PrecisionLike = None
   normalization: bool = False
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(self, x: Array) -> Array:
@@ -262,10 +262,10 @@ class FlowMapUNet(nn.Module):
   time_embedding_merge: Literal["concat", "add"] = "concat"
   cond_merging_fn: type[unets.MergeChannelCond] | None = None
   cond_embed_fn: type[unets.MergeEmdCond] | None = None
-  cond_embed_kwargs: dict[str, jax.typing.ArrayLike] | None = None
+  cond_embed_kwargs: Mapping[str, Any] | None = None
   precision: PrecisionLike = None
-  dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
-  param_dtype: jnp.dtype = jnp.float32  # pyrefly: ignore[bad-assignment]
+  dtype: DTypeLike = jnp.float32
+  param_dtype: DTypeLike = jnp.float32
 
   @nn.compact
   def __call__(
