@@ -42,9 +42,21 @@ class NetworksTest(parameterized.TestCase):
         use_position_encoding=use_pos_enc,
     )
     out, _ = model.init_with_output(
-        jax.random.PRNGKey(42), x=x,  # is_training=True
+        jax.random.PRNGKey(42),
+        x=x,  # is_training=True
     )
     self.assertEqual(out.shape, x.shape)
+
+  def test_add_2d_pos_embedding_invalid_inputs_raise(self):
+    layer = unets.Add2dPosEmbedding()
+    with self.subTest("non_4d_input"):
+      with self.assertRaisesRegex(ValueError, "dimension of the input is 3"):
+        layer.init(jax.random.PRNGKey(0), np.ones((2, 8, 4)))
+    with self.subTest("odd_channels"):
+      with self.assertRaisesRegex(
+          ValueError, "Number of channels must be even, instead we had 3"
+      ):
+        layer.init(jax.random.PRNGKey(0), np.ones((2, 8, 8, 3)))
 
 
 if __name__ == "__main__":
