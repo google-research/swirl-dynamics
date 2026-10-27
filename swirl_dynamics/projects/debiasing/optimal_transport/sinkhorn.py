@@ -267,8 +267,11 @@ class SinkhornSolver:
     epsilon: The regularization parameter for the Sinkhorn iteration.
     num_iterations: Maximum number of iteration for the iteration to converge.
     metric: Function for the distance between two samples.
-    sharding: Positional sharding for the cost matrix. By default we assume that
-      there is only one accelerator.
+    sharding: Optional ``jax.sharding.Sharding`` constraint (e.g.,
+      ``jax.sharding.NamedSharding(mesh, PartitionSpec("x", None))``) for the
+      cost matrix. When ``(n, m)`` is not evenly divisible by the mesh axes, XLA
+      GSPMD silently replicates the cost matrix and ``SinkhornSolver`` logs a
+      warning.
     threshold: Convergence threshold to stop the iteration.
     eps_marginal: The regularization parameter for the marginal densities.
     criterion: Stopping criterion ("marginal" or "potentials").
@@ -291,7 +294,11 @@ class SinkhornSolver:
 
     Args:
       epsilon: Entropic regularization parameter (must be positive).
-      sharding: Optional sharding constraint for the cost matrix.
+      sharding: Optional ``jax.sharding.Sharding`` constraint (e.g.,
+        ``jax.sharding.NamedSharding(mesh, PartitionSpec("x", None))``) for the
+        cost matrix. When ``(n, m)`` is not evenly divisible by the mesh axes,
+        XLA GSPMD silently replicates the cost matrix and ``SinkhornSolver``
+        logs a warning.
       num_iterations: Maximum number of Sinkhorn iterations (must be
         non-negative).
       threshold: Convergence threshold on marginal or potential error (must be
@@ -376,7 +383,23 @@ class SinkhornSolver:
       _validate_weights(a, "a")
     if b is not None:
       _validate_weights(b, "b")
-    return self._solver(x, y, a, b)
+    out = self._solver(x, y, a, b)
+    if (
+        self.sharding is not None
+        and not isinstance(out.cost_matrix, jax.core.Tracer)
+        and not out.cost_matrix.sharding.is_equivalent_to(
+            self.sharding, out.cost_matrix.ndim
+        )
+    ):
+      logging.warning(
+          "Requested cost_matrix sharding %s for shape %s fell back to %s"
+          " (likely because cost_matrix dimensions are not evenly divisible by"
+          " mesh axes).",
+          self.sharding,
+          out.cost_matrix.shape,
+          out.cost_matrix.sharding,
+      )
+    return out
 
   def _marginal_error(
       self, u: Array, v: Array, cost_matrix: Array, a: Array, b: Array
