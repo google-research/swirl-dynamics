@@ -27,7 +27,8 @@ dependencies = [
   "clu",
   "dask",
   "etils",
-  "flax",
+  # flax<0.12.8 calls jax.core.get_opaque_trace_state (removed in jax 0.11).
+  "flax>=0.12.8",
   "h5py",
   "grain-nightly",
   "gin-config",

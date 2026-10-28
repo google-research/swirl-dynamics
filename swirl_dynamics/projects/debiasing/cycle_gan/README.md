@@ -1,3 +1,5 @@
+<!-- disableFinding(SNIPPET_INVALID_LANGUAGE) -->
+
 # CycleGAN debiasing
 
 Unpaired translation between two distributions of physical fields with a
@@ -14,18 +16,20 @@ B) without paired samples.
 Notation: $a \sim \mu_A$, $b \sim \mu_B$; $G$ = `generator_a2b` ($A \to B$),
 $F$ = `generator_b2a` ($B \to A$); $D_A$ and $D_B$ discriminate samples *of* $A$
 and *of* $B$ (domain-based naming; the PyTorch reference implementation names
-its discriminators after the generators instead); $\|\cdot\|_1$ is the **mean**
-absolute error over all entries (`l1_loss`); $\ell(p, t)$ is the adversarial
-criterion applied to a PatchGAN prediction map $p$ with the scalar target $t$
-broadcast; $\mathrm{sg}$ is `stop_gradient`.
+its discriminators after the generators instead); $\lVert\cdot\rVert_1$ is the
+**mean** absolute error over all entries (`l1_loss`); $\ell(p, t)$ is the
+adversarial criterion applied to a PatchGAN prediction map $p$ with the scalar
+target $t$ broadcast; $\operatorname{sg}$ is `stop_gradient`.
 
 **Generator step** (`CycleGANModel.generator_loss_and_samples`):
 
-$$
-\mathcal L_{G,F} = \ell\big(D_B(G(a)), 1\big) + \ell\big(D_A(F(b)), 1\big)
-+ \lambda_A \|F(G(a)) - a\|_1 + \lambda_B \|G(F(b)) - b\|_1
-+ \lambda_{id}\big(\lambda_B \|G(b) - b\|_1 + \lambda_A \|F(a) - a\|_1\big).
-$$
+```math
+\begin{aligned}
+\mathcal{L}_{G,F} &= \ell\big(D_B(G(a)), 1\big) + \ell\big(D_A(F(b)), 1\big) \\
+&\quad + \lambda_A \lVert F(G(a)) - a\rVert_1 + \lambda_B \lVert G(F(b)) - b\rVert_1 \\
+&\quad + \lambda_{id}\big(\lambda_B \lVert G(b) - b\rVert_1 + \lambda_A \lVert F(a) - a\rVert_1\big).
+\end{aligned}
+```
 
 The cycle terms are used if `use_cycle_loss`, the identity terms if
 `same_dimension` **and** $\lambda_{id} > 0$ (otherwise the two extra generator
@@ -35,11 +39,13 @@ step.
 **Discriminator step** (`CycleGANModel.discriminator_loss_and_metrics`), on the
 real batch and the samples generated in the generator step:
 
-$$
-\mathcal L_D = \tfrac12\big[\ell(D_A(a), 1) + \ell(D_A(\mathrm{sg}\,F(b)), 0)\big]
-+ \tfrac12\big[\ell(D_B(b), 1) + \ell(D_B(\mathrm{sg}\,G(a)), 0)\big]
-+ \underbrace{\tfrac12\big[\ell(D_A(b), 0) + \ell(D_B(a), 0)\big]}_{\texttt{use\_crossed\_dis\_loss}}.
-$$
+```math
+\begin{aligned}
+\mathcal{L}_D &= \tfrac12\big[\ell(D_A(a), 1) + \ell(D_A(\operatorname{sg} F(b)), 0)\big] \\
+&\quad + \tfrac12\big[\ell(D_B(b), 1) + \ell(D_B(\operatorname{sg} G(a)), 0)\big] \\
+&\quad + \underbrace{\tfrac12\big[\ell(D_A(b), 0) + \ell(D_B(a), 0)\big]}_{\texttt{use\_crossed\_dis\_loss}}.
+\end{aligned}
+```
 
 The factor $\tfrac12$ on the discriminator objective follows the reference
 implementation ("we divide the objective by 2 while optimizing $D$", [1]); the
@@ -50,21 +56,21 @@ other domain, is an extension of this package and is off by default.
 optionally smoothed through `target_real_label`:
 
 *   LSGAN [3]: $\ell(p, t) = \overline{(p - t)^2}$;
-*   BCE with logits: $\ell(p, t) = \overline{(1 - t)\,p +
-    \mathrm{softplus}(-p)}$, the numerically stable form of $-\overline{t \log
-    \sigma(p) + (1 - t)\log(1 - \sigma(p))}$;
+*   BCE with logits: $\ell(p, t) = \overline{(1 - t)p + \mathrm{softplus}(-p)}$,
+    the numerically stable form of $-\overline{t \log \sigma(p) + (1 -
+    t)\log(1-\sigma(p))}$;
 *   Wasserstein critic [4]: $\ell(p, 1) = -\bar p$, $\ell(p, 0) = +\bar p$.
 
 **WGAN-GP** (`loss_functions.gradient_penalty`). With per-sample interpolates
-$\hat u = \alpha u + (1 - \alpha)\,\mathrm{sg}(\tilde u)$, $\alpha \sim \mathcal
-U(0, 1)$, and the per-sample critic score $s(\hat u) =
+$\hat u = \alpha u + (1 - \alpha)\operatorname{sg}(\tilde u)$, $\alpha \sim
+\mathcal{U}(0, 1)$, and the per-sample critic score $s(\hat u) =
 \mathrm{mean}_{\text{patch}} D(\hat u)$,
 
-$$
-\mathrm{GP} = \mathbb E_{\hat u}\Big[\big(\sqrt{\|\nabla_{\hat u} s(\hat u)\|_2^2 + \varepsilon_{\text{stab}}} - 1\big)^2\Big],
+```math
+\mathrm{GP} = \mathbb{E}_{\hat u}\Big[\big(\sqrt{\lVert\nabla_{\hat u} s(\hat u)\rVert_2^2 + \varepsilon_{\text{stab}}} - 1\big)^2\Big],
 \qquad
-\mathcal L_D^{\text{WGAN-GP}} = \tfrac12\big[\bar D(\tilde u) - \bar D(u) + \lambda_{gp}\,\mathrm{GP}\big]
-$$
+\mathcal{L}_D^{\text{WGAN-GP}} = \tfrac12\big[\bar D(\tilde u) - \bar D(u) + \lambda_{gp}\thinspace\mathrm{GP}\big]
+```
 
 per discriminator. The common $\tfrac12$ keeps the ratio between the critic term
 and the penalty of [4], so `lambda_gp = 10` means the paper's 10. The penalty is
@@ -102,15 +108,15 @@ PatchGAN `Discriminator` and a `FilteredInterpolation` layer for inputs of shape
 physical fields the KS config changes three of them, for the following reasons.
 
 *   **Instance normalisation makes the discriminator amplitude-blind.** The
-    default discriminator is `Conv(bias) → PReLU` followed by `Conv(no bias) →
-    GroupNorm(group_size=1) → PReLU` blocks. At initialisation the first layer
-    is positively homogeneous (zero bias) and every later layer is normalised
-    per sample and channel, so $D(c\,u) = D(u)$ for $c > 0$ up to
+    default discriminator is `Conv(bias) → PReLU` followed by
+    `Conv(no bias) → GroupNorm(group_size=1) → PReLU` blocks. At initialisation
+    the first layer is positively homogeneous (zero bias) and every later layer
+    is normalised per sample and channel, so $D(cu) = D(u)$ for $c > 0$ up to
     $O(\varepsilon_{GN} / \sigma^2)$, where $\sigma^2$ is the per-channel
     activation variance (with the shipped `normal(0.02)` kernels $\sigma^2 \sim
     10^{-4}$, so the residual is small but not negligible: for a small
     discriminator at initialisation the measured $\max|D(3u) - D(u)|$ is about
-    $0.5\%$ of the response to an independent input). After training, amplitude
+    0.5% of the response to an independent input). After training, amplitude
     information can enter only through the bias and PReLU kink of the first
     layer. Per-channel biases of the normalised convolutions (`use_bias=True`)
     are cancelled algebraically by the mean subtraction, and in float32 with the
