@@ -24,7 +24,7 @@ optimal transport maps." arXiv preprint arXiv:2109.12004 (2021).
 """
 
 from collections.abc import Callable
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from absl import logging
 import jax
@@ -50,6 +50,8 @@ class SinkhornOutput(NamedTuple):
     threshold: The convergence threshold.
     converged: Whether the iteration converged.
     num_iterations: The number of iterations performed.
+    marginal_error: Total L1 marginal violation ``||P 1 - a||_1 + ||P^T 1 -
+      b||_1`` of the transport plan.
   """
 
   potentials: tuple[Array, Array]
@@ -57,8 +59,9 @@ class SinkhornOutput(NamedTuple):
   epsilon: float
   reg_ot_cost: Array | None = None
   threshold: float | None = None
-  converged: bool | None = None
-  num_iterations: int | None = None
+  converged: Array | bool | None = None
+  num_iterations: Array | int | None = None
+  marginal_error: Array | None = None
   # TODO: Compute deviation from optimality in the solutions.
   # errors: jnp.ndarray | None = None
 
@@ -132,6 +135,8 @@ class SinkhornSolver:
       there is only one accelerator.
     threshold: Convergence threshold to stop the iteration.
     eps_marginal: The regularization parameter for the marginal densities.
+    criterion: Stopping criterion ("marginal" or "potentials").
+    inner_iterations: Number of Sinkhorn sweeps per convergence check.
     _solver: The jitted solver function.
   """
 
@@ -142,7 +147,9 @@ class SinkhornSolver:
       num_iterations: int = 100,
       threshold: float = 1e-3,
       metric: Callable[[Array], Array] = lambda x: jnp.pow(x, 2),
-      eps_marginal: float = 1e-12,
+      eps_marginal: float = 0.0,
+      criterion: Literal["marginal", "potentials"] = "marginal",
+      inner_iterations: int = 1,
   ):
     """Initializes the Sinkhorn solver.
 
@@ -151,15 +158,19 @@ class SinkhornSolver:
       sharding: Optional sharding constraint for the cost matrix.
       num_iterations: Maximum number of Sinkhorn iterations (must be
         non-negative).
-      threshold: Convergence threshold on potential updates (must be
+      threshold: Convergence threshold on marginal or potential error (must be
         non-negative).
       metric: Elementwise distance function applied before summing across
         features.
       eps_marginal: Non-negative additive stabilizer for marginal densities.
+      criterion: Convergence criterion, either ``"marginal"`` (total L1 marginal
+        violation) or ``"potentials"`` (L2 change in dual potentials).
+      inner_iterations: Number of Sinkhorn sweeps executed between convergence
+        checks (must be at least 1).
 
     Raises:
-      ValueError: If `epsilon <= 0`, `num_iterations < 0`, `threshold < 0`, or
-        `eps_marginal < 0`.
+      ValueError: If `epsilon <= 0`, `num_iterations < 0`, `threshold < 0`,
+        `eps_marginal < 0`, `criterion` is invalid, or `inner_iterations < 1`.
     """
     if epsilon <= 0:
       raise ValueError(f"epsilon must be positive, got {epsilon}.")
@@ -173,6 +184,14 @@ class SinkhornSolver:
       raise ValueError(
           f"eps_marginal must be non-negative, got {eps_marginal}."
       )
+    if criterion not in ("marginal", "potentials"):
+      raise ValueError(
+          f"criterion must be 'marginal' or 'potentials', got {criterion!r}."
+      )
+    if inner_iterations < 1:
+      raise ValueError(
+          f"inner_iterations must be at least 1, got {inner_iterations}."
+      )
     if not jax.config.jax_enable_x64:
       logging.warning(
           "jax_enable_x64 is False; Sinkhorn potentials may lose accuracy or"
@@ -184,10 +203,23 @@ class SinkhornSolver:
     self.sharding = sharding
     self.threshold = threshold
     self.eps_marginal = eps_marginal
+    self.criterion = criterion
+    self.inner_iterations = inner_iterations
     self._solver = jax.jit(self._forward_solve)
 
   def __call__(self, x: Array, y: Array) -> SinkhornOutput:
     return self._solver(x, y)
+
+  def _marginal_error(
+      self, u: Array, v: Array, cost_matrix: Array, a: Array, b: Array
+  ) -> Array:
+    """Computes L1 marginal violation ``||P 1 - a||_1 + ||P^T 1 - b||_1``."""
+    kernel = self._log_gibbs_kernel(u, v, cost_matrix)
+    row_marginals = jnp.exp(jax.scipy.special.logsumexp(kernel, axis=1))
+    col_marginals = jnp.exp(jax.scipy.special.logsumexp(kernel, axis=0))
+    return jnp.sum(jnp.abs(row_marginals - a)) + jnp.sum(
+        jnp.abs(col_marginals - b)
+    )
 
   def _forward_solve(self, x: Array, y: Array) -> SinkhornOutput:
     """Computation of the cost and the coupling matrix.
@@ -224,45 +256,80 @@ class SinkhornSolver:
     if self.sharding is not None:
       cost_matrix = jax.lax.with_sharding_constraint(cost_matrix, self.sharding)
 
-    # Defines the body function for the while loop.
-    def body_fun(val: tuple[int, State]) -> tuple[int, State]:
-      # Unpacks the state, and iteration count.
-      i, (_, _, u, v) = val
-      # Saves the initial values of the potentials.
-      u0, v0 = u, v
+    a_reg = a + self.eps_marginal
+    b_reg = b + self.eps_marginal
+    mask_a = a_reg > 0
+    mask_b = b_reg > 0
+    safe_a = jnp.where(mask_a, a_reg, 1.0)
+    safe_b = jnp.where(mask_b, b_reg, 1.0)
+    safe_log_a = jnp.log(safe_a)
+    safe_log_b = jnp.log(safe_b)
 
-      # Updates the u potential following: u^{l+1} = a / (K v^l) in log space.
-      kernel_matrix = self._log_gibbs_kernel(u, v, cost_matrix)
-      u_ = jnp.log(a + self.eps_marginal) - jax.scipy.special.logsumexp(
-          kernel_matrix, axis=1
+    def _sweep(v_in: Array) -> tuple[Array, Array]:
+      mask_v = jnp.isfinite(v_in)[None, :]
+      safe_v = jnp.where(mask_v, v_in[None, :], 0.0)
+      logits_u = jnp.where(
+          mask_v, (safe_v - cost_matrix) / self.epsilon, -jnp.inf
       )
-      u = self.epsilon * u_ + u
-
-      # Updates the v potential following: v^{l+1} = b / (K^T u^(l+1)) in log
-      # space.
-      kernel_matrix_t = self._log_gibbs_kernel(u, v, cost_matrix).T
-      v_ = jnp.log(b + self.eps_marginal) - jax.scipy.special.logsumexp(
-          kernel_matrix_t, axis=1
-      )
-      v = self.epsilon * v_ + v
-
-      return (i + 1, (u0, v0, u, v))
-
-    # Condition function for stopping the while loop.
-    def cond_fun(val: tuple[int, State]) -> Array:
-      # Unpacks the state, and iteration count.
-      i, (u0, v0, u, v) = val
-
-      return jnp.logical_and(
-          (jnp.linalg.norm(u0 - u) + jnp.linalg.norm(v0 - v)) > self.threshold,
-          i < self.num_iterations,
+      u_out = jnp.where(
+          mask_a,
+          self.epsilon
+          * (safe_log_a - jax.scipy.special.logsumexp(logits_u, axis=1)),
+          -jnp.inf,
       )
 
-    # Runs the loop of the iteration.
-    num_its, (_, _, u, v) = jax.lax.while_loop(
+      mask_u = jnp.isfinite(u_out)[:, None]
+      safe_u = jnp.where(mask_u, u_out[:, None], 0.0)
+      logits_v = jnp.where(
+          mask_u, (safe_u - cost_matrix) / self.epsilon, -jnp.inf
+      )
+      v_out = jnp.where(
+          mask_b,
+          self.epsilon
+          * (safe_log_b - jax.scipy.special.logsumexp(logits_v, axis=0)),
+          -jnp.inf,
+      )
+      return u_out, v_out
+
+    def body_fun(val: State) -> State:
+      i, u, v, _ = val
+      steps = jnp.minimum(self.inner_iterations, self.num_iterations - i)
+      if self.inner_iterations == 1:
+        u_prev, v_prev = u, v
+        u, v = _sweep(v)
+      else:
+
+        def _inner_body(
+            idx: int, carry: tuple[Array, Array, Array, Array]
+        ) -> tuple[Array, Array, Array, Array]:
+          del idx
+          _, _, u_curr, v_curr = carry
+          u_next, v_next = _sweep(v_curr)
+          return (u_curr, v_curr, u_next, v_next)
+
+        u_prev, v_prev, u, v = jax.lax.fori_loop(
+            0, steps, _inner_body, (u, v, u, v)
+        )
+
+      if self.criterion == "marginal":
+        err = self._marginal_error(u, v, cost_matrix, a, b)
+      else:
+        du = jnp.where(mask_a, u, 0.0) - jnp.where(mask_a, u_prev, 0.0)
+        dv = jnp.where(mask_b, v, 0.0) - jnp.where(mask_b, v_prev, 0.0)
+        err = jnp.linalg.norm(du) + jnp.linalg.norm(dv)
+
+      return (i + steps, u, v, err)
+
+    def cond_fun(val: State) -> Array:
+      i, _, _, err = val
+      return jnp.logical_and(err > self.threshold, i < self.num_iterations)
+
+    init_err = jnp.asarray(jnp.inf, dtype=cost_matrix.dtype)
+    init_i = jnp.asarray(0, dtype=jnp.int32)
+    num_its, u, v, err = jax.lax.while_loop(
         cond_fun=cond_fun,
         body_fun=body_fun,
-        init_val=(0, (jnp.ones_like(u), jnp.ones_like(v), u, v)),
+        init_val=(init_i, u, v, init_err),
     )
 
     # Computes transport plan pi = diag(a)*K*diag(b).
@@ -273,7 +340,8 @@ class SinkhornSolver:
     reg_ot_cost = jnp.sum(pi * cost_matrix, axis=(-2, -1))
 
     # Checks if the iteration converged.
-    converged = num_its < self.num_iterations - 1
+    converged = jnp.logical_and(err <= self.threshold, jnp.isfinite(err))
+    marginal_error = self._marginal_error(u, v, cost_matrix, a, b)
 
     return SinkhornOutput(
         potentials=(u, v),
@@ -283,6 +351,7 @@ class SinkhornSolver:
         reg_ot_cost=reg_ot_cost,
         converged=converged,
         threshold=self.threshold,
+        marginal_error=marginal_error,
     )
 
   def _compute_cost(self, x: Array, y: Array) -> Array:
