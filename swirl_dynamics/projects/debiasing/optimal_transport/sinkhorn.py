@@ -23,7 +23,8 @@ transport." Advances in neural information processing systems 26 (2013).
 optimal transport maps." arXiv preprint arXiv:2109.12004 (2021).
 """
 
-from typing import Callable, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
 
 from absl import logging
 import jax
@@ -85,6 +86,35 @@ class SinkhornOutput(NamedTuple):
     kernel /= self.epsilon
 
     return jnp.exp(kernel)
+
+
+def _validate_potential_and_y(potential: Array, y: Array) -> None:
+  """Validates shapes of dual potential vector and target point cloud."""
+  if y.ndim != 2:
+    raise ValueError(
+        f"y must be a 2D array of shape (m, d), got y.ndim={y.ndim} with"
+        f" y.shape={y.shape}."
+    )
+  if potential.ndim != 1 or potential.shape[0] != y.shape[0]:
+    raise ValueError(
+        "potential must be a 1D array with potential.shape[0] == y.shape[0],"
+        f" got potential.ndim={potential.ndim},"
+        f" potential.shape={potential.shape}, and y.shape={y.shape}."
+    )
+
+
+def _validate_query_points(x: Array, y: Array) -> None:
+  """Validates query array rank (1-D or 2-D) and feature dimension."""
+  if x.ndim not in (1, 2):
+    raise ValueError(
+        f"x must be a 1D or 2D array, got x.ndim={x.ndim} with"
+        f" x.shape={x.shape}."
+    )
+  if x.shape[-1] != y.shape[-1]:
+    raise ValueError(
+        "x and y must have the same feature dimension, got"
+        f" x.shape[-1]={x.shape[-1]} and y.shape[-1]={y.shape[-1]}."
+    )
 
 
 class SinkhornSolver:
@@ -300,32 +330,59 @@ class SinkhornSolver:
   def transport_fn(
       self, potential: Array, y: Array, weights: Array | None = None
   ) -> Callable[[Array], Array]:
-    r"""Transport functions using the formulation in the proposition 2 of [2].
+    r"""Returns the entropic barycentric projection transport map [2].
 
-    We use the fact that the transport function can be written as:
+    Evaluates the out-of-sample entropic barycentric projection in log domain:
 
-    T(x) = x - 0.5 * \nabla(f_{\epsilon}(x)),
+    .. math::
 
-    where f_{\epsilon}(x) is the potential computed using the Eq. 9 in [2].
+      T_\varepsilon(x) = \sum_{j=1}^m \frac{
+        \exp((v_j - c(x, y_j)) / \varepsilon)
+      }{
+        \sum_{k=1}^m \exp((v_k - c(x, y_k)) / \varepsilon)
+      } y_j
+
+    where the scaling-gauge dual potential ``v`` returned by ``SinkhornSolver``
+    already absorbs the target log-marginal ``\varepsilon \log b_j``. This form
+    is valid for any cost ``self.metric`` and matches Proposition 2 of [2] when
+    ``self.metric`` is the squared Euclidean distance.
 
     Args:
-      potential: The potential g (or f) given by the Sinkhorn algorithm.
-      y: Collection of point of set B, associated with the potential.
-      weights: Quadrature weights (or marginal densities) for the y points.
+      potential: Scaling-gauge dual potential ``v`` (or ``u``) of shape
+        ``(m,)``.
+      y: Target points of shape ``(m, d)`` associated with ``potential``.
+      weights: Must be ``None``. Passing explicit ``weights`` is disallowed
+        because ``potential`` already absorbs ``epsilon * log(b)``.
 
     Returns:
-      A function that computes the transport function at a given x.
+      A callable mapping ``x`` of shape ``(d,)`` or ``(B, d)`` to transported
+      points of the same shape.
+
+    Raises:
+      ValueError: If ``weights is not None``, if ``y.ndim != 2``, or if
+        ``potential`` is not a 1-D vector of length ``y.shape[0]``.
     """
+    if weights is not None:
+      raise ValueError(
+          "weights must be None in transport_fn because Sinkhorn scaling-gauge"
+          " potentials already absorb epsilon * log(b)."
+      )
+    _validate_potential_and_y(potential, y)
+    mask = jnp.isfinite(potential)
+    safe_potential = jnp.where(mask, potential, 0.0)
 
-    # Computes the potential of set A.
-    f_eps = lambda x: self._potential_fn(x, potential, y, weights)
+    def _map_one(x_single: Array) -> Array:
+      cost = self._compute_cost(x_single[None, :], y)[0]
+      logits = jnp.where(mask, (safe_potential - cost) / self.epsilon, -jnp.inf)
+      return jax.nn.softmax(logits, axis=0) @ y
 
-    # Here we assume that the cost is the Euclidean distance. In comparison with
-    # [2] we don't have a 1/2 factor in the definition of the distance, so we
-    # need to divide by 2.
-    return jax.vmap(
-        lambda x: x - 0.5 * jax.grad(f_eps)(x), in_axes=0, out_axes=0
-    )
+    def _map(x: Array) -> Array:
+      _validate_query_points(x, y)
+      x_2d = x[None, :] if x.ndim == 1 else x
+      out = jax.vmap(_map_one)(x_2d)
+      return out[0] if x.ndim == 1 else out
+
+    return _map
 
   def _potential_fn(
       self,
@@ -334,65 +391,87 @@ class SinkhornSolver:
       y: Array,
       weights: Array | None = None,
   ) -> Array:
-    r"""Callback function to compute the potential.
+    r"""Evaluates the entropic dual potential :math:`f_\varepsilon(x)`.
 
-    Here we use the formula in Proposition 2 of [2]:
+    Implements the dual optimality relation (Eq. 9 / Proposition 2 of [2]):
 
-    f_{\epsilon}(x) = - \epsilon \log (\sum_{i}
-          exp ( g_{\epsilon}(y_i) - dist(x, y_i) ) b_i
+    .. math::
 
-    here b_i is the marginal density of set B (associated with y_i).
+      f_\varepsilon(x) = -\varepsilon \log \sum_{j=1}^m
+        \exp\left(\frac{v_j - c(x, y_j)}{\varepsilon}\right)
+
+    When ``weights`` is ``None``, ``potential`` is treated in the scaling gauge
+    where ``\varepsilon \log b_j`` is already absorbed into ``v_j``.
 
     Args:
-      x: Collection of points of set A where f_{\epsilon} will be computed at.
-      potential: Potential of set B.
-      y: Collection of point of set B.
-      weights: Quadrature weights (or marginal densities) for the y points.
+      x: Query point(s) of shape ``(d,)`` or ``(B, d)``.
+      potential: Dual potential of set B with shape ``(m,)``.
+      y: Target points of set B with shape ``(m, d)``.
+      weights: Optional positive weights of shape ``(m,)`` when ``potential`` is
+        in the Kantorovich gauge rather than the scaling gauge.
 
     Returns:
-      The potential of set A.
+      Scalar potential when ``x.ndim == 1``, or 1-D array of shape ``(B,)`` when
+      ``x.ndim == 2``.
+
+    Raises:
+      ValueError: If ``x`` is not 1-D or 2-D, or if ``x`` and ``y`` have
+        different feature dimensions.
     """
-    x = jnp.atleast_2d(x)
+    _validate_query_points(x, y)
 
+    x_2d = x[None, :] if x.ndim == 1 else x
+    cost = self._compute_cost(x_2d, y)
+    mask = jnp.isfinite(potential)[None, :]
+    safe_potential = jnp.where(mask, potential[None, :], 0.0)
+    z = jnp.where(mask, (safe_potential - cost) / self.epsilon, -jnp.inf)
     if weights is None:
-      num_y = y.shape[0]
-      weights = jnp.ones((num_y,)) / num_y
-
-    if x.shape[-1] != y.shape[-1]:
-      raise ValueError(
-          "x and y should have the same feature dimension, but"
-          f" they have shape {x.shape[-1]}, {y.shape[-1]}, respectively."
+      lse = -self.epsilon * jax.scipy.special.logsumexp(z, axis=-1)
+    else:
+      lse = -self.epsilon * jax.scipy.special.logsumexp(
+          z, b=weights[None, :], axis=-1
       )
+    return lse[0] if x.ndim == 1 else lse
 
-    # Computes cost matrix with respect to the current x.
-    cost = jnp.squeeze(self._compute_cost(x, y))
-    z = (potential - cost) / self.epsilon
-    lse = -self.epsilon * jax.scipy.special.logsumexp(z, b=weights, axis=-1)
-    return jnp.squeeze(lse)
+  def _gradient_transport_fn(
+      self, potential: Array, y: Array
+  ) -> Callable[[Array], Array]:
+    r"""Transport map via Proposition 2 of [2] for squared-Euclidean cost.
+
+    Computes ``T(x) = x - 0.5 * \nabla f_{\epsilon}(x)``, which equals the
+    entropic barycentric projection when ``self.metric(z) = z**2``.
+
+    Args:
+      potential: Scaling-gauge dual potential of shape ``(m,)``.
+      y: Target points of shape ``(m, d)``.
+
+    Returns:
+      A callable mapping ``x`` of shape ``(d,)`` or ``(B, d)`` to transported
+      points of the same shape.
+
+    Raises:
+      ValueError: If ``y.ndim != 2`` or ``potential`` does not have shape
+        ``(y.shape[0],)``.
+    """
+    _validate_potential_and_y(potential, y)
+
+    f_eps = lambda pt: self._potential_fn(pt, potential, y, weights=None)
+    grad_one = lambda pt: pt - 0.5 * jax.grad(f_eps)(pt)
+
+    def _map(x: Array) -> Array:
+      _validate_query_points(x, y)
+      x_2d = x[None, :] if x.ndim == 1 else x
+      out = jax.vmap(grad_one)(x_2d)
+      return out[0] if x.ndim == 1 else out
+
+    return _map
 
   def transport_fn_direct(
-      self, potential: Array, y: Array, weights: Array | None
+      self, potential: Array, y: Array, weights: Array | None = None
   ) -> Callable[[Array], Array]:
-    """Transport directly (not very stable). Using the formulas in [1]."""
-    if potential.ndim != 1:
-      raise ValueError(
-          "The potential should be a vector, but its dimension are not one,"
-          f" instead {y.ndim}"
-      )
-    if potential.shape[0] != y.shape[0]:
-      raise ValueError(
-          "We assume that the potential comes from solving Sinkhorn, but"
-          f" potential.shape[0] != y.shape[0]: {potential.shape}, {y.shape}"
-      )
-
-    if not weights:
-      num_y = y.shape[0]
-      weights = jnp.ones((num_y,)) / num_y
-
-    def _transport_direct(x: Array) -> Array:
-      # The dimension should be (1, num_y)
-      cost = jnp.squeeze(self._compute_cost(x, y))
-      z = jnp.exp((potential - cost) / self.epsilon) * weights
-      return jnp.sum(y * z[:, None], axis=-1)/jnp.sum(z)
-
-    return _transport_direct
+    """Deprecated alias for ``transport_fn``."""
+    logging.warning(
+        "SinkhornSolver.transport_fn_direct is deprecated; use"
+        " SinkhornSolver.transport_fn instead."
+    )
+    return self.transport_fn(potential, y, weights=weights)
