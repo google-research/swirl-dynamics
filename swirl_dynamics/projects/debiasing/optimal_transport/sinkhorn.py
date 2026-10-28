@@ -25,15 +25,13 @@ optimal transport maps." arXiv preprint arXiv:2109.12004 (2021).
 
 from typing import Callable, NamedTuple
 
+from absl import logging
 import jax
 import jax.numpy as jnp
 
 
 Array = jax.Array
 State = tuple[Array, Array, Array, Array]
-
-# We need to enable x64 to avoid numerical issues.
-jax.config.update("jax_enable_x64", True)
 
 
 # TODO: Enable dataclasses for SinkhornOutput.
@@ -81,7 +79,7 @@ class SinkhornOutput(NamedTuple):
   @property
   def transport_plan(self) -> Array:
     """The transport plan."""
-    if self.epsilon <= 0:
+    if not isinstance(self.epsilon, jax.core.Tracer) and self.epsilon <= 0:
       raise ValueError("Epsilon should be positive.")
     kernel = -self.cost + self.fu[:, None] + self.gv[None, :]
     kernel /= self.epsilon
@@ -116,6 +114,40 @@ class SinkhornSolver:
       metric: Callable[[Array], Array] = lambda x: jnp.pow(x, 2),
       eps_marginal: float = 1e-12,
   ):
+    """Initializes the Sinkhorn solver.
+
+    Args:
+      epsilon: Entropic regularization parameter (must be positive).
+      sharding: Optional sharding constraint for the cost matrix.
+      num_iterations: Maximum number of Sinkhorn iterations (must be
+        non-negative).
+      threshold: Convergence threshold on potential updates (must be
+        non-negative).
+      metric: Elementwise distance function applied before summing across
+        features.
+      eps_marginal: Non-negative additive stabilizer for marginal densities.
+
+    Raises:
+      ValueError: If `epsilon <= 0`, `num_iterations < 0`, `threshold < 0`, or
+        `eps_marginal < 0`.
+    """
+    if epsilon <= 0:
+      raise ValueError(f"epsilon must be positive, got {epsilon}.")
+    if num_iterations < 0:
+      raise ValueError(
+          f"num_iterations must be non-negative, got {num_iterations}."
+      )
+    if threshold < 0:
+      raise ValueError(f"threshold must be non-negative, got {threshold}.")
+    if eps_marginal < 0:
+      raise ValueError(
+          f"eps_marginal must be non-negative, got {eps_marginal}."
+      )
+    if not jax.config.jax_enable_x64:
+      logging.warning(
+          "jax_enable_x64 is False; Sinkhorn potentials may lose accuracy or"
+          " underflow in float32 when epsilon is small relative to median(C)."
+      )
     self.epsilon = epsilon
     self.num_iterations = num_iterations
     self.metric = metric
