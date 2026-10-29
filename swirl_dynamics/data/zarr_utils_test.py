@@ -154,6 +154,42 @@ class ZarrUtilsTest(parameterized.TestCase):
       ds_appended = xr.open_zarr(os.path.join(outdir, "written_file.zarr"))
       self.assertEqual(ds_appended.dims["x"], 6)
 
+  def test_collected_metrics_to_ds_multiple_keys_without_coords(self):
+    data = {
+        "foo": np.ones((2, 4, 3)),
+        "bar": np.zeros((2, 4)),
+    }
+    ds = zarr_utils.collected_metrics_to_ds(
+        data, append_dim="time", append_slice=slice(0, 2), coords=None
+    )
+    self.assertIn("foo", ds)
+    self.assertIn("bar", ds)
+    self.assertEqual(ds["foo"].dims, ("time", "dim_0", "dim_1"))
+    self.assertEqual(ds["bar"].dims, ("time", "dim_0"))
+
+  def test_metrics_to_ds_numeric_time_and_dataset_coords(self):
+    coords_ds = xr.Dataset(
+        coords={
+            "time": np.arange(8),
+            "lon": range(10),
+            "lat": range(5),
+            "field": ["var1", "var2", "var3"],
+        }
+    )
+    agg_ds = zarr_utils.aggregated_metrics_to_ds(
+        {"foo": np.ones((10, 5, 3))}, coords=coords_ds
+    )
+    self.assertEqual(agg_ds.attrs["description"], "Aggregated metrics.")
+    self.assertEqual(agg_ds["foo"].dims, ("lon", "lat", "field"))
+
+    coll_ds = zarr_utils.collected_metrics_to_ds(
+        {"foo": np.ones((2, 10, 5, 3))},
+        append_dim="time",
+        append_slice=slice(3, 5),
+        coords=coords_ds,
+    )
+    np.testing.assert_array_equal(coll_ds.coords["time"].values, [3, 4])
+
 
 if __name__ == "__main__":
   flags.FLAGS.mark_as_parsed()
