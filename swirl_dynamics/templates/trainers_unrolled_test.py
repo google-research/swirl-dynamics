@@ -75,9 +75,8 @@ class DummyModel(models.BaseModel):
       batch: models.BatchType,
       rng: jax.Array,
       mutables: models.PyTree,
-      **kwargs,
   ) -> models.LossAndAux:
-    del rng, kwargs
+    del rng
     batch_loss = jnp.mean(batch["1"])
     return jnp.sum(params) + batch_loss, ({"loss": batch_loss}, mutables)
 
@@ -108,17 +107,10 @@ class UnrolledTrainingTest(parameterized.TestCase):
       ("single_device", trainers.BasicTrainer, False),
       ("distributed", trainers.BasicDistributedTrainer, True),
   )
-  def test_unrolled_metrics_merged_once_per_block(
+  def test_unrolled_metrics_merged_across_all_steps(
       self, trainer_cls, is_distributed
   ):
-    """Unrolled training reports the last step's gathered update per block.
-
-    The unrolled loop keeps the metrics of the last step (`batch(-1)`) of every
-    compiled block. Those updates must be unreplicated and merged on the host
-    exactly like in `_train_without_unrolling`; in particular, metrics that were
-    already gathered across devices inside `train_step` must not be reduced a
-    second time, which would inflate the counts by the number of devices.
-    """
+    """Unrolled training merges metrics across all steps in every block."""
     num_devices = jax.local_device_count() if is_distributed else 1
     num_steps_to_compile = 2
     num_steps = 6
@@ -130,32 +122,24 @@ class UnrolledTrainingTest(parameterized.TestCase):
         batch_iter=step_iter(batch_sz=4), num_steps=num_steps
     )
 
-    # The train state advanced by `num_steps` and parameters were updated once
-    # per step (sgd with lr=1 and unit gradients: -1 per step).
     state = trainer._maybe_unreplicate(trainer.train_state)
     self.assertEqual(int(state.step), num_steps)
     np.testing.assert_allclose(
         state.params, -num_steps * jnp.ones(params_shape)
     )
 
-    # One metric update per compiled block, each gathered over all devices.
-    # For 3 blocks of 2 steps (`(1, 2)`, `(3, 4)`, `(5, 6)`), the last-step
-    # losses are `[2.0, 4.0, 6.0]` with mean `4.0` (whereas accidentally
-    # returning step 0 of each block would give `mean([1.0, 3.0, 5.0]) = 3.0`).
-    num_blocks = num_steps // num_steps_to_compile
-    expected_last_step_mean = np.mean([2.0, 4.0, 6.0])
+    expected_mean = np.mean([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     self.assertEqual(
-        int(train_loss_metric(train_metrics).count), num_blocks * num_devices
+        int(train_loss_metric(train_metrics).count), num_steps * num_devices
     )
     np.testing.assert_allclose(
         float(train_metrics.compute()["train_loss"]),
-        expected_last_step_mean,
+        expected_mean,
     )
 
   def test_unrolled_matches_non_unrolled_metrics(self):
-    """With a constant loss both loops agree on the merged training metrics."""
+    """Both unrolled and non-unrolled loops agree on merged training metrics."""
     num_steps = 4
-    loss = 0.5
     results = {}
     for num_steps_to_compile in (1, 2):
       trainer = get_test_trainer(
@@ -163,11 +147,10 @@ class UnrolledTrainingTest(parameterized.TestCase):
           num_steps_to_compile=num_steps_to_compile,
       )
       metrics = trainer.train(
-          batch_iter=dummy_iter(batch_sz=4, value=loss), num_steps=num_steps
+          batch_iter=step_iter(batch_sz=4), num_steps=num_steps
       )
       results[num_steps_to_compile] = metrics
 
-    # Both paths produce host-side, unreplicated (scalar) metrics.
     for metrics in results.values():
       self.assertEqual(jnp.shape(train_loss_metric(metrics).total), ())
       self.assertEqual(jnp.shape(train_loss_metric(metrics).count), ())
@@ -175,10 +158,9 @@ class UnrolledTrainingTest(parameterized.TestCase):
         float(results[1].compute()["train_loss"]),
         float(results[2].compute()["train_loss"]),
     )
-    # The unrolled loop merges one update per block instead of one per step.
     self.assertEqual(
         int(train_loss_metric(results[2]).count),
-        int(train_loss_metric(results[1]).count) // 2,
+        int(train_loss_metric(results[1]).count),
     )
 
   def test_unrolled_unreplicates_multi_replica_metrics_without_double_reduce(

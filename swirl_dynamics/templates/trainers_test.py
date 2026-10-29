@@ -416,5 +416,162 @@ class CompiledInnerLoopTest(BasicTrainerTest):
     )
 
 
+def _step_iter(batch_sz: int):
+  """Yields batches whose mean on step `k` (1-indexed) equals `k`."""
+  step = 1
+  while True:
+    offsets = np.arange(batch_sz, dtype=np.float32) - 0.5 * (batch_sz - 1)
+    yield {"1": float(step) + offsets}
+    step += 1
+
+
+def _train_loss_metric(metrics) -> clu_metrics.Average:
+  """Returns the `train_loss` metric of a collection created at runtime."""
+  return vars(metrics)["train_loss"]
+
+
+class _DummyUnrolledModel(models.BaseModel):
+  """Minimal model with unit parameter gradients and batch-dependent loss."""
+
+  def __init__(self, params_shape: tuple[int, ...] = (5, 5)):
+    self.params_shape = params_shape
+
+  def initialize(self, rng: jax.Array) -> models.PyTree:
+    del rng
+    return {"params": jnp.zeros(self.params_shape)}
+
+  def loss_fn(
+      self,
+      params: models.PyTree,
+      batch: models.BatchType,
+      rng: jax.Array,
+      mutables: models.PyTree,
+  ) -> models.LossAndAux:
+    del rng
+    batch_loss = jnp.mean(batch["1"])
+    return jnp.sum(params) + batch_loss, ({"loss": batch_loss}, mutables)
+
+
+def _get_unrolled_test_trainer(trainer_cls, **kwargs):
+  trainer = trainer_cls(
+      model=_DummyUnrolledModel(),
+      rng=jax.random.PRNGKey(0),
+      optimizer=optax.sgd(learning_rate=1),
+      **kwargs,
+  )
+  trainer.TrainMetrics = clu_metrics.Collection.create(
+      train_loss=clu_metrics.Average.from_output("loss")
+  )
+  return trainer
+
+
+class UnrolledTrainingTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ("single_device", trainers.BasicTrainer, False),
+      ("distributed", trainers.BasicDistributedTrainer, True),
+  )
+  def test_unrolled_metrics_merged_across_all_steps(
+      self, trainer_cls, is_distributed
+  ):
+    """Unrolled training merges metrics across all steps in every block."""
+    num_devices = jax.local_device_count() if is_distributed else 1
+    num_steps_to_compile = 2
+    num_steps = 6
+    trainer = _get_unrolled_test_trainer(
+        trainer_cls, num_steps_to_compile=num_steps_to_compile
+    )
+    params_shape = (5, 5)
+    train_metrics = trainer.train(
+        batch_iter=_step_iter(batch_sz=4), num_steps=num_steps
+    )
+
+    state = trainer._maybe_unreplicate(trainer.train_state)
+    self.assertEqual(int(state.step), num_steps)
+    np.testing.assert_allclose(
+        state.params, -num_steps * jnp.ones(params_shape)
+    )
+
+    expected_mean = np.mean([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    self.assertEqual(
+        int(_train_loss_metric(train_metrics).count), num_steps * num_devices
+    )
+    np.testing.assert_allclose(
+        float(train_metrics.compute()["train_loss"]),
+        expected_mean,
+    )
+
+  def test_unrolled_matches_non_unrolled_metrics(self):
+    """Both unrolled and non-unrolled loops agree on merged training metrics."""
+    num_steps = 4
+    results = {}
+    for num_steps_to_compile in (1, 2):
+      trainer = _get_unrolled_test_trainer(
+          trainers.BasicDistributedTrainer,
+          num_steps_to_compile=num_steps_to_compile,
+      )
+      metrics = trainer.train(
+          batch_iter=_step_iter(batch_sz=4), num_steps=num_steps
+      )
+      results[num_steps_to_compile] = metrics
+
+    for metrics in results.values():
+      self.assertEqual(jnp.shape(_train_loss_metric(metrics).total), ())
+      self.assertEqual(jnp.shape(_train_loss_metric(metrics).count), ())
+    np.testing.assert_allclose(
+        float(results[1].compute()["train_loss"]),
+        float(results[2].compute()["train_loss"]),
+    )
+    self.assertEqual(
+        int(_train_loss_metric(results[2]).count),
+        int(_train_loss_metric(results[1]).count),
+    )
+
+  def test_unrolled_unreplicates_multi_replica_metrics_without_double_reduce(
+      self,
+  ):
+    """Verifies `_train_unrolled` unreplicates (`[0]`) instead of `.reduce()`."""
+    num_steps_to_compile = 2
+    num_steps = 6
+    num_blocks = num_steps // num_steps_to_compile
+    simulated_replicas = 4
+    loss = 0.25
+    trainer = _get_unrolled_test_trainer(
+        trainers.BasicDistributedTrainer,
+        num_steps_to_compile=num_steps_to_compile,
+    )
+    gathered_single = trainer.TrainMetrics.single_from_model_output(
+        loss=jnp.full((simulated_replicas,), loss)
+    )
+    replicated_update = jax.tree.map(
+        lambda x: jnp.broadcast_to(x, (simulated_replicas,) + x.shape),
+        gathered_single,
+    )
+    step_counter = [0]
+
+    def fake_compiled_inner_loop(train_rng, train_state, stacked_batches):
+      del stacked_batches
+      step_counter[0] += num_steps_to_compile
+      new_state = train_states.BasicTrainState(
+          step=jnp.full((simulated_replicas,), step_counter[0]),
+          params=train_state.params,
+          opt_state=train_state.opt_state,
+          flax_mutables=train_state.flax_mutables,
+      )
+      return new_state, replicated_update, train_rng
+
+    trainer._compiled_train_inner_loop = fake_compiled_inner_loop
+    train_metrics = trainer.train(
+        batch_iter=dummy_iter(batch_sz=4), num_steps=num_steps
+    )
+    self.assertEqual(
+        int(_train_loss_metric(train_metrics).count),
+        num_blocks * simulated_replicas,
+    )
+    np.testing.assert_allclose(
+        float(train_metrics.compute()["train_loss"]), loss
+    )
+
+
 if __name__ == "__main__":
   absltest.main()
