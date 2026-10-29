@@ -154,7 +154,11 @@ class TrainTest(parameterized.TestCase):
 
   def test_raises_eval_period_divisibility_error(self):
     """Test error when eval period is not divisible by aggregation steps."""
-    with self.assertRaisesRegex(ValueError, "must be an integer multiple of"):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`eval_every_steps` \(42\) must be an integer multiple of "
+        r"`metric_aggregation_steps` \(10\)",
+    ):
       train.run(
           train_dataloader=self.dummy_dataloader,
           trainer=self.test_trainer,
@@ -189,6 +193,50 @@ class TrainTest(parameterized.TestCase):
     with open(os.path.join(workdir, "log.txt")) as log_file:
       for stage in expected_stages:
         self.assertEqual(log_file.readline().rstrip(), MSGS[stage])
+
+  def test_defers_checkpoint_save_until_eval_end(self):
+    workdir = self.create_tempdir().full_path
+    saved_eval_snapshots = []
+
+    class RecordingCheckpoint(callbacks.TrainStateCheckpoint):
+
+      def _save_checkpoint(self, trainer, step, force=False):
+        saved_eval_snapshots.append((step, dict(self.last_eval_metric)))
+        super()._save_checkpoint(trainer, step, force=force)
+
+    step_counter = [0]
+    train_metrics = self.test_trainer.train.return_value
+
+    def advance_train(batch_iter, num_steps):
+      del batch_iter
+      step_counter[0] += num_steps
+      state = train_states.TrainState(step=jnp.array(step_counter[0]))
+      self.test_trainer.train_state = state
+      self.test_trainer.unreplicated_train_state = state
+      return train_metrics
+
+    init_state = train_states.TrainState(step=jnp.array(0))
+    self.test_trainer.train_state = init_state
+    self.test_trainer.unreplicated_train_state = init_state
+    self.test_trainer.is_distributed = False
+    self.test_trainer.train.side_effect = advance_train
+
+    ckpt_cb = RecordingCheckpoint(base_dir=workdir)
+    train.run(
+        train_dataloader=self.dummy_dataloader,
+        trainer=self.test_trainer,
+        workdir=workdir,
+        metric_aggregation_steps=1,
+        total_train_steps=2,
+        eval_dataloader=self.dummy_dataloader,
+        eval_every_steps=2,
+        num_batches_per_eval=1,
+        callbacks=[ckpt_cb],
+    )
+    self.assertEqual(
+        saved_eval_snapshots,
+        [(1, {}), (2, {"accuracy": 0.6})],
+    )
 
 
 if __name__ == "__main__":
