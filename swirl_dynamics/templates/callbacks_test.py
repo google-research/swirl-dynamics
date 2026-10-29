@@ -117,6 +117,63 @@ class TrainStateCheckpointCallbackTest(parameterized.TestCase):
     self.assertIsInstance(new_trainer.train_state, train_states.TrainState)
     self.assertEqual(new_trainer.train_state.int_step, 20)
 
+  def test_checkpoint_uses_current_step_eval_metrics(self):
+    work_dir = self.create_tempdir().full_path
+    options = ocp.CheckpointManagerOptions(
+        save_interval_steps=2,
+        best_fn=lambda metrics: metrics["eval_loss"],
+        best_mode="min",
+        max_to_keep=1,
+    )
+    callback = callbacks.TrainStateCheckpoint(
+        base_dir=work_dir, options=options
+    )
+    trainer = TestTrainer(model=mock.Mock(), rng=jax.random.PRNGKey(0))
+    trainer.is_distributed = False
+    callback.on_train_begin(trainer)
+
+    # Step 2 is an eval step: saving is deferred until on_eval_batches_end.
+    callback._eval_scheduled_steps.add(2)
+    trainer.train_state = _mock_train_state(2, replicate=False)
+    callback.on_train_batches_end(
+        trainer, train_metrics={"train_loss": jnp.array(1.0)}
+    )
+    self.assertIsNone(callback.ckpt_manager.latest_step())
+    callback.on_eval_batches_end(
+        trainer, eval_metrics={"eval_loss": jnp.array(0.5)}
+    )
+    callback.ckpt_manager.wait_until_finished()
+    self.assertEqual(callback.ckpt_manager.latest_step(), 2)
+    self.assertEqual(callback.last_eval_metric["eval_loss"], 0.5)
+    self.assertNotIn(2, callback._eval_scheduled_steps)
+
+    # Step 4 has worse eval_loss (0.8 > 0.5, wrapped in clu.values.Scalar):
+    # best_fn retains step 2 rather than overwriting with stale 0.5.
+    callback._eval_scheduled_steps.add(4)
+    trainer.train_state = _mock_train_state(4, replicate=False)
+    step4_train: dict[str, utils.Scalar] = {
+        "train_loss": utils.values.Scalar(0.9)
+    }
+    step4_eval: dict[str, utils.Scalar] = {
+        "eval_loss": utils.values.Scalar(0.8)
+    }
+    callback.on_train_batches_end(trainer, train_metrics=step4_train)
+    callback.on_eval_batches_end(trainer, eval_metrics=step4_eval)
+    callback.ckpt_manager.wait_until_finished()
+    self.assertCountEqual(callback.ckpt_manager.all_steps(), [2])
+
+    # Step 6 improves eval_loss (0.2 < 0.5): best checkpoint advances to 6.
+    callback._eval_scheduled_steps.add(6)
+    trainer.train_state = _mock_train_state(6, replicate=False)
+    callback.on_train_batches_end(
+        trainer, train_metrics={"train_loss": jnp.array(0.4)}
+    )
+    callback.on_eval_batches_end(
+        trainer, eval_metrics={"eval_loss": jnp.array(0.2)}
+    )
+    callback.ckpt_manager.wait_until_finished()
+    self.assertCountEqual(callback.ckpt_manager.all_steps(), [6])
+
 
 class ProgressReportCallbackTest(parameterized.TestCase):
 
