@@ -144,7 +144,7 @@ def sinkhorn_div(x: Array, y: Array) -> Array:
   # `h x w x 1`.
   # These arrays are then reshaped to be order two with shape
   # `batch_size x state_space_dim_flattened`.
-  ot = sinkhorn_divergence.sinkhorn_divergence(
+  div, _ = sinkhorn_divergence.sinkhorn_divergence(
       pointcloud.PointCloud,  # geom,
       x.reshape((
           x.shape[0],
@@ -156,7 +156,7 @@ def sinkhorn_div(x: Array, y: Array) -> Array:
       )),  # geom.y,
       static_b=False,
   )
-  return jnp.array(ot.divergence)
+  return jnp.array(div)
 
 
 def spatial_downsampled_dist(
