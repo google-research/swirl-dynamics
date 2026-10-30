@@ -17,6 +17,7 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 import numpy as np
+from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.layers import normalized_layers
 
 
@@ -125,6 +126,13 @@ class NormalizedLayersTest(parameterized.TestCase):
     np.testing.assert_array_equal(
         np.asarray(gradient, dtype=np.float32), np.full(x.shape, 4.0)
     )
+
+  def test_public_exports_importable(self):
+    self.assertNotEmpty(layers.__all__)
+    self.assertEqual(layers.__all__, sorted(set(layers.__all__)))
+    for name in layers.__all__:
+      with self.subTest(symbol=name):
+        self.assertTrue(hasattr(layers, name))
 
 
 if __name__ == "__main__":
