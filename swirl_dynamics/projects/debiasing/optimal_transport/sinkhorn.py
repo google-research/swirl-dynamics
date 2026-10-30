@@ -46,7 +46,9 @@ class SinkhornOutput(NamedTuple):
     cost_matrix: The cost matrix of the Sinkhorn iteration, which is the
       distance between each pair of points.
     epsilon: The regularization parameter for the entropic regularization.
-    reg_ot_cost: The regularized optimal transport cost.
+    reg_ot_cost: Bare primal transport cost ``<P, C>`` (matching OTT-JAX
+      ``primal_cost``, without the entropic KL term; see ``entropic_ot_cost``
+      for the KL-regularized objective).
     threshold: The convergence threshold.
     converged: Whether the iteration converged.
     num_iterations: The number of iterations performed.
@@ -89,6 +91,40 @@ class SinkhornOutput(NamedTuple):
     kernel /= self.epsilon
 
     return jnp.exp(kernel)
+
+  @property
+  def entropic_ot_cost(self) -> Array:
+    """The entropic optimal transport cost (Fenchel-Rockafellar dual objective).
+
+    At marginal convergence, this equals the KL-regularized primal objective
+    ``<P, C> + epsilon * KL(P || a x b) = <f, a> + <g, b>``, matching OTT-JAX's
+    ``reg_ot_cost`` (``kl_reg_cost``), and differs from OTT-JAX's
+    ``ent_reg_cost`` by ``+epsilon * (H(a) + H(b))``.
+    """
+    num_x = self.fu.shape[0]
+    num_y = self.gv.shape[0]
+    a = jnp.ones((num_x,), dtype=self.fu.dtype) / num_x
+    b = jnp.ones((num_y,), dtype=self.gv.dtype) / num_y
+    mask_a = a > 0
+    mask_b = b > 0
+    safe_a = jnp.where(mask_a, a, 1.0)
+    safe_b = jnp.where(mask_b, b, 1.0)
+    safe_u = jnp.where(mask_a, self.fu, 0.0)
+    safe_v = jnp.where(mask_b, self.gv, 0.0)
+    term_a = jnp.sum(
+        jnp.where(
+            mask_a, safe_a * (safe_u - self.epsilon * jnp.log(safe_a)), 0.0
+        )
+    )
+    term_b = jnp.sum(
+        jnp.where(
+            mask_b, safe_b * (safe_v - self.epsilon * jnp.log(safe_b)), 0.0
+        )
+    )
+    legendre_gap = self.epsilon * (
+        jnp.sum(a) * jnp.sum(b) - jnp.sum(self.transport_plan)
+    )
+    return term_a + term_b + legendre_gap
 
 
 def _validate_potential_and_y(potential: Array, y: Array) -> None:
