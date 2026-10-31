@@ -18,6 +18,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 import functools
 import time
 from typing import Any, Literal, Protocol, Self
+import zlib
 
 from absl import logging
 from clu import metric_writers
@@ -41,6 +42,24 @@ InferenceModel = Any
 BatchType = Any
 PredType = Any
 CoordinateType = xr.Dataset | xr.core.coordinates.DatasetCoordinates
+
+
+def model_hash_seed(key: str) -> int:
+  """Derives a deterministic integer seed for a model from its name.
+
+  Python's builtin `hash()` for `str` is salted per process
+  (PYTHONHASHSEED), so using it here would give every evaluation run a
+  different per-model PRNG stream, making stochastic benchmark results
+  irreproducible across runs. `zlib.crc32` is deterministic.
+
+  Args:
+    key: Name of the model, i.e. a key of the `models` mapping.
+
+  Returns:
+    A non-negative integer within 32-bit range, usable with
+    `jax.random.fold_in`.
+  """
+  return zlib.crc32(key.encode("utf-8"))
 
 
 # Forked from clu.metrics
@@ -463,9 +482,7 @@ class Evaluator:
         rng = jax.random.fold_in(self.rng, self.state.step)
         batch_agg_update = {}
         for key, inf_fn in self._compiled_inf_fns.items():
-          inference_rng = jax.random.fold_in(
-              rng, np.int32(hash(key) % (2**31 - 1))  # Prevent overflows.
-          )
+          inference_rng = jax.random.fold_in(rng, model_hash_seed(key))
           pred = inf_fn(batch, inference_rng)
           batch_collect, batch_res = self._compiled_metrics_compute(pred, batch)
           collected.collect_batch_result(key, batch_collect)
