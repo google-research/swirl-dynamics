@@ -267,8 +267,11 @@ class SinkhornSolver:
     epsilon: The regularization parameter for the Sinkhorn iteration.
     num_iterations: Maximum number of iteration for the iteration to converge.
     metric: Function for the distance between two samples.
-    sharding: Positional sharding for the cost matrix. By default we assume that
-      there is only one accelerator.
+    sharding: Optional ``jax.sharding.Sharding`` constraint (e.g.,
+      ``jax.sharding.NamedSharding(mesh, PartitionSpec("x", None))``) for the
+      cost matrix. When ``(n, m)`` is not evenly divisible by the mesh axes, XLA
+      GSPMD silently replicates the cost matrix and ``SinkhornSolver`` logs a
+      warning.
     threshold: Convergence threshold to stop the iteration.
     eps_marginal: The regularization parameter for the marginal densities.
     criterion: Stopping criterion ("marginal" or "potentials").
@@ -291,7 +294,11 @@ class SinkhornSolver:
 
     Args:
       epsilon: Entropic regularization parameter (must be positive).
-      sharding: Optional sharding constraint for the cost matrix.
+      sharding: Optional ``jax.sharding.Sharding`` constraint (e.g.,
+        ``jax.sharding.NamedSharding(mesh, PartitionSpec("x", None))``) for the
+        cost matrix. When ``(n, m)`` is not evenly divisible by the mesh axes,
+        XLA GSPMD silently replicates the cost matrix and ``SinkhornSolver``
+        logs a warning.
       num_iterations: Maximum number of Sinkhorn iterations (must be
         non-negative).
       threshold: Convergence threshold on marginal or potential error (must be
@@ -376,7 +383,23 @@ class SinkhornSolver:
       _validate_weights(a, "a")
     if b is not None:
       _validate_weights(b, "b")
-    return self._solver(x, y, a, b)
+    out = self._solver(x, y, a, b)
+    if (
+        self.sharding is not None
+        and not isinstance(out.cost_matrix, jax.core.Tracer)
+        and not out.cost_matrix.sharding.is_equivalent_to(
+            self.sharding, out.cost_matrix.ndim
+        )
+    ):
+      logging.warning(
+          "Requested cost_matrix sharding %s for shape %s fell back to %s"
+          " (likely because cost_matrix dimensions are not evenly divisible by"
+          " mesh axes).",
+          self.sharding,
+          out.cost_matrix.shape,
+          out.cost_matrix.sharding,
+      )
+    return out
 
   def _marginal_error(
       self, u: Array, v: Array, cost_matrix: Array, a: Array, b: Array
@@ -580,7 +603,11 @@ class SinkhornSolver:
     return kernel
 
   def transport_fn(
-      self, potential: Array, y: Array, weights: Array | None = None
+      self,
+      potential: Array,
+      y: Array,
+      weights: Array | None = None,
+      batch_size: int | None = None,
   ) -> Callable[[Array], Array]:
     r"""Returns the entropic barycentric projection transport map [2].
 
@@ -605,19 +632,32 @@ class SinkhornSolver:
       y: Target points of shape ``(m, d)`` associated with ``potential``.
       weights: Must be ``None``. Passing explicit ``weights`` is disallowed
         because ``potential`` already absorbs ``epsilon * log(b)``.
+      batch_size: Optional chunk size for out-of-sample query evaluation. If
+        None, evaluates all query points in parallel via jax.vmap; if a positive
+        integer, evaluates queries in chunks of batch_size via jax.lax.map,
+        bounding peak intermediate memory to O(batch_size * m).
 
     Returns:
       A callable mapping ``x`` of shape ``(d,)`` or ``(B, d)`` to transported
       points of the same shape.
 
     Raises:
-      ValueError: If ``weights is not None``, if ``y.ndim != 2``, or if
-        ``potential`` is not a 1-D vector of length ``y.shape[0]``.
+      ValueError: If ``weights is not None``, if ``batch_size`` is not a
+        positive integer or ``None``, if ``y.ndim != 2``, or if ``potential``
+        is not a 1-D vector of length ``y.shape[0]``.
     """
     if weights is not None:
       raise ValueError(
           "weights must be None in transport_fn because Sinkhorn scaling-gauge"
           " potentials already absorb epsilon * log(b)."
+      )
+    if batch_size is not None and (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size <= 0
+    ):
+      raise ValueError(
+          f"batch_size must be a positive integer or None, got {batch_size!r}."
       )
     _validate_potential_and_y(potential, y)
     mask = jnp.isfinite(potential)
@@ -631,7 +671,10 @@ class SinkhornSolver:
     def _map(x: Array) -> Array:
       _validate_query_points(x, y)
       x_2d = x[None, :] if x.ndim == 1 else x
-      out = jax.vmap(_map_one)(x_2d)
+      if batch_size is None or x.ndim == 1:
+        out = jax.vmap(_map_one)(x_2d)
+      else:
+        out = jax.lax.map(_map_one, x_2d, batch_size=batch_size)
       return out[0] if x.ndim == 1 else out
 
     return _map
@@ -721,11 +764,17 @@ class SinkhornSolver:
     return _map
 
   def transport_fn_direct(
-      self, potential: Array, y: Array, weights: Array | None = None
+      self,
+      potential: Array,
+      y: Array,
+      weights: Array | None = None,
+      batch_size: int | None = None,
   ) -> Callable[[Array], Array]:
     """Deprecated alias for ``transport_fn``."""
     logging.warning(
         "SinkhornSolver.transport_fn_direct is deprecated; use"
         " SinkhornSolver.transport_fn instead."
     )
-    return self.transport_fn(potential, y, weights=weights)
+    return self.transport_fn(
+        potential, y, weights=weights, batch_size=batch_size
+    )
