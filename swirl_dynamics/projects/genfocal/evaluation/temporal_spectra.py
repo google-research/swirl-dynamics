@@ -175,9 +175,10 @@ def make_temporal_psd_plot(
   nc = len(cities)
   res = nested_defaultdict()
 
-  fig, axes = plt.subplots(
-      1, nc, figsize=(3 * nc, 4), tight_layout=True, dpi=200
+  fig, axes_2d = plt.subplots(
+      1, nc, figsize=(3 * nc, 4), squeeze=False, tight_layout=True, dpi=200
   )
+  axes = axes_2d[0]
   for i, (city, (lon, lat)) in enumerate(cities.items()):
     # Process reference.
     ref_data = reference.sel(
@@ -213,15 +214,19 @@ def make_temporal_psd_plot(
       axes[i].set_xlim(xlim)
     if ylim is not None:
       axes[i].set_ylim(ylim)
-    for rfreq in reference_freqs:  # pyrefly: ignore[not-iterable]
-      axes[i].axvline(x=rfreq, color="k", linestyle="dashed", linewidth=0.5)
+    if reference_freqs is not None:
+      for rfreq in reference_freqs:
+        axes[i].axvline(x=rfreq, color="k", linestyle="dashed", linewidth=0.5)
 
   axes[0].set_ylabel("PSD")
 
-  save_dir = epath.Path(save_dir) / "temporal_psd"  # pyrefly: ignore[bad-argument-type, bad-assignment]
-  fig.savefig(save_dir / f"{plot_name}.png")  # pyrefly: ignore[unsupported-operation]
+  save_path = epath.Path(save_dir or ".") / "temporal_psd"
+  if not filesys.exists(save_path):
+    filesys.makedirs(save_path)
+  fig.savefig(save_path / f"{plot_name}.png")
+  plt.close(fig)
 
-  res_save_name = f"{save_dir}/{plot_name}.hdf5"
+  res_save_name = f"{save_path}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)
 
 

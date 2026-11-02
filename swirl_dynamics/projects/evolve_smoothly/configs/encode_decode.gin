@@ -4,7 +4,7 @@ from flax import linen as nn
 import jax
 import optax
 import orbax
-from swirl_dynamics.data import tfgrain_transforms as transforms
+from swirl_dynamics.data import pygrain_transforms as transforms
 from swirl_dynamics.projects.evolve_smoothly import ansatzes
 from swirl_dynamics.projects.evolve_smoothly import data_pipelines
 from swirl_dynamics.projects.evolve_smoothly import encode_decode

@@ -42,7 +42,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "config", None, "Path to the YAML config file containing inference args."
 )
-flags.mark_flags_as_required("config")
+flags.mark_flag_as_required("config")
 
 
 def _to_dataset_variables(

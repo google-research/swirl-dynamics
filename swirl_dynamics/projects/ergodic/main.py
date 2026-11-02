@@ -37,6 +37,7 @@ from swirl_dynamics.templates import train
 import tensorflow as tf
 
 
+
 Array = jax.Array
 PipelinePayload = Tuple[Iterable[Array], stable_ar.StableARTrainer]
 
@@ -293,4 +294,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
-  app.run(main)
+  handler = app.run
+  handler(main)
