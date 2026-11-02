@@ -203,7 +203,15 @@ def inference_pipeline(
     batch_par = {key1: batch[key2] for key1, key2 in par_keys.items()}
     # Reshaping the batch to be compatible with the parallel sampling function.
     parallel_batch = jax.tree.map(
-        lambda x: x.reshape((num_devices, -1,) + x.shape[1:]), batch_par)
+        lambda x: x.reshape(
+            (
+                num_devices,
+                -1,
+            )
+            + x.shape[1:]
+        ),
+        batch_par,
+    )
 
     # Running the parallel sampling and saving the output.
     samples = np.array(parallel_sampling_fn(parallel_batch))
@@ -265,8 +273,8 @@ def main(argv):
   era5_variables = config.get("era5_variables")
   if None in (era5_variables, lens2_variable_names, lens2_member_indexer):
     raise ValueError(
-        "ERA5 variables, LENS2 variable names and LENS2 member",
-        "indexer should all be specified in the config file.",
+        "ERA5 variables, LENS2 variable names and LENS2 member "
+        "indexer should all be specified in the config file."
     )
 
   # This is necessary due to ConfigDict issues with nested containers.
@@ -277,7 +285,7 @@ def main(argv):
   logging.info("Using %d discretization steps.", num_sampling_steps)
 
   for lens2_indexer in lens2_member_indexer:
-    print("Evaluating on CMIP dataset indexer: ", lens2_indexer)
+    logging.info("Evaluating on CMIP dataset indexer: %s", lens2_indexer)
     index_member = lens2_indexer
 
     # Changing the prefix path depending on whether we are debiasing LENS2 to
