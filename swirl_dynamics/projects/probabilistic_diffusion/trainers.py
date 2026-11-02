@@ -14,9 +14,9 @@
 
 """Trainers for denoising models."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import functools
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from clu import metrics as clu_metrics
 import flax
@@ -33,15 +33,18 @@ VariableDict = trainers.VariableDict
 class DenoisingModelTrainState(train_states.BasicTrainState):
   """Train state with an additional field tracking the EMA params."""
 
-  # EMA params is accessed through `ema_state.ema`.
-  ema_state: optax.EmaState | None = None
+  ema_state: optax.EmaState | Mapping[str, Any] | None = None
 
   @property
   def ema_variables(self) -> flax.core.FrozenDict:
-    if self.ema_state:
-      return flax.core.FrozenDict({"params": self.ema_state.ema})
-    else:
+    if self.ema_state is None:
       raise ValueError("EMA state is none.")
+    ema_params = (
+        self.ema_state["ema"]
+        if isinstance(self.ema_state, Mapping)
+        else self.ema_state.ema
+    )
+    return flax.core.freeze(dict(params=ema_params, **self.flax_mutables))
 
 
 TrainState = TypeVar("TrainState", bound=DenoisingModelTrainState)
@@ -109,13 +112,7 @@ class DenoisingTrainer(trainers.BasicTrainer[DenoisingModel, TrainState]):
   def inference_fn_from_state_dict(
       state: TrainState, *args, use_ema: bool = True, **kwargs
   ):
-    if use_ema:
-      if isinstance(state.ema_state, dict):
-        variables = flax.core.FrozenDict({"params": state.ema_state["ema"]})
-      else:
-        variables = state.ema_variables
-    else:
-      variables = state.model_variables
+    variables = state.ema_variables if use_ema else state.model_variables
     return models.DenoisingModel.inference_fn(variables, *args, **kwargs)
 
 

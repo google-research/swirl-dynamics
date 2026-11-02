@@ -119,8 +119,8 @@ class DenoisingModel(models.BaseModel):
         samples. Optionally, it may also contain a `cond` field, which is a
         dictionary of conditional inputs.
       rng: Random key for training use.
-      mutables: The mutable (non-diffenretiated) parameters of the denoising
-        model (e.g. batch stats); *currently assumed empty*.
+      mutables: The mutable (non-differentiated) parameters of the denoising
+        model (e.g. batch stats).
 
     Returns:
       The loss value and a tuple of training metric and mutables.
@@ -133,15 +133,16 @@ class DenoisingModel(models.BaseModel):
     vmapped_mult = jax.vmap(jnp.multiply, in_axes=(0, 0))
     noised = batch["x"] + vmapped_mult(noise, sigma)
     cond = batch["cond"] if self.cond_shape else None
-    denoised = self.denoiser.apply(
-        {"params": params},
+    denoised, mutables = self.denoiser.apply(
+        {"params": params, **mutables},
         x=noised,
         sigma=sigma,
         cond=cond,
         is_training=True,
         rngs={"dropout": rng3},  # TODO: refactor this.
+        mutable=list(mutables.keys()),
     )
-    loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))  # pyrefly: ignore[unsupported-operation]
+    loss = jnp.mean(vmapped_mult(weights, jnp.square(denoised - batch["x"])))
     metric = dict(loss=loss)
     return loss, (metric, mutables)
 
