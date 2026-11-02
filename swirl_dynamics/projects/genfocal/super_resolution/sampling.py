@@ -336,10 +336,12 @@ class TrajectorySamplerParallel:
     )
     d = (self.num_model_days - self.num_overlap_days) * 24 // self.hour_interval
 
-    # Sanity check: overlaps are equal.
+    # Sanity check: overlaps are equal up to float32 rounding.
     if self.num_overlap_days > 0:
       overlap = self.num_overlap_days * 24 // self.hour_interval
-      assert jnp.all(state[:, :-1, -overlap:] == state[:, 1:, :overlap])
+      assert jnp.allclose(
+          state[:, :-1, -overlap:], state[:, 1:, :overlap], atol=1e-5
+      )
 
     state0 = state[:, :-1, :d]
     state0 = jnp.reshape(
