@@ -17,6 +17,7 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 import numpy as np
+from swirl_dynamics.lib import diffusion as dfn_pkg
 from swirl_dynamics.lib.diffusion import diffusion
 
 jax.config.update("jax_threefry_partitionable", False)
@@ -304,6 +305,14 @@ class NoiseLossWeightingTest(parameterized.TestCase):
 
     with self.assertRaisesRegex(ValueError, "`df` must be greater than 2"):
       diffusion.t_edm_weighting(df=2)
+
+  def test_public_exports_importable(self):
+    self.assertNotEmpty(dfn_pkg.__all__)
+    self.assertEqual(dfn_pkg.__all__, sorted(set(dfn_pkg.__all__)))
+    self.assertIn("InterlockingFrames", dfn_pkg.__all__)
+    for name in dfn_pkg.__all__:
+      with self.subTest(symbol=name):
+        self.assertTrue(hasattr(dfn_pkg, name))
 
 
 if __name__ == "__main__":
