@@ -14,15 +14,41 @@
 
 """Data pipelines."""
 
-import grain.tensorflow as tfgrain
+import grain.python as pygrain
 import numpy as np
 from swirl_dynamics.data import hdf5_utils
-from swirl_dynamics.data import tfgrain_transforms as transforms
-import tensorflow as tf
+from swirl_dynamics.data import pygrain_sources
+from swirl_dynamics.data import pygrain_transforms as transforms
 
 _DEFAULT_LINEAR_RESCALE = transforms.LinearRescale(
     feature_name="x", input_range=(0, 64), output_range=(-1, 1)
 )
+
+
+def _create_dataloader(
+    source: pygrain_sources.ArrayDataSource,
+    transformations: pygrain.Transformations,
+    seed: int,
+    batch_size: int,
+) -> pygrain.DataLoader:
+  """Creates an infinite, shuffled dataloader sharded across JAX processes."""
+  shard_options = pygrain.ShardByJaxProcess(drop_remainder=True)
+  return pygrain.DataLoader(
+      data_source=source,
+      sampler=pygrain.IndexSampler(
+          num_records=len(source),
+          seed=seed,
+          num_epochs=None,
+          shuffle=True,
+          shard_options=shard_options,
+      ),
+      operations=[
+          *transformations,
+          pygrain.Batch(batch_size=batch_size, drop_remainder=False),
+      ],
+      shard_options=shard_options,
+      read_options=pygrain_sources.in_memory_read_options(),
+  )
 
 
 def create_batch_decode_pipeline(
@@ -31,10 +57,10 @@ def create_batch_decode_pipeline(
     snapshot_field: str = "train/u",
     grid_field: str = "train/x",
     num_snapshots_to_train: int = 5000,
-    transformations: tfgrain.Transformations = (_DEFAULT_LINEAR_RESCALE,),
+    transformations: pygrain.Transformations = (_DEFAULT_LINEAR_RESCALE,),
     seed: int = 42,
     batch_size: int = 32,
-) -> tfgrain.TfDataLoader:
+) -> pygrain.DataLoader:
   """Creates an in-memory dataloader for batch decode training.
 
   Works on 1d snapshots and grid.
@@ -55,7 +81,7 @@ def create_batch_decode_pipeline(
       `(batch, num_snapshots, 1)`.
 
   Returns:
-    A TfGrain dataloader.
+    A PyGrain dataloader.
   """
   snapshots, grid = hdf5_utils.read_arrays_as_tuple(
       hdf5_file_path, (snapshot_field, grid_field)
@@ -66,25 +92,13 @@ def create_batch_decode_pipeline(
   train_idx = rng.choice(
       len(snapshots), size=num_snapshots_to_train, replace=False
   )
-  source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
-          "u": np.swapaxes(snapshots[train_idx], 0, 1),
-          "x": grid,
-      })
+  source = pygrain_sources.ArrayDataSource(
+      u=np.swapaxes(snapshots[train_idx], 0, 1),
+      x=grid,
   )
-  loader = tfgrain.TfDataLoader(
-      source=source,
-      sampler=tfgrain.TfDefaultIndexSampler(
-          num_records=len(source),
-          seed=seed,
-          num_epochs=None,
-          shuffle=True,
-          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
-      ),
-      transformations=transformations,
-      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+  return _create_dataloader(
+      source, transformations, seed=seed, batch_size=batch_size
   )
-  return loader
 
 
 def create_encode_decode_pipeline(
@@ -93,10 +107,10 @@ def create_encode_decode_pipeline(
     snapshot_field: str = "train/u",
     grid_field: str = "train/x",
     num_snapshots_to_train: int | None = None,
-    transformations: tfgrain.Transformations = (_DEFAULT_LINEAR_RESCALE,),
+    transformations: pygrain.Transformations = (_DEFAULT_LINEAR_RESCALE,),
     seed: int = 42,
     batch_size: int = 32,
-) -> tfgrain.TfDataLoader:
+) -> pygrain.DataLoader:
   """Creates an in-memory dataloader for encode-decode training.
 
   Works on 1d snapshots and grid.
@@ -117,7 +131,7 @@ def create_encode_decode_pipeline(
     batch_size: number of snapshots per batch.
 
   Returns:
-    A TfGrain dataloader.
+    A PyGrain dataloader.
   """
   snapshots, grid = hdf5_utils.read_arrays_as_tuple(
       hdf5_file_path, (snapshot_field, grid_field)
@@ -133,25 +147,13 @@ def create_encode_decode_pipeline(
     train_idx = slice(None)
   snapshots = snapshots[train_idx]
 
-  source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
-          "u": snapshots,
-          "x": np.tile(grid, (len(snapshots), 1, 1)),
-      })
+  source = pygrain_sources.ArrayDataSource(
+      u=snapshots,
+      x=np.broadcast_to(grid, (len(snapshots), *grid.shape)),
   )
-  loader = tfgrain.TfDataLoader(
-      source=source,
-      sampler=tfgrain.TfDefaultIndexSampler(
-          num_records=len(source),
-          seed=seed,
-          num_epochs=None,
-          shuffle=True,
-          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
-      ),
-      transformations=transformations,
-      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+  return _create_dataloader(
+      source, transformations, seed=seed, batch_size=batch_size
   )
-  return loader
 
 
 def create_latent_dynamics_pipeline(
@@ -162,10 +164,10 @@ def create_latent_dynamics_pipeline(
     grid_field: str = "train/x",
     num_time_steps: int = 2,
     time_downsample_factor: int = 1,
-    transformations: tfgrain.Transformations = (_DEFAULT_LINEAR_RESCALE,),
+    transformations: pygrain.Transformations = (_DEFAULT_LINEAR_RESCALE,),
     seed: int = 42,
     batch_size: int = 32,
-) -> tfgrain.TfDataLoader:
+) -> pygrain.DataLoader:
   """Creates an in-memory dataloader for latent dynamics training.
 
   Works on 1d trajectories and grid. We randomly select a section of the raw
@@ -188,33 +190,24 @@ def create_latent_dynamics_pipeline(
     batch_size: number of snapshots per batch.
 
   Returns:
-    A TfGrain dataloader.
+    A PyGrain dataloader.
   """
   snapshots, tspan, grid = hdf5_utils.read_arrays_as_tuple(
       hdf5_file_path, (snapshot_field, tspan_field, grid_field)
   )
-  source = tfgrain.TfInMemoryDataSource.from_dataset(
-      tf.data.Dataset.from_tensor_slices({
-          "u": snapshots,
-          "t": tspan,
-          "x": np.tile(grid, (len(snapshots), 1, 1)),
-      })
+  source = pygrain_sources.ArrayDataSource(
+      u=snapshots,
+      t=tspan,
+      x=np.broadcast_to(grid, (len(snapshots), *grid.shape)),
   )
   section_transform = transforms.RandomSection(
       feature_names=("u", "t"),
       num_steps=num_time_steps,
       stride=time_downsample_factor,
   )
-  loader = tfgrain.TfDataLoader(
-      source=source,
-      sampler=tfgrain.TfDefaultIndexSampler(
-          num_records=len(source),
-          seed=seed,
-          num_epochs=None,
-          shuffle=True,
-          shard_options=tfgrain.ShardByJaxProcess(drop_remainder=True),
-      ),
-      transformations=(section_transform,) + tuple(transformations),
-      batch_fn=tfgrain.TfBatch(batch_size=batch_size, drop_remainder=False),
+  return _create_dataloader(
+      source,
+      (section_transform,) + tuple(transformations),
+      seed=seed,
+      batch_size=batch_size,
   )
-  return loader

@@ -207,7 +207,6 @@ def evaluation_pipeline(
     output_list.append(samples)
     target_list.append(target_samples)
     input_list.append(input_samples)
-    target_list.append(batch["x_1"])
 
   output_array = np.concatenate(output_list, axis=0)
   input_array = np.concatenate(input_list, axis=0)
@@ -327,8 +326,8 @@ def main(argv):
     logging.info(
         "File %s already exists, reading from file", workdir + "/err_dict.hdf5"
     )
-    err_dict_global = hdf5_utils.read_all_arrays_as_dict(
-        workdir + "/err_dict.hdf5", err_dict_global
+    err_dict_global.update(
+        hdf5_utils.read_all_arrays_as_dict(workdir + "/err_dict.hdf5")
     )
 
   for model_dir_idx in model_dir_array:
