@@ -80,7 +80,6 @@ import numpy as np
 from swirl_dynamics.projects.genfocal.debiasing import pygrain_transforms as transforms
 import xarray_tensorstore as xrts
 
-
 Array = jax.Array
 PyTree = Any
 DynamicsFn = Callable[[Array, Array, PyTree], Array]
@@ -116,7 +115,7 @@ _LENS2_MEMBER_INDEXER = (
     {"member": "cmip6_1061_004"},
 )
 
-# pylint: enable=line-too-long
+# pylint: disable=line-too-long,invalid-name
 _ERA5_DATASET_PATH = "data/era5/daily_mean_1959-2023_01_10-1h-240x121_equiangular_with_poles_conservative.zarr"
 _ERA5_STATS_PATH = "data/era5/1p5deg_11vars_windspeed_1961-2000_daily_v2.zarr"
 
@@ -136,7 +135,7 @@ _LENS2_STD_CLIMATOLOGY_PATH = (
     "data/lens2/std_lens2_240x121_10_vars_lonlat_clim_daily_1961_to_2000.zarr"
 )
 
-# pylint: disable=line-too-long
+# pylint: enable=line-too-long,invalid-name
 
 
 def read_stats(
@@ -248,21 +247,6 @@ def _add_yearly_offset(date: np.datetime64, offset: int) -> np.datetime64:
   """
   py_date = date.astype(datetime.datetime)
   new_py_date = py_date + relativedelta.relativedelta(years=offset)
-  return np.datetime64(new_py_date)
-
-
-def _add_daily_offset(date: np.datetime64, offset: int) -> np.datetime64:
-  """Adds an offset of an integer number of days to the date.
-
-  Args:
-    date: The date to add the offset to.
-    offset: The number of days to add as an offset.
-
-  Returns:
-    The date with the daily offset added (or subtracted).
-  """
-  py_date = date.astype(datetime.datetime)
-  new_py_date = py_date + datetime.timedelta(days=offset)
   return np.datetime64(new_py_date)
 
 
