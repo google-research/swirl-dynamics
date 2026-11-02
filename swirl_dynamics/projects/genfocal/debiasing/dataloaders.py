@@ -78,6 +78,7 @@ import jax
 import ml_collections
 import numpy as np
 from swirl_dynamics.projects.genfocal.debiasing import pygrain_transforms as transforms
+import xarray as xr
 import xarray_tensorstore as xrts
 
 Array = jax.Array
@@ -245,9 +246,15 @@ def _add_yearly_offset(date: np.datetime64, offset: int) -> np.datetime64:
   Returns:
     The date with the yearly offset added (or subtracted).
   """
-  py_date = date.astype(datetime.datetime)
-  new_py_date = py_date + relativedelta.relativedelta(years=offset)
-  return np.datetime64(new_py_date)
+  py_date = date.astype("datetime64[us]").astype(datetime.datetime)
+  new_py_date = py_date + relativedelta.relativedelta(years=int(offset))
+  return np.datetime64(new_py_date).astype(date.dtype)
+
+
+def _warm_up_xarray_indexes(da: xr.DataArray) -> None:
+  """Eagerly initializes pandas coordinate indexes for thread-safe `.sel()`."""
+  for coord_index in da.indexes.values():
+    _ = coord_index.is_unique
 
 
 class CommonSourceEnsemble(abc.ABC):
@@ -392,6 +399,9 @@ class CommonSourceEnsemble(abc.ABC):
         else:
           self._input_mean_arrays[v][idx] = input_stats_ds[v].sel(index)
           self._input_std_arrays[v][idx] = input_stats_ds[v + "_std"].sel(index)
+        _warm_up_xarray_indexes(self._input_arrays[v][idx])
+        _warm_up_xarray_indexes(self._input_mean_arrays[v][idx])
+        _warm_up_xarray_indexes(self._input_std_arrays[v][idx])
 
     # Build the output arrays for the different output variables and statistics.
     self._output_arrays = {}
@@ -408,6 +418,9 @@ class CommonSourceEnsemble(abc.ABC):
       else:
         self._output_mean_arrays[v] = output_stats_ds[v].sel(indexers)
         self._output_std_arrays[v] = output_stats_ds[v + "_std"].sel(indexers)
+      _warm_up_xarray_indexes(self._output_arrays[v])
+      _warm_up_xarray_indexes(self._output_mean_arrays[v])
+      _warm_up_xarray_indexes(self._output_std_arrays[v])
 
     self._output_coords = output_ds.coords
 
@@ -2425,6 +2438,7 @@ def build_inference_dataloader(
       date_range=date_range,
       batch_size=batch_size,
       shuffle=False,
+      worker_count=config.get("worker_count", 0),
       input_dataset_path=input_dataset_path,
       input_climatology=input_climatology,
       input_mean_stats_path=input_mean_stats_path,

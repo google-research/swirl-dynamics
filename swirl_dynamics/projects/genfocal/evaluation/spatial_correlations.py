@@ -234,6 +234,7 @@ def make_spatial_corr_plots(
       nc,
       figsize=(3.5 * nc, 3 * nr),
       subplot_kw={"projection": ccrs.PlateCarree(central_longitude=180)},
+      squeeze=False,
       tight_layout=True,
       dpi=200,
   )
@@ -268,10 +269,13 @@ def make_spatial_corr_plots(
         "lat": pred_corr.latitude.to_numpy(),
     }
 
-  save_dir = epath.Path(save_dir) / "spatial_corr"  # pyrefly: ignore[bad-argument-type, bad-assignment]
-  fig.savefig(save_dir / f"{plot_name}.png")  # pyrefly: ignore[unsupported-operation]
+  save_path = epath.Path(save_dir or ".") / "spatial_corr"
+  if not filesys.exists(save_path):
+    filesys.makedirs(save_path)
+  fig.savefig(save_path / f"{plot_name}.png")
+  plt.close(fig)
 
-  res_save_name = f"{save_dir}/{plot_name}.hdf5"
+  res_save_name = f"{save_path}/{plot_name}.hdf5"
   h5u.save_array_dict(save_path=res_save_name, data=res)
 
 

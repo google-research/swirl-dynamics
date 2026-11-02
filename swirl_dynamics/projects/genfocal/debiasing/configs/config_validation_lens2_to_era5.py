@@ -103,7 +103,7 @@ def get_config():
   config.input_dataset_path = _LENS2_DATASET_PATH
   config.input_climatology = _LENS2_STATS_PATH
   config.input_mean_stats_path = _LENS2_MEAN_CLIMATOLOGY_PATH
-  config.input_std_stats_path = _LENS2_STD_CLIMATOLOGY_PATH
+  config.input_std_stats_path = _LENS2_STD_STATS_PATH
   config.output_dataset_path = _ERA5_DATASET_PATH
   config.output_climatology = _ERA5_STATS_PATH
   return config
