@@ -24,6 +24,11 @@ from swirl_dynamics.lib.diffusion.denoising_models import (
     ShapeDict,
     cond_sample_from_shape,
 )
+from swirl_dynamics.lib.diffusion.denoising_trainers import (
+    DenoisingModelTrainState,
+    DenoisingTrainer,
+    DistributedDenoisingTrainer,
+)
 from swirl_dynamics.lib.diffusion.diffusion import (
     Diffusion,
     InvertibleSchedule,
@@ -95,7 +100,10 @@ __all__ = [
     "DenoiseFn",
     "DenoisingFlaxModule",
     "DenoisingModel",
+    "DenoisingModelTrainState",
+    "DenoisingTrainer",
     "Diffusion",
+    "DistributedDenoisingTrainer",
     "EmbConvMerge",
     "ExponentialOdeSampler",
     "ExponentialSdeSampler",
