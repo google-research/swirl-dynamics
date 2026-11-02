@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
+import datetime
 import io
 import os
+from typing import Any
 
 from absl import flags
 from absl import logging
@@ -25,6 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
+from orbax.checkpoint.checkpoint_managers import preservation_policy as preservation_policy_lib
 from swirl_dynamics.templates import callbacks
 from swirl_dynamics.templates import train_states
 from swirl_dynamics.templates import trainers
@@ -385,6 +389,95 @@ class InitializeFromCheckpointTest(parameterized.TestCase):
     # Verify training can run
     tgt_trainer = self._run_train_steps(tgt_trainer, 3)
     self.assertEqual(tgt_trainer.train_state.int_step, 3)
+
+
+@dataclasses.dataclass
+class _TestCheckpointInfo:
+  step: int
+  metrics: dict[str, Any] | None
+  time: datetime.datetime = dataclasses.field(
+      default_factory=lambda: datetime.datetime(2026, 1, 1)
+  )
+
+
+class ParetoFrontierTest(parameterized.TestCase):
+
+  def test_empty_checkpoints_and_empty_metric_fns(self):
+    ctx = preservation_policy_lib.PreservationContext()
+    policy = callbacks.ParetoFrontier(metric_fns=[])
+    self.assertEqual(policy.should_preserve([], context=ctx), [])
+    ckpts = [
+        _TestCheckpointInfo(step=10, metrics={"loss": 1.0}),
+        _TestCheckpointInfo(step=20, metrics={"loss": 0.5}),
+    ]
+    self.assertEqual(policy.should_preserve(ckpts, context=ctx), [False, True])
+
+  @parameterized.parameters(0, -3)
+  def test_invalid_max_to_keep_raises(self, bad_max):
+    with self.assertRaisesRegex(ValueError, "max_to_keep"):
+      callbacks.ParetoFrontier(
+          metric_fns=[lambda m: m["loss"]], max_to_keep=bad_max
+      )
+
+  def test_max_to_keep_smaller_than_num_metrics_raises(self):
+    with self.assertRaisesRegex(ValueError, "max_to_keep"):
+      callbacks.ParetoFrontier(
+          metric_fns=[
+              lambda m: m["a"],
+              lambda m: m["b"],
+              lambda m: m["c"],
+          ],
+          max_to_keep=2,
+      )
+
+  def test_missing_nonfinite_and_clu_scalar_metrics(self):
+    ctx = preservation_policy_lib.PreservationContext()
+    policy = callbacks.ParetoFrontier(
+        metric_fns=[lambda m: m["a"], lambda m: m["b"]], max_to_keep=2
+    )
+    all_invalid = [
+        _TestCheckpointInfo(step=10, metrics=None),
+        _TestCheckpointInfo(step=20, metrics={"a": float("nan"), "b": 1.0}),
+        _TestCheckpointInfo(step=30, metrics={"a": 1.0}),  # KeyError on "b"
+    ]
+    self.assertEqual(
+        policy.should_preserve(all_invalid, context=ctx), [False, False, True]
+    )
+
+    clu_ckpts = [
+        _TestCheckpointInfo(
+            step=10,
+            metrics={"a": utils.values.Scalar(0.4), "b": jnp.array(0.8)},
+        ),
+        _TestCheckpointInfo(
+            step=20,
+            metrics={"a": utils.values.Scalar(0.9), "b": jnp.array(0.9)},
+        ),
+    ]
+    # Step 10 is on the frontier; step 20 is dominated but preserved as latest.
+    self.assertEqual(
+        policy.should_preserve(clu_ckpts, context=ctx), [True, True]
+    )
+
+  def test_frontier_dominance_and_anchor_latest_pruning(self):
+    ctx = preservation_policy_lib.PreservationContext()
+    policy = callbacks.ParetoFrontier(
+        metric_fns=[lambda m: m["crps"], lambda m: m["grad"]], max_to_keep=3
+    )
+    ckpts = [
+        _TestCheckpointInfo(10, {"crps": 0.9, "grad": 1.5}),  # dominated
+        _TestCheckpointInfo(20, {"crps": 0.8, "grad": 1.0}),  # dominated
+        _TestCheckpointInfo(30, {"crps": 0.68, "grad": 0.9}),  # anchor 1
+        _TestCheckpointInfo(40, {"crps": 0.72, "grad": 0.4}),  # anchor 2
+        _TestCheckpointInfo(50, {"crps": 0.75, "grad": 0.6}),  # dominated
+        _TestCheckpointInfo(60, {"crps": 0.70, "grad": 0.5}),  # frontier old
+        _TestCheckpointInfo(70, {"crps": 0.69, "grad": 0.6}),  # frontier new
+        _TestCheckpointInfo(80, {"crps": 0.95, "grad": 1.2}),  # latest
+    ]
+    # Anchors {30, 40} + most recent non-anchor frontier {70} + latest {80}.
+    res = policy.should_preserve(ckpts, context=ctx)
+    kept_steps = [ckpts[i].step for i, keep in enumerate(res) if keep]
+    self.assertEqual(kept_steps, [30, 40, 70, 80])
 
 
 if __name__ == "__main__":
