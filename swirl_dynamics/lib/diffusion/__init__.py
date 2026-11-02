@@ -17,6 +17,13 @@
 # pylint: disable=g-importing-member
 # pylint: disable=g-multiple-import
 
+from swirl_dynamics.lib.diffusion.denoising_models import (
+    CondDict,
+    DenoisingFlaxModule,
+    DenoisingModel,
+    ShapeDict,
+    cond_sample_from_shape,
+)
 from swirl_dynamics.lib.diffusion.diffusion import (
     Diffusion,
     InvertibleSchedule,
@@ -84,7 +91,10 @@ __all__ = [
     "AxialMLPInterpConvMerge",
     "ClassifierFreeContrastive",
     "ClassifierFreeHybrid",
+    "CondDict",
     "DenoiseFn",
+    "DenoisingFlaxModule",
+    "DenoisingModel",
     "Diffusion",
     "EmbConvMerge",
     "ExponentialOdeSampler",
@@ -108,6 +118,7 @@ __all__ = [
     "Sampler",
     "ScoreFn",
     "SdeSampler",
+    "ShapeDict",
     "TStudentOdeSampler",
     "TStudentSdeSampler",
     "TimeStepScheduler",
@@ -116,6 +127,7 @@ __all__ = [
     "ViViT",
     "ViViTDiffusion",
     "compute_denoising_preconditioners",
+    "cond_sample_from_shape",
     "create_variance_exploding_scheme",
     "create_variance_preserving_scheme",
     "edm_noise_decay",
