@@ -620,7 +620,7 @@ def save_data_in_zarr(
   ds = {}
 
   # For evaluation we save the target data.
-  if target_array:
+  if target_array is not None:
     ds["era5"] = xr.DataArray(
         target_array,
         dims=["time", "longitude", "latitude", "variables"],

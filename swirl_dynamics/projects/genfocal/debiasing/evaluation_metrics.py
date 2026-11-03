@@ -21,7 +21,6 @@ import jax.numpy as jnp
 import numpy as np
 
 
-# TODO: add test for the functions in this file.
 def _energy(x: jax.Array) -> jax.Array:
   """Computes energy of a given array."""
   return jnp.square(jnp.abs(jnp.fft.fftshift(jnp.fft.fft2(x))))
