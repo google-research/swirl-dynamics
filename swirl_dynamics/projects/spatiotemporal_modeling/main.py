@@ -33,6 +33,7 @@ from swirl_dynamics.templates import train
 import tensorflow as tf
 
 
+
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("workdir", None, "Directory to store model data.")
@@ -190,4 +191,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
-  app.run(main)
+  handler = app.run
+  handler(main)
