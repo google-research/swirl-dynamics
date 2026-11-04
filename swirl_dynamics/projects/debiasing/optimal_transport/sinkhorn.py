@@ -603,7 +603,11 @@ class SinkhornSolver:
     return kernel
 
   def transport_fn(
-      self, potential: Array, y: Array, weights: Array | None = None
+      self,
+      potential: Array,
+      y: Array,
+      weights: Array | None = None,
+      batch_size: int | None = None,
   ) -> Callable[[Array], Array]:
     r"""Returns the entropic barycentric projection transport map [2].
 
@@ -628,19 +632,32 @@ class SinkhornSolver:
       y: Target points of shape ``(m, d)`` associated with ``potential``.
       weights: Must be ``None``. Passing explicit ``weights`` is disallowed
         because ``potential`` already absorbs ``epsilon * log(b)``.
+      batch_size: Optional chunk size for out-of-sample query evaluation. If
+        None, evaluates all query points in parallel via jax.vmap; if a positive
+        integer, evaluates queries in chunks of batch_size via jax.lax.map,
+        bounding peak intermediate memory to O(batch_size * m).
 
     Returns:
       A callable mapping ``x`` of shape ``(d,)`` or ``(B, d)`` to transported
       points of the same shape.
 
     Raises:
-      ValueError: If ``weights is not None``, if ``y.ndim != 2``, or if
-        ``potential`` is not a 1-D vector of length ``y.shape[0]``.
+      ValueError: If ``weights is not None``, if ``batch_size`` is not a
+        positive integer or ``None``, if ``y.ndim != 2``, or if ``potential``
+        is not a 1-D vector of length ``y.shape[0]``.
     """
     if weights is not None:
       raise ValueError(
           "weights must be None in transport_fn because Sinkhorn scaling-gauge"
           " potentials already absorb epsilon * log(b)."
+      )
+    if batch_size is not None and (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size <= 0
+    ):
+      raise ValueError(
+          f"batch_size must be a positive integer or None, got {batch_size!r}."
       )
     _validate_potential_and_y(potential, y)
     mask = jnp.isfinite(potential)
@@ -654,7 +671,10 @@ class SinkhornSolver:
     def _map(x: Array) -> Array:
       _validate_query_points(x, y)
       x_2d = x[None, :] if x.ndim == 1 else x
-      out = jax.vmap(_map_one)(x_2d)
+      if batch_size is None or x.ndim == 1:
+        out = jax.vmap(_map_one)(x_2d)
+      else:
+        out = jax.lax.map(_map_one, x_2d, batch_size=batch_size)
       return out[0] if x.ndim == 1 else out
 
     return _map
@@ -744,11 +764,17 @@ class SinkhornSolver:
     return _map
 
   def transport_fn_direct(
-      self, potential: Array, y: Array, weights: Array | None = None
+      self,
+      potential: Array,
+      y: Array,
+      weights: Array | None = None,
+      batch_size: int | None = None,
   ) -> Callable[[Array], Array]:
     """Deprecated alias for ``transport_fn``."""
     logging.warning(
         "SinkhornSolver.transport_fn_direct is deprecated; use"
         " SinkhornSolver.transport_fn instead."
     )
-    return self.transport_fn(potential, y, weights=weights)
+    return self.transport_fn(
+        potential, y, weights=weights, batch_size=batch_size
+    )
