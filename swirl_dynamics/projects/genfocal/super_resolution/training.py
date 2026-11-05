@@ -17,7 +17,7 @@
 from collections.abc import Callable, Mapping
 import dataclasses
 import functools
-from typing import Any, TypeAlias
+from typing import Any
 
 import clu.metrics as clu_metrics
 import flax
@@ -31,28 +31,16 @@ from swirl_dynamics.lib import diffusion as dfn_lib
 from swirl_dynamics.lib import metrics as metric_lib
 from swirl_dynamics.lib import solvers as solver_lib
 
+Array = jax.Array
+ArrayDict = Mapping[str, Array]
+BatchType = Mapping[str, Any]
+LossAndAux = tuple[jax.Array, tuple[ArrayDict, Any]]
+PyTree = Any
+ShapeDict = Mapping[str, Any]
+VariableDict = flax.core.scope.FrozenVariableDict
 
-Array: TypeAlias = jax.Array
-ArrayDict: TypeAlias = Mapping[str, Array]
-BatchType: TypeAlias = Mapping[str, Any]
-LossAndAux: TypeAlias = tuple[jax.Array, tuple[ArrayDict, Any]]
-PyTree: TypeAlias = Any
-ShapeDict: TypeAlias = Mapping[str, Any]
-VariableDict: TypeAlias = flax.core.scope.FrozenVariableDict
 
-
-def cond_sample_from_shape(
-    shape: ShapeDict | None, batch_dims: tuple[int, ...] = (1,)
-) -> PyTree:
-  """Instantiates a conditional input sample based on shape specifications."""
-  if shape is None:
-    return None
-  elif isinstance(shape, tuple):
-    return jnp.ones(batch_dims + shape)
-  elif isinstance(shape, dict):
-    return {k: cond_sample_from_shape(v, batch_dims) for k, v in shape.items()}
-  else:
-    raise TypeError(f"Cannot initialize shape: {shape}")
+cond_sample_from_shape = dfn_lib.cond_sample_from_shape
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -353,8 +341,8 @@ class DenoisingModelTrainState(templates.BasicTrainState):
       raise ValueError("EMA state is none.")
 
 
-Model: TypeAlias = DenoisingModel
-State: TypeAlias = DenoisingModelTrainState
+Model = DenoisingModel
+State = DenoisingModelTrainState
 
 
 class DenoisingTrainer(templates.BasicDistributedTrainer[Model, State]):
