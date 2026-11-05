@@ -35,42 +35,30 @@ Xingjian Bai, J. Zico Kolter, and Kaiming He. (2025).
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import functools
-from typing import Any, TypeAlias
+from typing import Any
 
 from clu import metrics as clu_metrics
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from swirl_dynamics.lib.diffusion import denoising_models
 from swirl_dynamics.projects.debiasing.stochastic_interpolants import interpolants
 from swirl_dynamics.projects.distillation.flow_map_matching import backbones
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
 # Defining aliases for the types.
-Array: TypeAlias = jax.Array
-ArrayLike: TypeAlias = jax.typing.ArrayLike  # This is for the keys.
-ArrayShape: TypeAlias = Sequence[int]
-CondDict: TypeAlias = Mapping[str, Array]
-Metrics: TypeAlias = clu_metrics.Collection
-ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
-PyTree: TypeAlias = Any
-VariableDict: TypeAlias = trainers.VariableDict
-SamplingFn: TypeAlias = Callable[[ArrayLike, ArrayShape, Array], Array]
-# StochasticInterpolantLossFn: TypeAlias = losses.StochasticInterpolantLossFn
+Array = jax.Array
+ArrayLike = jax.typing.ArrayLike  # This is for the keys.
+ArrayShape = Sequence[int]
+CondDict = Mapping[str, Array]
+Metrics = clu_metrics.Collection
+ShapeDict = Mapping[str, Any]  # may be nested
+PyTree = Any
+VariableDict = trainers.VariableDict
+SamplingFn = Callable[[ArrayLike, ArrayShape, Array], Array]
 
-
-def cond_sample_from_shape(
-    shape: ShapeDict | None, batch_dims: tuple[int, ...] = (1,)
-) -> PyTree | None:
-  """Instantiates a conditional input sample based on shape specifications."""
-  if shape is None:
-    return None
-  elif isinstance(shape, tuple):
-    return jnp.ones(batch_dims + shape)
-  elif isinstance(shape, dict):
-    return {k: cond_sample_from_shape(v, batch_dims) for k, v in shape.items()}
-  else:
-    raise TypeError(f"Cannot initialize shape: {shape}")
+cond_sample_from_shape = denoising_models.cond_sample_from_shape
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -847,6 +835,32 @@ class ConditionalLagrangianSelfDistilledFlowMapModel(models.BaseModel):
     return _flow
 
 
+def _validate_flow_map_inputs(
+    x_s: Array, t: Array, s: Array, out_channels: int
+) -> tuple[Array, Array]:
+  """Validates channel/time shapes and broadcasts scalar `t` and `s`."""
+  if x_s.shape[-1] != out_channels:
+    raise ValueError(
+        f"Number of channels in the input ({x_s.shape[-1]}) must match the"
+        f" number of channels in the output ({out_channels})."
+    )
+  if t.ndim != s.ndim:
+    raise ValueError(f"Time dimensions must be equal ({t.ndim} != {s.ndim}).")
+
+  if s.ndim < 1:
+    s = jnp.broadcast_to(s, (x_s.shape[0],))
+    t = jnp.broadcast_to(t, (x_s.shape[0],))
+
+  if s.ndim != 1 or x_s.shape[0] != s.shape[0] or x_s.shape[0] != t.shape[0]:
+    raise ValueError(
+        "s must be 1D and have the same leading (batch) dimension as x and t."
+        f" Instead x_s has leading dimension ({x_s.shape[0]}), s has leading"
+        f" dimension ({s.shape[0]}), and t has leading dimension"
+        f" ({t.shape[0]})."
+    )
+  return t, s
+
+
 class RescaledFlowMapUNet(backbones.FlowMapUNet):
   """Rescaled flow map model.
 
@@ -864,43 +878,23 @@ class RescaledFlowMapUNet(backbones.FlowMapUNet):
       x_s: Array,
       t: Array,
       s: Array,
-      cond: dict[str, Array] | None = None,
+      cond: CondDict | None = None,
       *,
       is_training: bool,
   ) -> Array:
-    """Runs rescaled Unet with noise input."""
-    if x_s.shape[-1] != self.out_channels:
-      raise ValueError(
-          f"Number of channels in the input ({x_s.shape[-1]}) must "
-          "match the number of channels in the output "
-          f"{self.out_channels})."
-      )
-    if t.ndim != s.ndim:
-      raise ValueError(f"Time dimensions must be equal ({t.ndim} != {s.ndim}).")
-
-    if s.ndim < 1:
-      s = jnp.broadcast_to(s, (x_s.shape[0],))
-      t = jnp.broadcast_to(t, (x_s.shape[0],))
-
-    if s.ndim != 1 or x_s.shape[0] != s.shape[0] or x_s.shape[0] != t.shape[0]:
-      raise ValueError(
-          "s must be 1D and have the same leading (batch) dimension as x and t."
-          f"Instead x_s has leading dimension ({x_s.shape[0]}),"
-          f"s has leading dimension ({s.shape[0]}), and "
-          f"t has leading dimension ({t.shape[0]})."
-      )
-
+    """Runs rescaled UNet with `[0, 1]` time inputs and boundary condition."""
+    t, s = _validate_flow_map_inputs(x_s, t, s, self.out_channels)
     time_s = s * self.time_rescale
     time_t = t * self.time_rescale
+    cond_dict = dict(cond) if cond is not None else None
 
     s_theta = super().__call__(
-        x_s, time_t, time_s, cond, is_training=is_training
+        x_s, time_t, time_s, cond_dict, is_training=is_training
     )
 
     delta_time = (t - s).reshape((s.shape[0],) + (x_s.ndim - 1) * (1,))
     # Imposes the boundary condition exactly. See Eq. 4.1 in [2].
-    x_t = x_s * (1 - delta_time) + delta_time * s_theta
-    return x_t
+    return x_s * (1 - delta_time) + delta_time * s_theta
 
 
 class RescaledMeanFlowUNet(backbones.FlowMapUNet):
@@ -920,40 +914,19 @@ class RescaledMeanFlowUNet(backbones.FlowMapUNet):
       x_s: Array,
       t: Array,
       s: Array,
-      cond: dict[str, Array] | None = None,
+      cond: CondDict | None = None,
       *,
       is_training: bool,
   ) -> Array:
-    """Runs rescaled Unet with noise input."""
-    if x_s.shape[-1] != self.out_channels:
-      raise ValueError(
-          f"Number of channels in the input ({x_s.shape[-1]}) must "
-          "match the number of channels in the output "
-          f"{self.out_channels})."
-      )
-    if t.ndim != s.ndim:
-      raise ValueError(f"Time dimensions must be equal ({t.ndim} != {s.ndim}).")
-
-    if s.ndim < 1:
-      s = jnp.broadcast_to(s, (x_s.shape[0],))
-      t = jnp.broadcast_to(t, (x_s.shape[0],))
-
-    if s.ndim != 1 or x_s.shape[0] != s.shape[0] or x_s.shape[0] != t.shape[0]:
-      raise ValueError(
-          "s must be 1D and have the same leading (batch) dimension as x and t."
-          f"Instead x_s has leading dimension ({x_s.shape[0]}),"
-          f"s has leading dimension ({s.shape[0]}), and "
-          f"t has leading dimension ({t.shape[0]})."
-      )
-
+    """Runs rescaled mean-flow UNet with `[0, 1]` time inputs."""
+    t, s = _validate_flow_map_inputs(x_s, t, s, self.out_channels)
     time_s = s * self.time_rescale
     time_t = t * self.time_rescale
+    cond_dict = dict(cond) if cond is not None else None
 
-    u_theta = super().__call__(
-        x_s, time_t, time_s, cond, is_training=is_training
+    return super().__call__(
+        x_s, time_t, time_s, cond_dict, is_training=is_training
     )
-
-    return u_theta
 
 
 # TODO: Create a three-dimensional version of this model.
