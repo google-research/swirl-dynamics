@@ -38,23 +38,23 @@ References:
 from collections.abc import Callable, Mapping
 import dataclasses
 import functools
-from typing import Any, ClassVar, Protocol, TypeAlias
+from typing import Any, ClassVar, Protocol
 
 from clu import metrics as clu_metrics
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.lib.diffusion import unets
-from swirl_dynamics.lib.diffusion import unets3d
+from swirl_dynamics.lib.diffusion import denoising_models
+from swirl_dynamics.lib.flow_matching import models as flow_matching_models
 from swirl_dynamics.templates import models
 from swirl_dynamics.templates import trainers
 
-Array: TypeAlias = jax.Array
-CondDict: TypeAlias = Mapping[str, Array]
-Metrics: TypeAlias = clu_metrics.Collection
-ShapeDict: TypeAlias = Mapping[str, Any]  # may be nested
-PyTree: TypeAlias = Any
-VariableDict: TypeAlias = trainers.VariableDict
+Array = jax.Array
+CondDict = Mapping[str, Array]
+Metrics = clu_metrics.Collection
+ShapeDict = Mapping[str, Any]  # may be nested
+PyTree = Any
+VariableDict = trainers.VariableDict
 
 
 class FlowFlaxModule(Protocol):
@@ -76,18 +76,7 @@ def lognormal_sampler(
   )
 
 
-def cond_sample_from_shape(
-    shape: ShapeDict | None, batch_dims: tuple[int, ...] = (1,)
-) -> PyTree:
-  """Instantiates a conditional input sample based on shape specifications."""
-  if shape is None:
-    return None
-  elif isinstance(shape, tuple):
-    return jnp.ones(batch_dims + shape)
-  elif isinstance(shape, dict):
-    return {k: cond_sample_from_shape(v, batch_dims) for k, v in shape.items()}
-  else:
-    raise TypeError(f"Cannot initialize shape: {shape}")
+cond_sample_from_shape = denoising_models.cond_sample_from_shape
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -471,89 +460,5 @@ class ConditionalReFlowModel(ReFlowModel):
     return _flow
 
 
-class RescaledUnet(unets.UNet):
-  """Rescaled flow model.
-
-  Attributes:
-    time_rescale: Factor for rescaling the time, which normally is in [0, 1] and
-      the input to the UNet which is a noise level, which has a much wider range
-      of values.
-  """
-
-  time_rescale: float = 1000.0
-
-  @nn.compact
-  def __call__(
-      self,
-      x: Array,
-      sigma: Array,
-      cond: dict[str, Array] | None = None,
-      *,
-      is_training: bool,
-  ) -> Array:
-    """Runs rescaled Unet with noise input."""
-    if x.shape[-1] != self.out_channels:
-      raise ValueError(
-          f"Number of channels in the input ({x.shape[-1]}) must "
-          "match the number of channels in the output "
-          f"{self.out_channels})."
-      )
-
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    time = sigma * self.time_rescale
-
-    f_x = super().__call__(x, time, cond, is_training=is_training)
-
-    return f_x
-
-
-class RescaledUnet3d(unets3d.UNet3d):
-  """Rescaled flow model for the 3D Unet.
-
-  Attributes:
-    time_rescale: Factor for rescaling the time, which normally is in [0, 1] and
-      the input to the UNet which is a noise level, which has a much wider range
-      of values.
-  """
-
-  time_rescale: float = 1000.0
-
-  @nn.compact
-  def __call__(
-      self,
-      x: Array,
-      sigma: Array,
-      cond: dict[str, Array] | None = None,
-      *,
-      is_training: bool,
-  ) -> Array:
-    """Runs rescaled Unet3d with noise input."""
-    if x.shape[-1] != self.out_channels:
-      raise ValueError(
-          f"Number of channels in the input ({x.shape[-1]}) must "
-          "match the number of channels in the output "
-          f"{self.out_channels})."
-      )
-
-    if sigma.ndim < 1:
-      sigma = jnp.broadcast_to(sigma, (x.shape[0],))
-
-    if sigma.ndim != 1 or x.shape[0] != sigma.shape[0]:
-      raise ValueError(
-          "sigma must be 1D and have the same leading (batch) dimension as x"
-          f" ({x.shape[0]})!"
-      )
-
-    time = sigma * self.time_rescale
-
-    f_x = super().__call__(x, time, cond, is_training=is_training)
-
-    return f_x
+RescaledUnet = flow_matching_models.RescaledUnet
+RescaledUnet3d = flow_matching_models.RescaledUnet3d
