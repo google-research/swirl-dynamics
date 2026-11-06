@@ -384,14 +384,15 @@ evaluation snapshots to `jnp.float64`.
 
 ### Code Map
 
-*   `sinkhorn.py`: `SinkhornOutput` (`potentials`, `fu`, `gv`,
-    `kantorovich_potentials`, `transport_plan`, `reg_ot_cost`,
-    `entropic_ot_cost`, `marginal_error`, `converged`, `num_iterations`,
-    `weights`) and `SinkhornSolver` (log-domain Sinkhorn solver, `transport_fn`,
-    `_potential_fn`, `_gradient_transport_fn`).
-*   `divergence.py`: `SinkhornDivergenceOutput`,
-    `sinkhorn_divergence_with_potentials`, `sinkhorn_divergence`,
-    `debiased_transport_fn`, and `jacobian_min_eigenvalue`.
+*   `sinkhorn.py` (re-exporting `swirl_dynamics.lib.ot.sinkhorn`):
+    `SinkhornOutput` (`potentials`, `fu`, `gv`, `kantorovich_potentials`,
+    `transport_plan`, `reg_ot_cost`, `entropic_ot_cost`, `marginal_error`,
+    `converged`, `num_iterations`, `weights`) and `SinkhornSolver` (log-domain
+    Sinkhorn solver, `transport_fn`, `_potential_fn`, `_gradient_transport_fn`).
+*   `divergence.py` (re-exporting `swirl_dynamics.lib.ot.divergence`):
+    `SinkhornDivergenceOutput`, `sinkhorn_divergence_with_potentials`,
+    `sinkhorn_divergence`, `debiased_transport_fn`, and
+    `jacobian_min_eigenvalue`.
 *   `experiment.py`: 1-D debiasing pipeline (`Datasets`, `FitResult`,
     `load_datasets`, `synthetic_datasets`, `resolve_epsilon`, `fit_ot_map`,
     `apply_ot_map`, `evaluate`, `run_experiment`).
@@ -428,13 +429,14 @@ python main_ot_debiasing.py --config=configs/config_ks_1d.py --workdir=/tmp/ot_k
   --config.dataset_path=/tmp/ks.hdf5
 ```
 
-Standalone Python usage with `SinkhornSolver` and `divergence`:
+Standalone Python usage with `SinkhornSolver` and `divergence` (via
+`swirl_dynamics.lib.ot` or the backwards-compatible re-exports in this package):
 
 ```python
 import jax
 import jax.numpy as jnp
-from swirl_dynamics.projects.debiasing.optimal_transport import divergence
-from swirl_dynamics.projects.debiasing.optimal_transport import sinkhorn
+from swirl_dynamics.lib.ot import divergence
+from swirl_dynamics.lib.ot import sinkhorn
 
 jax.config.update("jax_enable_x64", True)
 

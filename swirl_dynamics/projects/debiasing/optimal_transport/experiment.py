@@ -33,10 +33,10 @@ import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
+from swirl_dynamics.lib.ot import divergence
+from swirl_dynamics.lib.ot import sinkhorn
 from swirl_dynamics.projects.debiasing.cycle_gan import dataloaders
 from swirl_dynamics.projects.debiasing.cycle_gan import evaluation_metrics
-from swirl_dynamics.projects.debiasing.optimal_transport import divergence
-from swirl_dynamics.projects.debiasing.optimal_transport import sinkhorn
 
 Array = jax.Array
 _SYNTHETIC_NUM_TRAJECTORIES = 24
