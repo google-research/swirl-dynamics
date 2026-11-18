@@ -19,6 +19,7 @@ import dataclasses
 import functools
 import json
 from typing import Literal
+import zlib
 
 from absl import logging
 import dask.array as da
@@ -39,6 +40,58 @@ import xarray_tensorstore as xrts
 P = jax.sharding.PartitionSpec
 
 filesys = epath.backend.tf_backend
+
+
+def _stable_hash(s: str) -> int:
+  """Returns a process-independent 32-bit hash of a string."""
+  return zlib.crc32(s.encode("utf-8"))
+
+
+def derive_rng(
+    seed: int, start_date: str | np.datetime64, member: str | None = None
+) -> jax.Array:
+  """Derives the sampling random key from the seed, start date and member.
+
+  Folding the start date and the conditioning member into the key ensures that
+  runs that share a seed but differ in member or date (e.g. a sweep over LENS2
+  members and years) receive independent initial and SDE noise.
+
+  Args:
+    seed: The base random seed.
+    start_date: The start date of the sampled trajectory.
+    member: Identifier of the conditioning ensemble member, if any.
+
+  Returns:
+    The derived random key.
+  """
+  rng = jax.random.key(seed)
+  rng = jax.random.fold_in(rng, _stable_hash(str(start_date)))
+  if member is not None:
+    rng = jax.random.fold_in(rng, _stable_hash(member))
+  return rng
+
+
+def get_member_id(variables: pipeline_utils.DatasetVariables) -> str | None:
+  """Returns the member selected by the variables' indexers, if any.
+
+  Args:
+    variables: Dataset variables, possibly with a "member" indexer.
+
+  Returns:
+    The string form of the selected member(s), or None if no variable selects
+    a member.
+
+  Raises:
+    ValueError: If variables select different members.
+  """
+  members = {
+      str(v.indexers["member"])
+      for v in variables
+      if v.indexers and "member" in v.indexers
+  }
+  if len(members) > 1:
+    raise ValueError(f"Variables select different members: {members}.")
+  return members.pop() if members else None
 
 
 @dataclasses.dataclass
@@ -468,8 +521,18 @@ class TrajectorySamplerParallel:
       })
       sample_ds_member.to_zarr(self.store_path, compute=True, region=indexer)
 
-  def generate_and_save(self, seed: int, num_samples: int) -> None:
-    """Generate samples."""
+  def generate_and_save(
+      self, seed: int, num_samples: int, member: str | None = None
+  ) -> None:
+    """Generate samples.
+
+    Args:
+      seed: The base random seed.
+      num_samples: The number of samples to generate.
+      member: Identifier of the conditioning ensemble member (if any). Together
+        with `seed` and `start_date`, it determines the random key, so that
+        runs for different members or dates use independent noise.
+    """
     if len(self.tspan) < 2:
       raise ValueError(
           f"`tspan` must contain at least 2 time steps, got {len(self.tspan)}."
@@ -481,7 +544,7 @@ class TrajectorySamplerParallel:
       )
 
     num_batches = num_samples // self.batch_size
-    rng = jax.random.key(seed)
+    rng = derive_rng(seed, self.start_date, member)
     self.initialize_stores(num_samples)
 
     _left = jnp.asarray([1.0] + [0.0] * (jax.device_count() - 1))  # pylint: disable=invalid-name
