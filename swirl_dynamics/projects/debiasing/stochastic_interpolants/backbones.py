@@ -14,7 +14,7 @@
 
 """Backbones for the stochastic interpolants."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from flax import linen as nn
@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 from swirl_dynamics.lib import layers
 from swirl_dynamics.lib.diffusion import unets
+from swirl_dynamics.lib.flow_map import backbones as flow_map_backbones
 
 Array = jax.Array
 DTypeLike = jax.typing.DTypeLike
@@ -185,52 +186,4 @@ class UNet(nn.Module):
     return h
 
 
-class MergeCategoricalEmbCond(unets.MergeEmdCond):
-  """Computes an embedding for the categorical conditional inputs.
-
-  This is designed for the case where the conditional inputs are categorical
-  and we want to compute an embedding for them.
-
-  Attributes:
-    cond_key: The key of the conditional input to be used as label.
-    num_classes: The number of classes in the categorical conditional input.
-    features_embedding: The number of features in the embedding.
-    act_fun: The activation function to use in the embedding.
-    precision: The precision to use in the embedding.
-    dtype: The dtype to use in the embedding.
-    param_dtype: The param dtype to use in the embedding.
-  """
-
-  cond_key: str = "emb:label"
-  num_classes: int = 10  # This is for the MNIST dataset.
-  features_embedding: int = 128
-  act_fun: Callable[[Array], Array] = nn.silu
-  precision: PrecisionLike = None
-  dtype: DTypeLike = jnp.float32
-  param_dtype: DTypeLike = jnp.float32
-
-  @nn.compact
-  def __call__(self, emb: Array, cond: dict[str, Array], is_training: bool):
-    # This is mostly to avoid the initialization of the embedding.
-    cond_emb = jnp.astype(cond[self.cond_key], jnp.int32)
-    cond_emb = nn.Embed(
-        num_embeddings=self.num_classes, features=self.features_embedding
-    )(cond_emb)
-
-    # Process the conditional embedding. And projecto to the same dimension as
-    # the embedding.
-    cond_emb = nn.Dense(
-        features=2 * self.features_embedding,
-        precision=self.precision,
-        dtype=self.dtype,
-        param_dtype=self.param_dtype,
-    )(cond_emb)
-    cond_emb = self.act_fun(cond_emb)
-    cond_emb = nn.Dense(
-        features=emb.shape[-1],
-        precision=self.precision,
-        dtype=self.dtype,
-        param_dtype=self.param_dtype,
-    )(cond_emb)
-
-    return emb + cond_emb
+MergeCategoricalEmbCond = flow_map_backbones.MergeCategoricalEmbCond
