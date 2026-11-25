@@ -12,35 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Backwards-compatible re-export shim for graduated MeanFlow models."""
-
-# pylint: disable=g-importing-member
-# pylint: disable=g-multiple-import
+"""Backwards-compatible re-export shim for graduated MeanFlow models."""
 
 from collections.abc import Callable
+from typing import Any
 
 from clu import metrics as clu_metrics
 import jax
-from swirl_dynamics.lib.flow_matching.mean_flow import (
-    Array,
-    ArrayShape,
-    CondDict,
-    ConditionalMeanFlowModel,
-    ConditionalSymmetricMeanFlowModel,
-    DTypeLike,
-    MeanFlowModel,
-    PyTree,
-    ShapeDict,
-    VariableDict,
-    cond_sample_from_shape,
-    logit_normal_dist,
-    time_sampler_mean_flow,
-)
-from swirl_dynamics.projects.distillation.flow_map_matching.models import RescaledMeanFlowUNet
+from swirl_dynamics.lib.flow_map import backbones as _backbones
+from swirl_dynamics.lib.flow_map import mean_flow as _mean_flow
+from swirl_dynamics.lib.flow_map import samplers as _samplers
 
+Array = _mean_flow.Array
 ArrayLike = jax.typing.ArrayLike
+ArrayShape = _mean_flow.ArrayShape
+CondDict = _mean_flow.CondDict
+ConditionalMeanFlowModel = _mean_flow.ConditionalMeanFlowModel
+ConditionalSymmetricMeanFlowModel = _mean_flow.ConditionalSymmetricMeanFlowModel
+DTypeLike = _samplers.DTypeLike
+MeanFlowModel = _mean_flow.MeanFlowModel
 Metrics = clu_metrics.Collection
+PyTree = Any
+RescaledMeanFlowUNet = _backbones.RescaledMeanFlowUNet
 SamplingFn = Callable[[ArrayLike, ArrayShape, Array], Array]
+ShapeDict = _mean_flow.ShapeDict
+VariableDict = _mean_flow.VariableDict
+cond_sample_from_shape = _mean_flow.cond_sample_from_shape
+logit_normal_dist = _samplers.logit_normal_dist
+time_sampler_mean_flow = _samplers.time_sampler_mean_flow
 
 __all__ = [
     "Array",
