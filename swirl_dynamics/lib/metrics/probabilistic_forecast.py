@@ -155,8 +155,9 @@ def threshold_brier_score(
       * observations.shape, if thresholds is 0-dimensional
       * observations.shape + thresholds.shape, if thresholds is 1-dimensional
   """
-  promoted_dtype = jnp.result_type(forecasts, observations, dtype)
-  thresholds = jnp.asarray(thresholds, dtype=promoted_dtype)
+  thresholds = jnp.asarray(thresholds)
+  promoted_dtype = jnp.result_type(forecasts, observations, thresholds, dtype)
+  thresholds = thresholds.astype(promoted_dtype)
   if thresholds.ndim > 1:
     raise ValueError("`thresholds` must be 0- or 1-dimensional.")
 

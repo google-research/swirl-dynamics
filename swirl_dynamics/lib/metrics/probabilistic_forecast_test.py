@@ -223,6 +223,33 @@ class ProbabilisticForecastMetricsTest(parameterized.TestCase):
     np.testing.assert_allclose(gradient, ref_gradient, rtol=1e-3, atol=1e-4)
     self.assertTrue(np.all(np.isfinite(gradient)))
 
+  @parameterized.product(vector=(False, True), compiled=(False, True))
+  def test_brier_preserves_float64_threshold_precision(self, vector, compiled):
+    with jax.enable_x64():
+      forecasts = jnp.array([[1.0, 1.0]], dtype=jnp.float32)
+      observations = jnp.array([0.0], dtype=jnp.float32)
+      below = 1.0 - 2.0**-30
+      thresholds = jnp.array(
+          [below, 1.0, 1.0 + 2.0**-30] if vector else below,
+          dtype=jnp.float64,
+      )
+      expected = [[1.0, 0.0, 0.0]] if vector else [1.0]
+
+      def score(f, o, t):
+        return probabilistic_forecast.threshold_brier_score(
+            f, o, t, ensemble_axis=-1
+        )
+
+      actual = (jax.jit(score) if compiled else score)(
+          forecasts, observations, thresholds
+      )
+      np.testing.assert_array_equal(actual, expected)
+      self.assertEqual(actual.dtype, jnp.float64)
+
+      rounded = score(forecasts, observations, thresholds.astype(jnp.float32))
+      np.testing.assert_array_equal(rounded, np.zeros_like(expected))
+      self.assertEqual(rounded.dtype, jnp.float32)
+
   def test_unreliability_and_brier_preserve_float64_and_promote_int(self):
     forecasts_int = jnp.asarray(
         [[0, 1, 2], [0, 1, 2], [0, 1, 2]], dtype=jnp.int32
