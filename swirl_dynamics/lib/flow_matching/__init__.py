@@ -31,13 +31,6 @@ from swirl_dynamics.lib.flow_matching.losses import (
     score_loss,
     velocity_loss,
 )
-from swirl_dynamics.lib.flow_matching.mean_flow import (
-    ConditionalMeanFlowModel,
-    ConditionalSymmetricMeanFlowModel,
-    MeanFlowModel,
-    logit_normal_dist,
-    time_sampler_mean_flow,
-)
 from swirl_dynamics.lib.flow_matching.models import (
     CondDict,
     ConditionalStochasticInterpolantModel,
@@ -53,13 +46,10 @@ from swirl_dynamics.lib.flow_matching.models import (
 
 __all__ = [
     "CondDict",
-    "ConditionalMeanFlowModel",
     "ConditionalStochasticInterpolantModel",
-    "ConditionalSymmetricMeanFlowModel",
     "Interpolant",
     "LinearInterpolant",
     "LinearInterpolantSinusoidalNoise",
-    "MeanFlowModel",
     "RectifiedFlow",
     "RescaledUnet",
     "RescaledUnet3d",
@@ -73,8 +63,6 @@ __all__ = [
     "TrigonometricInterpolant",
     "cond_sample_from_shape",
     "denoising_loss",
-    "logit_normal_dist",
     "score_loss",
-    "time_sampler_mean_flow",
     "velocity_loss",
 ]
