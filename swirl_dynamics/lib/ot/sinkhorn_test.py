@@ -84,6 +84,37 @@ class SinkhornTest(parameterized.TestCase):
     dual_cost = jnp.dot(f, a_vec) + jnp.dot(g, b_vec)
     np.testing.assert_allclose(out.entropic_ot_cost, dual_cost, atol=1e-11)
 
+  @parameterized.named_parameters(
+      ("unsigned", jnp.uint8, [0, 255], [32, 224]),
+      ("signed", jnp.int16, [-30000, 30000], [-20000, 20000]),
+      ("half", jnp.float16, [-300, 300], [-200, 200]),
+      ("bfloat16", jnp.bfloat16, [-300, 300], [-200, 200]),
+  )
+  def test_cost_arithmetic_promotes_before_subtraction(self, dtype, xs, ys):
+    x = jnp.asarray(xs, dtype=dtype)[:, None]
+    y = jnp.asarray(ys, dtype=dtype)[:, None]
+    expected = np.sum(
+        (np.asarray(x, np.float64)[:, None, :]
+         - np.asarray(y, np.float64)[None, :, :]) ** 2,
+        axis=-1,
+    )
+    solver = ot.SinkhornSolver(epsilon=float(expected.max()), threshold=1e-5)
+    reference = solver(x.astype(jnp.float32), y.astype(jnp.float32))
+    for solve in (solver, jax.jit(solver)):
+      out = solve(x, y)
+      self.assertEqual(out.cost_matrix.dtype, jnp.float32)
+      np.testing.assert_allclose(out.cost_matrix, expected, rtol=1e-6)
+      np.testing.assert_allclose(
+          out.transport_plan, reference.transport_plan, rtol=1e-6, atol=1e-6
+      )
+      self.assertTrue(bool(out.converged))
+
+    transport = solver.transport_fn(reference.gv, y)
+    expected_transport = solver.transport_fn(
+        reference.gv, y.astype(jnp.float32)
+    )(x.astype(jnp.float32))
+    np.testing.assert_allclose(transport(x), expected_transport, rtol=1e-6)
+
   def test_sinkhorn_output_default_weights_and_epsilon_validation(self):
     x = jnp.array([[0.0], [1.0]])
     y = jnp.array([[0.0], [1.0], [2.0]])

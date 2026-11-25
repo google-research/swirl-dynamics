@@ -60,6 +60,37 @@ class DivergenceTest(parameterized.TestCase):
     div_scalar = ot.sinkhorn_divergence(x, x, a=a, b=a, solver=solver)
     self.assertLess(abs(float(div_scalar)), 1e-12)
 
+  @parameterized.named_parameters(
+      ("unsigned", jnp.uint8, [0, 255], [32, 224]),
+      ("half", jnp.float16, [-300, 300], [-200, 200]),
+  )
+  def test_low_precision_self_and_cross_costs_match_float32(
+      self, dtype, xs, ys
+  ):
+    x = jnp.asarray(xs, dtype=dtype)[:, None]
+    y = jnp.asarray(ys, dtype=dtype)[:, None]
+    solver = ot.SinkhornSolver(epsilon=400000.0, threshold=1e-5)
+
+    def divergence(a, b):
+      return ot.sinkhorn_divergence_with_potentials(a, b, solver=solver)
+
+    for fn in (divergence, jax.jit(divergence)):
+      expected = fn(x.astype(jnp.float32), y.astype(jnp.float32))
+      actual = fn(x, y)
+      self.assertTrue(bool(actual.converged))
+      np.testing.assert_array_equal(
+          actual.ot_xy.cost_matrix, expected.ot_xy.cost_matrix
+      )
+      np.testing.assert_allclose(
+          actual.divergence, expected.divergence, rtol=1e-5, atol=1e-2
+      )
+      np.testing.assert_allclose(
+          actual.self_potential_x, expected.self_potential_x, rtol=1e-6
+      )
+      np.testing.assert_allclose(
+          actual.self_potential_y, expected.self_potential_y, rtol=1e-6
+      )
+
   def test_positivity_and_symmetry(self):
     kx, ky, ka, kb = jax.random.split(jax.random.PRNGKey(1), 4)
     x = 0.5 * jax.random.normal(kx, (20, 2))
