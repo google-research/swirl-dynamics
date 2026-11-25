@@ -46,6 +46,9 @@ swirl_dynamics/
 | Package | Description | Key Components |
 | :--- | :--- | :--- |
 | `lib/diffusion` | Score-based & denoising diffusion frameworks, schedules, samplers, and guidance | `Diffusion`, `OdeSampler`, `SdeSampler`, `TStudentOdeSampler`, `ClassifierFreeHybrid`, `InfillFromSlices`, `PreconditionedDenoiserUNet`, `UNet3d`, `ViViTDiffusion` |
+| `lib/flow_matching` | Single-time stochastic interpolant schedules, losses, and flow-matching models | `RectifiedFlow`, `LinearInterpolant`, `LinearInterpolantSinusoidalNoise`, `TrigonometricInterpolant`, `velocity_loss`, `score_loss`, `denoising_loss`, `StochasticInterpolantModel` |
+| `lib/flow_map` | Two-time flow-map matching, self-distillation, MeanFlow, and CFG primitives | `FlowMapUNet`, `RescaledFlowMapUNet`, `RescaledMeanFlowUNet`, `LagrangianFlowMapModel`, `LagrangianSelfDistilledFlowMapModel`, `MeanFlowModel`, `EmaFlowMapTrainer`, `compute_compound_velocity`, `sample_cfg_scale` |
+| `lib/ot` | Stabilized log-domain entropic optimal transport and Sinkhorn divergence | `SinkhornSolver`, `SinkhornOutput`, `sinkhorn_divergence`, `debiased_transport_fn`, `jacobian_min_eigenvalue` |
 | `lib/networks` | Neural operators and backbone architectures for physical fields | `FNO` (1D/2D/3D), `UNet`, `HyperUNet`, `ConvNet`, `CycleGAN`, `RationalNetwork`, encoders |
 | `lib/layers` | Domain-specific neural network layers for spatiotemporal and spherical grids | `AxialSelfAttention`, `AddAxialPositionEmbedding`, `LatLonConv`, `FilteredResize`, `CombineResidualWithSkip`, `channel_to_space` |
 | `lib/solvers` | Differentiable JAX ODE and SDE time integrators | `ExplicitEuler`, `HeunsMethod`, `RungeKutta4`, `DoPri45`, `ScanOdeSolver`, `MultiStepDirect`, `EulerMaruyama` |
