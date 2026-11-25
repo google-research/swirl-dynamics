@@ -178,6 +178,17 @@ class SinkhornOutput(NamedTuple):
     return term_a + term_b + legendre_gap
 
 
+def _pairwise_cost(
+    x: Array, y: Array, metric: Callable[[Array], Array]
+) -> Array:
+  """Computes costs with at least float32 arithmetic before subtraction."""
+  dtype = jnp.result_type(x, y, jnp.float32)
+  x = jnp.asarray(x, dtype=dtype)
+  y = jnp.asarray(y, dtype=dtype)
+  costs = metric(x[:, None, :] - y[None, :, :])
+  return jnp.sum(costs, axis=-1, dtype=jnp.result_type(costs, jnp.float32))
+
+
 def _validate_potential_and_y(potential: Array, y: Array) -> None:
   """Validates shapes of dual potential vector and target point cloud."""
   if y.ndim != 2:
@@ -601,12 +612,7 @@ class SinkhornSolver:
 
       where k is the index of the feature dimension.
     """
-    x_ = x[:, None, :]
-    y_ = y[None, :, :]
-    cost_matrix = jnp.sum(self.metric(x_ - y_), axis=-1)
-    return jnp.asarray(
-        cost_matrix, dtype=jnp.result_type(cost_matrix, jnp.float32)
-    )
+    return _pairwise_cost(x, y, self.metric)
 
   def _log_gibbs_kernel(self, u: Array, v: Array, cost_matrix: Array) -> Array:
     """Computes the kernel K = diag(u) exp(-C/eps) diag(v) in log space.

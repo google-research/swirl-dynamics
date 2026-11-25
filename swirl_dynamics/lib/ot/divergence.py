@@ -98,8 +98,7 @@ def _solve_symmetric_self_jit(
     sharding: jax.sharding.Sharding | None,
 ) -> tuple[Array, Array, Array]:
   """JIT kernel for the symmetric self-transport problem on `(x, a)`."""
-  cost_xx = jnp.sum(metric(x[:, None, :] - x[None, :, :]), axis=-1)
-  cost_xx = jnp.asarray(cost_xx, dtype=jnp.result_type(cost_xx, jnp.float32))
+  cost_xx = sinkhorn._pairwise_cost(x, x, metric)
   if sharding is not None:
     cost_xx = jax.lax.with_sharding_constraint(cost_xx, sharding)
 
