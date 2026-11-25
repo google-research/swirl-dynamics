@@ -142,6 +142,39 @@ class RegressionMetricsTest(parameterized.TestCase):
     with self.assertRaises((ValueError, IndexError)):
       metric(values, values, sum_axes=(2,), mean_axes=(axis,))
 
+  @parameterized.product(
+      metric=(reg.mean_squared_error, reg.mean_absolute_error),
+      axis_type=(np.int32, np.int64),
+      axis_pair=((1, 0), (-1, -2), (1, 1)),
+  )
+  def test_numpy_scalar_axes_match_python_integer_axes(
+      self, metric, axis_type, axis_pair
+  ):
+    prediction = jnp.arange(24, dtype=jnp.float32).reshape(2, 3, 4)
+    truth = jnp.ones_like(prediction)
+    sum_axis, mean_axis = axis_pair
+    expected = metric(
+        prediction, truth, sum_axes=sum_axis, mean_axes=mean_axis,
+        relative=False,
+    )
+
+    def compute(p, t):
+      return metric(
+          p, t, sum_axes=axis_type(sum_axis),
+          mean_axes=axis_type(mean_axis), relative=False,
+      )
+
+    for fn in (compute, jax.jit(compute)):
+      actual = fn(prediction, truth)
+      self.assertEqual(actual.shape, expected.shape)
+      np.testing.assert_allclose(actual, expected)
+
+  @parameterized.parameters(np.int32(3), np.int64(-4))
+  def test_out_of_bounds_numpy_scalar_axes(self, axis):
+    values = jnp.ones((2, 3, 4))
+    with self.assertRaisesRegex(ValueError, "out of bounds"):
+      reg.mean_squared_error(values, values, sum_axes=axis)
+
   @parameterized.parameters(reg.mean_squared_error, reg.mean_absolute_error)
   def test_scalar_without_reduction_axes(self, metric):
     actual = metric(

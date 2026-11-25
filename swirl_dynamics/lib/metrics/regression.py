@@ -27,8 +27,10 @@ DTypeLike = jax.typing.DTypeLike
 
 def _normalize_axes(axes: int | Sequence[int], ndim: int) -> tuple[int, ...]:
   """Normalizes an axis or sequence of axes into deduplicated positive ints."""
-  if isinstance(axes, int):
-    axes = (axes,)
+  try:
+    axes = (operator.index(axes),)
+  except TypeError:
+    pass  # A sequence of axes is normalized elementwise below.
   normalized = []
   for axis in axes:
     axis = operator.index(axis)
